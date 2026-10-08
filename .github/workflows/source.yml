@@ -100,10 +100,11 @@ jobs:
       - name: Assert binary-only package privacy boundary
         shell: pwsh
         run: |
+          # The PowerShell validators use terminating exceptions, NOT process
+          # exit codes. $LASTEXITCODE is stale after invoking a .ps1 script.
+          $ErrorActionPreference = 'Stop'
           & ./tools/verify-private-data-package-boundary.ps1 -ComponentPath 'build/foo_smart_tempo_2.2.0.fb2k-component'
-          if ($LASTEXITCODE -ne 0) { throw 'Package privacy boundary failed' }
           & ./tools/verify-fb2k-component.ps1 -ComponentPath 'build/foo_smart_tempo_2.2.0.fb2k-component'
-          if ($LASTEXITCODE -ne 0) { throw 'Component PE layout failed' }
 
       - name: Upload binary candidate (NOT a public research qualification)
         uses: actions/upload-artifact@v4
