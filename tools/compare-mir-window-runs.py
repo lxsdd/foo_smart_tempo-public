@@ -120,7 +120,8 @@ def parse_log(path: Path) -> dict[tuple[str, int], Track]:
             if event == "MirSamplingPlan":
                 key = (raw_key, as_int(get_space_field(payload, "subsong")))
             else:
-                associated = [k for k in tracks if k[0] == raw_key]
+                associated = [k for k, record in tracks.items()
+                              if k[0] == raw_key and record.label == label]
                 if len(associated) != 1:
                     raise EvidenceError("Ambiguous candidate board track_key/subsong")
                 key = associated[0]
