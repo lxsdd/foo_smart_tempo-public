@@ -1,0 +1,7 @@
+cmake_minimum_required(VERSION 3.20)
+project(smart_tempo_synthetic_window_tests LANGUAGES CXX)
+
+enable_testing()
+add_executable(analysis_window_test analysis_window_test.cpp)
+target_compile_features(analysis_window_test PRIVATE cxx_std_20)
+add_test(NAME analysis_window_schedule COMMAND analysis_window_test)
