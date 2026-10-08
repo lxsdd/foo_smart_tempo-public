@@ -45,3 +45,41 @@ generation stage** or only a later hold decision. Real D12 classification,
 the retained dirty Repair 4 worktree, and true BPM reference scoring still
 require privately retained evidence. No synthetic result licenses a change
 to production candidate generation or a physical tag write.
+
+## Inspecting D12 early frontend exits without changing BPM decisions
+
+The existing `HodgkinsonPrimarySegment` verbose telemetry reports the
+segment's exact `reason`. The offline comparator now preserves an **anonymized
+reason histogram** for each track and the whole run, rather than treating every
+empty measured board as equivalent.
+
+The following reasons are directly emitted by the MIR source before its
+Top-K/partial-bar candidate construction:
+
+- `invalid_input`, `insufficient_odf`, `insufficient_onsets`,
+  `single_event`, `no_loop_hypotheses`, `ambiguous_tatum_fit`,
+  `missing_bar_division`.
+- `audacity_mir_full_below_threshold` is **different**: the segment's
+  measured Top-K evidence is generated despite the primary candidate threshold.
+- `exception` requires a separate engineering investigation and cannot
+  count as an absence of musical rhythm.
+- `audacity_mir_full` is a frontend result, not necessarily a valid
+  track-level BPM.
+
+The measured-board stage, frontend reason histogram, and final WRITE/HOLD
+decision provide **three separate observation points**. A change in the
+number of `ambiguous_tatum_fit` segments is not by itself a validated
+accuracy improvement.
+
+To **require** a complete primary-segment trace for all tested tracks, run
+the comparator with `--require-complete-segment-traces`. This exits
+without writing reports if any segment trace is absent or incomplete.
+Without this switch, outputs explicitly record `COMPLETE`, `PARTIAL`
+or `NO_TRACE`, and count unqualified rows; missing evidence is never
+treated as a zero-failure result.
+
+Keep the complete logs (which may include private filenames) and the
+anonymized-but-still-private numerical reports on the local computer.
+The public CI tests only synthetic segment telemetry. A genuine D12
+Repair 4 outcome remains blocked until the retained private audio,
+remaining runner contracts, and holdout tests are completed.
