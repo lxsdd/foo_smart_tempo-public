@@ -23,7 +23,7 @@ EVENT = re.compile(
 )
 BPM = re.compile(r"^([0-9]+(?:[.,][0-9]+)?) BPM(?:,|$)")
 CANDIDATE_FIELDS = (
-    "cluster_bpm", "local_exact_bpm", "local_exact_score", "base_score",
+    "origin", "cluster_bpm", "local_exact_bpm", "local_exact_score", "base_score",
     "alias_classes", "support", "winner_support", "score_sum",
     "best_combined_score", "pulse_score", "pulse_section_support",
     "pulse_phase_vs", "pulse_axial_phase_vs", "continuous_score",
@@ -198,6 +198,23 @@ def parse_log(path: Path) -> dict[tuple[str, int], Track]:
 def compare(baseline: dict, variant: dict) -> dict:
     if set(baseline) != set(variant):
         raise EvidenceError("Track identity mismatch: all runs must use identical tracks")
+
+    def uniform_requested_geometry(run: dict) -> tuple[int, int]:
+        settings = {
+            (t.plan["requested_window_seconds"], t.plan["requested_passes"])
+            for t in run.values()
+        }
+        if len(settings) != 1:
+            raise EvidenceError("Mixed sampling settings within a single run")
+        return next(iter(settings))
+
+    a_seconds, a_passes = uniform_requested_geometry(baseline)
+    b_seconds, b_passes = uniform_requested_geometry(variant)
+    if a_seconds != b_seconds and a_passes != b_passes:
+        raise EvidenceError("Both window length and pass count changed: confounded experiment")
+    sweep_dimension = ("window_seconds" if a_seconds != b_seconds else
+                       "passes" if a_passes != b_passes else "repeat")
+
     # No comparisons between different engine builds/policy schemas.
     rows = []
     for index, key in enumerate(sorted(baseline), 1):
@@ -232,6 +249,11 @@ def compare(baseline: dict, variant: dict) -> dict:
     return {
         "schema": "mir_window_comparison_v1",
         "track_count": len(rows),
+        "sweep_dimension": sweep_dimension,
+        "baseline_requested_window_seconds": a_seconds,
+        "variant_requested_window_seconds": b_seconds,
+        "baseline_requested_passes": a_passes,
+        "variant_requested_passes": b_passes,
         "write_to_hold": counts["WRITE", "HOLD"],
         "hold_to_write": counts["HOLD", "WRITE"],
         "write_to_write": counts["WRITE", "WRITE"],
