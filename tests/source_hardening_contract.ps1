@@ -83,11 +83,14 @@ Require-Text '.github/workflows/private-personal-component.yml' @(
     '$matches.Count -ne 1',
     'if (-not $release.draft',
     'git/ref/tags/$tag',
+    'Invoke-RestMethod -Uri $refUri',
+    '$statusCode -ne 404',
     'gh release delete $tag',
     'DRAFT_RELEASE_ONLY'
 ) @(
     'uses: actions/upload-artifact@',
     'releases/tags/$tag',
+    '& gh api "repos/${{ github.repository }}/git/ref/tags/$tag"'
     '--prerelease',
     '--latest'
 )
