@@ -239,6 +239,12 @@ void log_mir_policy_candidate_board_entry(
 void log_mir_analysis_provenance(const char* trackLabel, uint64_t trackKey,
                                  uint32_t subsongIndex, uint64_t buildId,
                                  const char* policySchema);
+void log_mir_sampling_plan(const char* trackLabel, uint64_t trackKey,
+                           uint32_t subsongIndex, int requestedSeconds,
+                           int requestedPasses, double effectiveSeconds,
+                           int effectivePasses, bool knownTrackLength,
+                           double trackLengthSeconds, int offsetMinPct,
+                           int offsetMaxPct);
 void log_mir_dsp_selection(
     const char* trackLabel,
     const MirPrimarySelection& shadow,
