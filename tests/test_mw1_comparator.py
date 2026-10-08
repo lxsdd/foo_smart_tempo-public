@@ -44,7 +44,8 @@ def track_lines(label: str, key: int, *, seconds: int = 20,
         lines.append(candidate(label, key, candidate_bpm))
     status = "1" if bpm else "0"
     lines.extend([
-        f"{pre} MirPolicyDecision enabled=1 output_would_write={status} "
+        f"{pre} MirPolicyDecision enabled=1 source_candidate={int(candidate_bpm is not None)} "
+        f"output_would_write={status} "
         f"output_would_review_hold={int(not bool(bpm))} output_bpm={bpm or 0}",
         f"{pre} Decision: raw_global=n/a, raw_projected=n/a, "
         f"final={bpm or 0}.00, decision_class={'auto' if bpm else 'hold'}",
@@ -166,6 +167,27 @@ class EvidenceComparatorTests(unittest.TestCase):
                    for line in track_lines("Synthetic One", 11)]
         b = MODULE.parse_log(self.log(b_lines, "b.txt"))
         self.assertEqual(MODULE.compare(a, b)["candidate_boards_changed"], 1)
+
+    def test_d12_no_measured_source_is_not_generic_hold(self):
+        rows = track_lines("Synthetic Gap", 44, bpm=None, candidate_bpm=None)
+        track = next(iter(MODULE.parse_log(self.log(rows, "gap.txt")).values()))
+        self.assertEqual(MODULE.candidate_stage(track), "NO_MEASURED_SOURCE")
+
+    def test_d12_measured_but_held(self):
+        rows = track_lines("Synthetic Held", 45, bpm=None, candidate_bpm=120)
+        track = next(iter(MODULE.parse_log(self.log(rows, "held.txt")).values()))
+        self.assertEqual(MODULE.candidate_stage(track), "MEASURED_BUT_HOLD")
+
+    def test_d12_stage_shift_distinguished_from_bpm_accuracy(self):
+        baseline = MODULE.parse_log(self.log(
+            track_lines("Synthetic Gap", 44, bpm=None, candidate_bpm=None), "base.txt"))
+        variant = MODULE.parse_log(self.log(
+            track_lines("Synthetic Gap", 44, seconds=10, bpm=None, candidate_bpm=122), "variant.txt"))
+        result = MODULE.compare(baseline, variant)
+        self.assertEqual(result["candidate_stage_changes"], 1)
+        self.assertEqual(result["hold_to_hold"], 1)
+        self.assertEqual(result["baseline_candidate_stages"]["NO_MEASURED_SOURCE"], 1)
+        self.assertEqual(result["variant_candidate_stages"]["MEASURED_BUT_HOLD"], 1)
 
     def test_final_bpm_without_measured_decision_rejected(self):
         lines = [l.replace("final=120.00", "final=0.00") for l in track_lines("Synthetic One", 11)]
