@@ -39,13 +39,17 @@ Require-Text 'src/foo_smart_tempo/tag_write_dispatch.cpp' @(
 
 $writer = Get-Content -LiteralPath 'src/foo_smart_tempo/tag_write_dispatch.cpp' -Raw
 $guard = $writer.IndexOf('if (!selection_is_safe(items')
-$dispatch = $writer.IndexOf('update_info_async(', $guard)
-if ($guard -lt 0 -or $dispatch -lt 0 -or $guard -ge $dispatch) {
-    throw 'Embedded-Cue write guard must execute before update_info_async.'
+$safeDispatch = $writer.IndexOf('update_info_async(', $guard)
+$asyncStart = $writer.IndexOf("  try {", $guard)
+if ($guard -lt 0 -or $safeDispatch -lt 0 -or $asyncStart -lt 0 -or $guard -ge $safeDispatch -or $guard -ge $asyncStart) {
+    throw 'Embedded-Cue write guard must execute before the async dispatch path.'
 }
-$preDispatch = $writer.Substring($guard, $dispatch - $guard)
-if ($preDispatch.Contains('completionCallback(')) {
-    throw 'Pre-dispatch safety rejection must not enter the async completion lifecycle.'
+$guardBlock = $writer.Substring($guard, $asyncStart - $guard)
+if (-not $guardBlock.Contains('return false;')) {
+    throw 'Embedded-Cue safety guard must reject before dispatch.'
+}
+if ($guardBlock.Contains('completionCallback(') -or $guardBlock.Contains('update_info_async(')) {
+    throw 'Pre-dispatch safety rejection must not enter the async lifecycle.'
 }
 
 Require-Text 'src/foo_smart_tempo/hodgkinson_full_mir.cpp' @(
