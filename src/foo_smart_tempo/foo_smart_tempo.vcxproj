@@ -1,0 +1,256 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" ToolsVersion="Current" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|Win32">
+      <Configuration>Debug</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|Win32">
+      <Configuration>Release</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{B6F22F32-4970-4CAC-854D-F69877881D8F}</ProjectGuid>
+    <Keyword>Win32Proj</Keyword>
+    <RootNamespace>foo_smart_tempo</RootNamespace>
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <PlatformToolset>v145</PlatformToolset>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="Configuration">
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <PlatformToolset>v145</PlatformToolset>
+    <CharacterSet>Unicode</CharacterSet>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <PlatformToolset>v145</PlatformToolset>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <PlatformToolset>v145</PlatformToolset>
+    <CharacterSet>Unicode</CharacterSet>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="ExtensionSettings" />
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <PropertyGroup Label="UserMacros" />
+  <PropertyGroup>
+    <TargetName>foo_smart_tempo</TargetName>
+    <TargetExt>.dll</TargetExt>
+    <OutDir Condition="'$(Platform)'=='Win32'">$(SolutionDir)build\</OutDir>
+    <OutDir Condition="'$(Platform)'=='x64'">$(SolutionDir)build\x64\</OutDir>
+    <IntDir>$(SolutionDir)build\obj\$(ProjectName)\$(Platform)\$(Configuration)\</IntDir>
+  </PropertyGroup>
+  <PropertyGroup>
+    <FooPfcLib Condition="'$(Platform)'=='Win32'">$(SolutionDir)$(Configuration) FB2K\pfc.lib</FooPfcLib>
+    <FooPfcLib Condition="'$(Platform)'=='x64'">$(SolutionDir)x64\$(Configuration) FB2K\pfc.lib</FooPfcLib>
+    <FooSdkLib Condition="'$(Platform)'=='Win32'">$(SolutionDir)$(Configuration)\foobar2000_SDK.lib</FooSdkLib>
+    <FooSdkLib Condition="'$(Platform)'=='x64'">$(SolutionDir)$(Platform)\$(Configuration)\foobar2000_SDK.lib</FooSdkLib>
+    <FooHelpersLib Condition="'$(Platform)'=='Win32'">$(SolutionDir)$(Configuration)\foobar2000_sdk_helpers.lib</FooHelpersLib>
+    <FooHelpersLib Condition="'$(Platform)'=='x64'">$(SolutionDir)$(Platform)\$(Configuration)\foobar2000_sdk_helpers.lib</FooHelpersLib>
+    <FooClientLib Condition="'$(Platform)'=='Win32'">$(SolutionDir)sdk\foobar2000\foobar2000_component_client\$(Configuration)\foobar2000_component_client.lib</FooClientLib>
+    <FooClientLib Condition="'$(Platform)'=='x64'">$(SolutionDir)$(Platform)\$(Configuration)\foobar2000_component_client.lib</FooClientLib>
+  </PropertyGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+    <PreBuildEvent>
+      <Command></Command>
+    </PreBuildEvent>
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <Optimization>Disabled</Optimization>
+      <ConformanceMode>true</ConformanceMode>
+      <LanguageStandard>stdcpp23</LanguageStandard>
+      <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
+      <PreprocessorDefinitions>$(SmartTempoExperimentalDefines);_DEBUG;_WINDOWS;_USRDLL;UNICODE;_UNICODE;_CRT_SECURE_NO_WARNINGS;HAVE_STDLIB_H;HAVE_STDIO_H;HAVE_MATH_H;HAVE_STRING_H;HAVE_ERRNO_H;HAVE_LIMITS_H;HAVE_STDARG_H;HAVE_C99_VARARGS_MACROS;PATH_MAX=1024;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>$(SolutionDir)sdk;$(SolutionDir)sdk\foobar2000;$(SolutionDir)wtl\Include;$(SolutionDir)src\kiss_fft\include\kiss_fft;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
+    </ClCompile>
+    <Link>
+      <SubSystem>Windows</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <AdditionalDependencies>$(FooPfcLib);$(FooSdkLib);$(FooHelpersLib);$(FooClientLib);$(SolutionDir)sdk\foobar2000\shared\shared-$(Platform).lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+    <PreBuildEvent>
+      <Command>if exist "$(OutDir)$(TargetName)_previous$(TargetExt)" del /f /q "$(OutDir)$(TargetName)_previous$(TargetExt)"
+if exist "$(OutDir)$(TargetName)$(TargetExt)" move /y "$(OutDir)$(TargetName)$(TargetExt)" "$(OutDir)$(TargetName)_previous$(TargetExt)"</Command>
+    </PreBuildEvent>
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <Optimization>MaxSpeed</Optimization>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <ConformanceMode>true</ConformanceMode>
+      <LanguageStandard>stdcpp23</LanguageStandard>
+      <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
+      <PreprocessorDefinitions>$(SmartTempoExperimentalDefines);NDEBUG;_WINDOWS;_USRDLL;UNICODE;_UNICODE;_CRT_SECURE_NO_WARNINGS;HAVE_STDLIB_H;HAVE_STDIO_H;HAVE_MATH_H;HAVE_STRING_H;HAVE_ERRNO_H;HAVE_LIMITS_H;HAVE_STDARG_H;HAVE_C99_VARARGS_MACROS;PATH_MAX=1024;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>$(SolutionDir)sdk;$(SolutionDir)sdk\foobar2000;$(SolutionDir)wtl\Include;$(SolutionDir)src\kiss_fft\include\kiss_fft;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
+    </ClCompile>
+    <Link>
+      <SubSystem>Windows</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+      <OptimizeReferences>true</OptimizeReferences>
+      <AdditionalDependencies>$(FooPfcLib);$(FooSdkLib);$(FooHelpersLib);$(FooClientLib);$(SolutionDir)sdk\foobar2000\shared\shared-$(Platform).lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <PreBuildEvent>
+      <Command></Command>
+    </PreBuildEvent>
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <Optimization>Disabled</Optimization>
+      <ConformanceMode>true</ConformanceMode>
+      <LanguageStandard>stdcpp23</LanguageStandard>
+      <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
+      <PreprocessorDefinitions>$(SmartTempoExperimentalDefines);_DEBUG;_WINDOWS;_USRDLL;UNICODE;_UNICODE;_CRT_SECURE_NO_WARNINGS;HAVE_STDLIB_H;HAVE_STDIO_H;HAVE_MATH_H;HAVE_STRING_H;HAVE_ERRNO_H;HAVE_LIMITS_H;HAVE_STDARG_H;HAVE_C99_VARARGS_MACROS;PATH_MAX=1024;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>$(SolutionDir)sdk;$(SolutionDir)sdk\foobar2000;$(SolutionDir)wtl\Include;$(SolutionDir)src\kiss_fft\include\kiss_fft;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
+    </ClCompile>
+    <Link>
+      <SubSystem>Windows</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <AdditionalDependencies>$(FooPfcLib);$(FooSdkLib);$(FooHelpersLib);$(FooClientLib);$(SolutionDir)sdk\foobar2000\shared\shared-$(Platform).lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <PreBuildEvent>
+      <Command>if exist "$(OutDir)$(TargetName)_previous$(TargetExt)" del /f /q "$(OutDir)$(TargetName)_previous$(TargetExt)"
+if exist "$(OutDir)$(TargetName)$(TargetExt)" move /y "$(OutDir)$(TargetName)$(TargetExt)" "$(OutDir)$(TargetName)_previous$(TargetExt)"</Command>
+    </PreBuildEvent>
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <Optimization>MaxSpeed</Optimization>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <ConformanceMode>true</ConformanceMode>
+      <LanguageStandard>stdcpp23</LanguageStandard>
+      <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
+      <PreprocessorDefinitions>$(SmartTempoExperimentalDefines);NDEBUG;_WINDOWS;_USRDLL;UNICODE;_UNICODE;_CRT_SECURE_NO_WARNINGS;HAVE_STDLIB_H;HAVE_STDIO_H;HAVE_MATH_H;HAVE_STRING_H;HAVE_ERRNO_H;HAVE_LIMITS_H;HAVE_STDARG_H;HAVE_C99_VARARGS_MACROS;PATH_MAX=1024;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>$(SolutionDir)sdk;$(SolutionDir)sdk\foobar2000;$(SolutionDir)wtl\Include;$(SolutionDir)src\kiss_fft\include\kiss_fft;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
+    </ClCompile>
+    <Link>
+      <SubSystem>Windows</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+      <OptimizeReferences>true</OptimizeReferences>
+      <AdditionalDependencies>$(FooPfcLib);$(FooSdkLib);$(FooHelpersLib);$(FooClientLib);$(SolutionDir)sdk\foobar2000\shared\shared-$(Platform).lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="analysis_telemetry.cpp" />
+    <ClCompile Include="analysis_math_utils.cpp" />
+    <ClCompile Include="bpm_auto_analysis_thread.cpp" />
+    <ClCompile Include="bpm_analyzer_factory.cpp" />
+    <ClCompile Include="bpm_manual_dialog.cpp" />
+    <ClCompile Include="manual_metronome.cpp" />
+    <ClCompile Include="manual_metronome_wasapi.cpp" />
+    <ClCompile Include="bpm_preferences_page.cpp" />
+    <ClCompile Include="bpm_result_dialog.cpp" />
+    <ClCompile Include="bpm_contextmenu_item.cpp" />
+    <ClCompile Include="file_info_filter_bpm.cpp" />
+    <ClCompile Include="file_info_filter_scale_bpm.cpp" />
+    <ClCompile Include="foo_smart_tempo.cpp" />
+    <ClCompile Include="analysis_decision_support.cpp" />
+    <ClCompile Include="format_bpm.cpp" />
+    <ClCompile Include="hodgkinson_full_mir.cpp" />
+    <ClCompile Include="mir_candidate_pipeline.cpp" />
+    <ClCompile Include="hodgkinson_tatum_probe.cpp" />
+    <ClCompile Include="modern_bpm_analyzer.cpp" />
+    <ClCompile Include="preferences.cpp" />
+    <ClCompile Include="smart_tempo_helpers.cpp" />
+    <ClCompile Include="smart_tempo_mapper.cpp" />
+    <ClCompile Include="tag_write_dispatch.cpp" />
+    <ClCompile Include="..\kiss_fft\src\kiss_fft.c">
+      <CompileAs>CompileAsC</CompileAs>
+      <DisableSpecificWarnings>4244;4267;%(DisableSpecificWarnings)</DisableSpecificWarnings>
+    </ClCompile>
+    <ClCompile Include="..\kiss_fft\src\kiss_fftr.c">
+      <CompileAs>CompileAsC</CompileAs>
+      <DisableSpecificWarnings>4244;4267;%(DisableSpecificWarnings)</DisableSpecificWarnings>
+    </ClCompile>
+    <ClCompile Include="..\..\sdk\libPPUI\win32_op.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="analysis_audio_features.h" />
+    <ClInclude Include="analysis_onset_events.h" />
+    <ClInclude Include="analysis_pass_schedule.h" />
+    <ClInclude Include="analysis_progress.h" />
+    <ClInclude Include="analysis_window_config.h" />
+    <ClInclude Include="analysis_telemetry.h" />
+    <ClInclude Include="analysis_math_utils.h" />
+    <ClInclude Include="bpm_auto_analysis_thread.h" />
+    <ClInclude Include="bpm_analyzer_factory.h" />
+    <ClInclude Include="bpm_manual_dialog.h" />
+    <ClInclude Include="manual_metronome.h" />
+    <ClInclude Include="manual_metronome_wasapi.h" />
+    <ClInclude Include="bpm_preferences_page.h" />
+    <ClInclude Include="bpm_result_dialog.h" />
+    <ClInclude Include="bpm_contextmenu_item.h" />
+    <ClInclude Include="experimental_feature_overrides.generated.h" />
+    <ClInclude Include="experimental_feature_flags.h" />
+    <ClInclude Include="file_info_filter_bpm.h" />
+    <ClInclude Include="file_info_filter_scale_bpm.h" />
+    <ClInclude Include="analysis_decision_support.h" />
+    <ClInclude Include="foo_smart_tempo.h" />
+    <ClInclude Include="format_bpm.h" />
+    <ClInclude Include="globals.h" />
+    <ClInclude Include="hodgkinson_full_mir.h" />
+    <ClInclude Include="mir_candidate_pipeline.h" />
+    <ClInclude Include="mir_pulse_family_contract.h" />
+    <ClInclude Include="hodgkinson_tatum_probe.h" />
+    <ClInclude Include="guid.h" />
+    <ClInclude Include="ibpm_analyzer.h" />
+    <ClInclude Include="analysis_shared_types.h" />
+    <ClInclude Include="aligned_vector.h" />
+    <ClInclude Include="modern_bpm_analyzer.h" />
+    <ClInclude Include="preferences.h" />
+    <ClInclude Include="resource.h" />
+    <ClInclude Include="smart_tempo_helpers.h" />
+    <ClInclude Include="smart_tempo_mapper.h" />
+    <ClInclude Include="stdafx.h" />
+    <ClInclude Include="tag_write_dispatch.h" />
+    <ClInclude Include="ui_scaling.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="foo_smart_tempo.rc" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets" />
+</Project>
