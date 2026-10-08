@@ -106,7 +106,7 @@ def parse(path: Path) -> Run:
     for label, event, payload in events:
         if event != "MirAnalysisProvenance":
             continue
-        raw_key = dataclass_field(payload, "track_key")
+        raw_key = field(payload, "track_key")
         key = (raw_key, integer(field(payload, "subsong")))
         if not raw_key.isdecimal() or key in tracks:
             raise EvidenceError("Invalid or repeated track provenance")
@@ -120,7 +120,7 @@ def parse(path: Path) -> Run:
         if event == "MirAnalysisProvenance":
             continue
         if event in {"MirSamplingPlan", "MirPolicyCandidateBoard"}:
-            raw_key = dataclass_field(payload, "track_key")
+            raw_key = field(payload, "track_key")
             if event == "MirSamplingPlan":
                 key = (raw_key, integer(field(payload, "subsong")))
             else:
@@ -165,7 +165,7 @@ def parse(path: Path) -> Run:
         elif event == "HodgkinsonPrimarySegment":
             index = integer(field(payload, "segment_index"))
             count = integer(field(payload, "segment_count"))
-            reason = dataclass_field(payload, "reason")
+            reason = field(payload, "reason")
             if count == 0 or index >= count or not re.fullmatch(
                 r"[a-z][a-z0-9_]*", reason
             ):
