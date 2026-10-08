@@ -1,5 +1,6 @@
 // Synthetic, header-only scheduling tests. No user audio or BPM reference.
 #include "../src/foo_smart_tempo/analysis_pass_schedule.h"
+#include "../src/foo_smart_tempo/analysis_window_config.h"
 
 #include <cmath>
 #include <cstdlib>
@@ -24,6 +25,38 @@ int main() {
   const auto quicker = make_analysis_window_plan(10, 5, true, 180.0, 1.0);
   require(quicker.valid() && near(quicker.secondsToRead, 10.0) &&
               quicker.samplePasses == 5, "shorter user window and fewer passes");
+
+  for (const int seconds : kAnalysisSecondsChoices) {
+    require(is_supported_analysis_seconds(seconds),
+            "every UI window choice is accepted by the engine");
+    for (const int passes : kAnalysisSamplePassChoices) {
+      require(is_supported_analysis_sample_passes(passes),
+              "every UI pass choice is accepted by the engine");
+      const auto plan =
+          make_analysis_window_plan(seconds, passes, true, 240.0, 1.0);
+      require(plan.valid() && near(plan.secondsToRead, seconds) &&
+                  plan.samplePasses == passes,
+              "all supported window/pass combinations remain valid");
+
+      double previousStart = -1.0;
+      for (int pass = 0; pass < passes; ++pass) {
+        const auto offset = compute_analysis_pass_offset(
+            pass, passes, true, 240.0, plan.secondsToRead, 20, 80, 0.5);
+        const double maxStart =
+            std::max(0.0, 240.0 - plan.secondsToRead - 0.5);
+        require(offset.startSec >= 0.0 &&
+                    offset.startSec <= maxStart + 0.0001,
+                "supported sampling offsets stay inside the track");
+        require(offset.startSec + 0.0001 >= previousStart,
+                "supported sampling offsets are monotonic");
+        previousStart = offset.startSec;
+      }
+    }
+  }
+  require(!is_supported_analysis_seconds(8),
+          "unsupported window falls outside persisted/UI contract");
+  require(!is_supported_analysis_sample_passes(7),
+          "unsupported pass count falls outside persisted/UI contract");
 
   const auto unknown = make_analysis_window_plan(30, 20, false, 0.0, 1.0);
   require(unknown.valid() && near(unknown.secondsToRead, 30.0) &&
