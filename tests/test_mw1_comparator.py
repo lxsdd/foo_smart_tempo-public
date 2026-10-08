@@ -56,6 +56,17 @@ def track_lines(label: str, key: int, *, seconds: int = 20,
     return lines
 
 
+def segment_line(label: str, index: int, count: int, reason: str,
+                 *, candidate_flag: int = 0, onset_count: int = 100) -> str:
+    return (f"foo_smart_tempo: [{label}] HodgkinsonPrimarySegment "
+            f"enabled=1 candidate={candidate_flag} source=audacity_mir_full "
+            f"segment_index={index} segment_count={count} "
+            f"segment_start_sec={index * 10}.000 segment_duration_sec=10.000 "
+            f"candidate_bpm=0 score=0 confidence=0 tatum_count=0 "
+            f"meter=unknown onset_count={onset_count} odf_peak_count={onset_count} "
+            f"reason={reason}")
+
+
 class EvidenceComparatorTests(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
@@ -188,6 +199,73 @@ class EvidenceComparatorTests(unittest.TestCase):
         self.assertEqual(result["hold_to_hold"], 1)
         self.assertEqual(result["baseline_candidate_stages"]["NO_MEASURED_SOURCE"], 1)
         self.assertEqual(result["variant_candidate_stages"]["MEASURED_BUT_HOLD"], 1)
+
+    def test_frontend_exit_reason_distribution_and_anonymized_report(self):
+        base = track_lines("Synthetic Gap", 44, bpm=None, candidate_bpm=None)
+        trial = track_lines("Synthetic Gap", 44, seconds=10, bpm=None, candidate_bpm=None)
+        base += [
+            segment_line("Synthetic Gap", 1, 3, "ambiguous_tatum_fit"),
+            segment_line("Synthetic Gap", 0, 3, "insufficient_onsets", onset_count=2),
+            segment_line("Synthetic Gap", 2, 3, "single_event")
+        ]
+        trial += [
+            segment_line("Synthetic Gap", 0, 3, "ambiguous_tatum_fit"),
+            segment_line("Synthetic Gap", 1, 3, "ambiguous_tatum_fit"),
+            segment_line("Synthetic Gap", 2, 3, "audacity_mir_full",
+                         candidate_flag=1),
+        ]
+        a = MODULE.parse_log(self.log(base, "base.txt"))
+        b = MODULE.parse_log(self.log(trial, "trial.txt"))
+        result = MODULE.compare(a, b)
+        self.assertEqual(result["primary_segment_reason_changes"], 1)
+        self.assertEqual(result["baseline_incomplete_segment_traces"], 0)
+        self.assertEqual(result["variant_incomplete_segment_traces"], 0)
+        self.assertEqual(result["baseline_primary_segment_reason_totals"],
+                         {"ambiguous_tatum_fit": 1, "insufficient_onsets": 1,
+                          "single_event": 1})
+        self.assertEqual(result["variant_primary_segment_reason_totals"],
+                         {"ambiguous_tatum_fit": 2, "audacity_mir_full": 1})
+        self.assertEqual(result["hold_to_hold"], 1)
+        self.assertNotIn("Synthetic Gap", json.dumps(result))
+        self.assertNotIn('"44"', json.dumps(result))
+
+    def test_partial_segment_trace_is_not_marked_complete(self):
+        lines = track_lines("Synthetic Partial", 55)
+        lines += [segment_line("Synthetic Partial", 0, 3, "insufficient_onsets")]
+        a = MODULE.parse_log(self.log(lines, "a.txt"))
+        b = MODULE.parse_log(self.log(lines, "b.txt"))
+        result = MODULE.compare(a, b)
+        self.assertEqual(result["baseline_incomplete_segment_traces"], 1)
+        self.assertEqual(result["rows"][0]["baseline_segment_trace_coverage"],
+                         "PARTIAL")
+
+    def test_no_segment_traces_are_not_assumed_complete(self):
+        lines = track_lines("Synthetic No Traces", 55)
+        a = MODULE.parse_log(self.log(lines, "a.txt"))
+        b = MODULE.parse_log(self.log(lines, "b.txt"))
+        result = MODULE.compare(a, b)
+        self.assertEqual(result["baseline_incomplete_segment_traces"], 1)
+        self.assertEqual(result["rows"][0]["baseline_segment_trace_coverage"],
+                         "NO_TRACE")
+
+    def test_duplicate_segment_index_rejected(self):
+        lines = track_lines("Synthetic Duplicate", 55)
+        lines += [segment_line("Synthetic Duplicate", 0, 2, "single_event")] * 2
+        with self.assertRaisesRegex(MODULE.EvidenceError, "Duplicate primary segment"):
+            MODULE.parse_log(self.log(lines, "duplicate_segments.txt"))
+
+    def test_inconsistent_segment_count_rejected(self):
+        lines = track_lines("Synthetic Invalid", 55)
+        lines += [segment_line("Synthetic Invalid", 0, 2, "single_event"),
+                  segment_line("Synthetic Invalid", 1, 3, "insufficient_odf")]
+        with self.assertRaisesRegex(MODULE.EvidenceError, "Inconsistent primary segment count"):
+            MODULE.parse_log(self.log(lines, "inconsistent_count.txt"))
+
+    def test_out_of_range_segment_index_rejected(self):
+        lines = track_lines("Synthetic Invalid", 55)
+        lines += [segment_line("Synthetic Invalid", 5, 3, "single_event")]
+        with self.assertRaisesRegex(MODULE.EvidenceError, "Invalid primary segment index"):
+            MODULE.parse_log(self.log(lines, "invalid_index.txt"))
 
     def test_final_bpm_without_measured_decision_rejected(self):
         lines = [l.replace("final=120.00", "final=0.00") for l in track_lines("Synthetic One", 11)]
