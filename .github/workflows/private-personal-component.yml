@@ -1,0 +1,217 @@
+name: Private personal component build
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: private-personal-component-${{ github.actor }}
+  cancel-in-progress: false
+
+jobs:
+  build-private-component:
+    if: github.actor == github.repository_owner && github.ref == 'refs/heads/main'
+    runs-on: windows-2025-vs2026
+    timeout-minutes: 90
+    steps:
+      - name: Checkout exact public main source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Verify exact source binding
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $actual = (& git rev-parse HEAD).Trim()
+          if ($actual -ne '${{ github.sha }}') {
+            throw "Source mismatch: actual=$actual expected=${{ github.sha }}"
+          }
+
+      - name: Require absence of personal research
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $forbidden = @(git ls-files | Where-Object {
+            $_ -match '(^|/)(docs/reports|private-research|owner-data|local-research|holdout|audio-corpus|ground-truth)' -or
+            $_ -match '\.(mp3|flac|wav|wvp|m4a|tsv\.gz|sqlite|sqlite\.gz|b64)$'
+          })
+          if ($forbidden.Count -gt 0) {
+            throw ('Disallowed personal/research payload: ' + ($forbidden -join ', '))
+          }
+
+      - name: Checkout public foobar2000 SDK (2026-10-01)
+        uses: actions/checkout@v4
+        with:
+          repository: reupen/foobar2000-sdk-unmodified
+          ref: 9e4823ee802dfb704de1ce42401b48b407a54180
+          path: sdk
+          persist-credentials: false
+
+      - name: Download official WTL 10.1.0 headers
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $url = 'https://api.nuget.org/v3-flatcontainer/wtl/10.1.0/wtl.10.1.0.nupkg'
+          $archive = Join-Path $env:RUNNER_TEMP 'wtl-10.1.0.nupkg'
+          $unpacked = Join-Path $env:RUNNER_TEMP 'wtl-10.1.0-extracted'
+          Invoke-WebRequest -Uri $url -OutFile $archive
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          [IO.Compression.ZipFile]::ExtractToDirectory($archive, $unpacked)
+          $headers = @(Get-ChildItem -LiteralPath $unpacked -Recurse -File -Filter atlapp.h)
+          if ($headers.Count -ne 1) { throw "Expected one WTL atlapp.h, got $($headers.Count)" }
+          $include = $headers[0].Directory.FullName
+          New-Item -ItemType Directory -Force -Path wtl/Include | Out-Null
+          Copy-Item -Path (Join-Path $include '*') -Destination wtl/Include/ -Recurse -Force
+          foreach ($name in @('atlapp.h', 'atlgdi.h', 'atlctrls.h', 'atlwinx.h')) {
+            if (-not (Test-Path (Join-Path 'wtl/Include' $name))) {
+              throw "WTL 10.1.0 missing: $name"
+            }
+          }
+
+      - name: Verify dependency and license inputs
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach ($file in @(
+            'sdk/sdk-license.txt',
+            'sdk/foobar2000/shared/shared-Win32.lib',
+            'sdk/foobar2000/shared/shared-x64.lib',
+            'wtl/Include/atlapp.h',
+            'licenses/wtl-MS-PL.txt',
+            'licenses/kissfft_license.txt',
+            'src/kiss_fft/COPYING'
+          )) {
+            if (-not (Test-Path -LiteralPath $file -PathType Leaf)) {
+              throw "Missing required public SDK/vendor input: $file"
+            }
+          }
+          Copy-Item licenses/wtl-MS-PL.txt wtl/MS-PL.txt -Force
+
+      - name: Enforce source hardening contracts
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & ./tests/source_hardening_contract.ps1
+
+      - name: Run synthetic sampling scheduler tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cmake -S tests -B synthetic-test-build -A x64
+          if ($LASTEXITCODE -ne 0) { throw 'Synthetic test CMake setup failed' }
+          cmake --build synthetic-test-build --config Release
+          if ($LASTEXITCODE -ne 0) { throw 'Synthetic test build failed' }
+          ctest --test-dir synthetic-test-build -C Release --output-on-failure
+          if ($LASTEXITCODE -ne 0) { throw 'Synthetic MIR window tests failed' }
+
+      - name: Build Win32 and x64
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $wtlInclude = Join-Path $env:GITHUB_WORKSPACE 'wtl/Include'
+          $env:INCLUDE = $wtlInclude + ';' + $env:INCLUDE
+          $env:CL = '/Zc:twoPhase- /I"' + $wtlInclude + '" ' + $env:CL
+          & cmd.exe /c 'call build.bat'
+          if ($LASTEXITCODE -ne 0) { throw 'Smart Tempo private component build failed' }
+
+      - name: Package and validate component
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & cmd.exe /c 'call pack_component.bat'
+          if ($LASTEXITCODE -ne 0) { throw 'Smart Tempo packaging failed' }
+          $package = 'build/foo_smart_tempo_2.2.0.fb2k-component'
+          & ./tools/verify-private-data-package-boundary.ps1 -ComponentPath $package
+          & ./tools/verify-fb2k-component.ps1 -ComponentPath $package
+
+      - name: Prepare private build payload
+        id: payload
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $source = 'build/foo_smart_tempo_2.2.0.fb2k-component'
+          $short = '${{ github.sha }}'.Substring(0, 12)
+          $privateName = "foo_smart_tempo-private-$short.fb2k-component"
+          $privatePath = Join-Path 'build' $privateName
+          Copy-Item -LiteralPath $source -Destination $privatePath -Force
+          $hash = (Get-FileHash -LiteralPath $privatePath -Algorithm SHA256).Hash
+          $manifestPath = 'build/private-component-manifest.json'
+          [ordered]@{
+            source_commit = '${{ github.sha }}'
+            workflow_run_id = '${{ github.run_id }}'
+            workflow_run_attempt = '${{ github.run_attempt }}'
+            sdk = 'foobar2000 SDK 2026-10-01 @ 9e4823ee802dfb704de1ce42401b48b407a54180'
+            wtl = 'WTL 10.1.0'
+            component = $privateName
+            sha256 = $hash
+            visibility_contract = 'DRAFT_RELEASE_ONLY; owner/push access; never publish while issue #2 remains open'
+          } | ConvertTo-Json | Set-Content -LiteralPath $manifestPath -Encoding utf8
+          "component=$privatePath" >> $env:GITHUB_OUTPUT
+          "component_name=$privateName" >> $env:GITHUB_OUTPUT
+          "manifest=$manifestPath" >> $env:GITHUB_OUTPUT
+          "sha256=$hash" >> $env:GITHUB_OUTPUT
+          Write-Host "SOURCE_COMMIT=${{ github.sha }}"
+          Write-Host "COMPONENT_SHA256=$hash"
+
+      - name: Create owner-only draft release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $tag = 'private-personal-${{ github.run_id }}-${{ github.run_attempt }}'
+          $notes = 'build/private-release-notes.md'
+          @(
+            '# PRIVATE PERSONAL BUILD — DO NOT PUBLISH',
+            '',
+            'This draft exists only to deliver a privately compiled Smart Tempo component to the repository owner.',
+            '',
+            '- Source commit: `${{ github.sha }}`',
+            '- Component SHA-256: `${{ steps.payload.outputs.sha256 }}`',
+            '- Public redistribution remains blocked by issue #2.',
+            '- Publishing this draft would make the binary public. Do not publish it while the licensing gate is open.'
+          ) | Set-Content -LiteralPath $notes -Encoding utf8
+
+          gh release create $tag `
+            '${{ steps.payload.outputs.component }}' `
+            '${{ steps.payload.outputs.manifest }}' `
+            --repo '${{ github.repository }}' `
+            --target '${{ github.sha }}' `
+            --title "PRIVATE personal Smart Tempo build ${{ github.sha }}" `
+            --notes-file $notes `
+            --draft
+          if ($LASTEXITCODE -ne 0) { throw 'Draft release creation failed' }
+
+          $release = gh api "repos/${{ github.repository }}/releases/tags/$tag" | ConvertFrom-Json
+          if (-not $release.draft) {
+            gh release delete $tag --repo '${{ github.repository }}' --yes
+            throw 'Safety violation: created release is not a draft.'
+          }
+          if ($release.assets.Count -ne 2) {
+            gh release delete $tag --repo '${{ github.repository }}' --yes
+            throw "Safety violation: expected 2 private draft assets, got $($release.assets.Count)."
+          }
+
+          # A draft release must not leave a public Git tag/reference behind.
+          # If GitHub behavior changes and a tag appears, delete both surfaces
+          # immediately and fail closed rather than expose a public build marker.
+          $tagRefExists = $false
+          & gh api "repos/${{ github.repository }}/git/ref/tags/$tag" *> $null
+          if ($LASTEXITCODE -eq 0) { $tagRefExists = $true }
+          if ($tagRefExists) {
+            gh release delete $tag --repo '${{ github.repository }}' --yes
+            & gh api -X DELETE "repos/${{ github.repository }}/git/refs/tags/$tag" *> $null
+            throw 'Safety violation: draft creation produced a public Git tag. Draft and tag were removed.'
+          }
+
+          Write-Host "PRIVATE_DRAFT_RELEASE=PASS"
+          Write-Host "DRAFT_TAG=$tag"
+          Write-Host 'Open Repository → Releases while signed in with push access to download the component.'
+
+      # Intentionally no actions/upload-artifact and no published Release.
+      # The component leaves the runner only as an asset of an unpublished
+      # Draft Release. Never publish that draft while issue #2 is unresolved.
