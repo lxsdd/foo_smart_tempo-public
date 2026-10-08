@@ -24,6 +24,13 @@ remain single-pass. These settings control sampling, **not** any tag writes.
 No owner audio or BPM ground truth is used for public testing; changes to
 accuracy must later be evaluated on private holdouts before a release.
 
+## Public binary redistribution status
+
+**Source development: enabled. Public binaries/releases: BLOCKED pending
+resolution of the Audacity GPL MIR / WTL MS-PL combination and the proprietary
+host plug-in boundary.** See [LICENSING.md](LICENSING.md). GitHub Actions
+intentionally does not upload compiled component packages until the gate clears.
+
 ## Copyright
 
-Third-party licenses: foobar2000 SDK notice is in the downloaded SDK at `sdk/sdk-license.txt` (and its pfc/libPPUI subdirectories); WTL MS-PL under `licenses/wtl-MS-PL.txt`; KissFFT under `licenses/kissfft_license.txt`. See upstream projects for their respective copyright details. No third-party benchmark corpus is vendored.
+Third-party licenses: Audacity-derived MIR is currently marked GPL-2.0-or-later (full text in `licenses/GPL-2.0-or-later.txt`); foobar2000 SDK notice is in the downloaded SDK at `sdk/sdk-license.txt` (and its pfc/libPPUI subdirectories); WTL MS-PL under `licenses/wtl-MS-PL.txt`; KissFFT under `licenses/kissfft_license.txt`. See upstream projects for their respective copyright details. No third-party benchmark corpus is vendored.
