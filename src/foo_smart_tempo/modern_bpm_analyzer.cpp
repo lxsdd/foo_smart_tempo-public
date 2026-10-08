@@ -1570,6 +1570,14 @@ double ModernBpmAnalyzer::analyze(metadb_handle_ptr track, threaded_process_stat
   }
   const double effectiveSecondsToRead = windowPlan.secondsToRead;
   const int effectiveSamplePasses = windowPlan.samplePasses;
+  // Provenance is diagnostic only: no metadata, candidate, or DSP selection
+  // uses these output fields. This binds MW1/D12 runs to their actual geometry.
+  if (verboseLogs) {
+    smart_tempo::log_mir_sampling_plan(
+        trackLabel.get_ptr(), trackKey, subsongIndex, secondsToRead,
+        samplePasses, effectiveSecondsToRead, effectiveSamplePasses,
+        hasKnownTrackLength, trackLength, offsetMinPct, offsetMaxPct);
+  }
 
   aligned_vector<uint64_t> allMirOdfPeaksAbs;
   std::vector<double> allMirOdfPeakWeights;

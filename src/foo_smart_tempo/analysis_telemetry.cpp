@@ -1235,6 +1235,31 @@ void log_mir_analysis_provenance(const char* trackLabel, uint64_t trackKey,
       << (policySchema != nullptr ? policySchema : "unknown");
 }
 
+void log_mir_sampling_plan(const char* trackLabel, uint64_t trackKey,
+                           uint32_t subsongIndex, int requestedSeconds,
+                           int requestedPasses, double effectiveSeconds,
+                           int effectivePasses, bool knownTrackLength,
+                           double trackLengthSeconds, int offsetMinPct,
+                           int offsetMaxPct) {
+  FB2K_console_formatter()
+      << "foo_smart_tempo: [" << trackLabel
+      << "] MirSamplingPlan"
+      << " schema=mir_sampling_plan_v1"
+      << " track_key=" << trackKey
+      << " subsong=" << static_cast<uint64_t>(subsongIndex)
+      << " requested_window_seconds=" << requestedSeconds
+      << " requested_passes=" << requestedPasses
+      << " effective_window_seconds="
+      << format_double_roundtrip(effectiveSeconds)
+      << " effective_passes=" << effectivePasses
+      << " known_track_length=" << (knownTrackLength ? 1 : 0)
+      << " track_length_seconds="
+      << format_double_roundtrip(
+             knownTrackLength ? trackLengthSeconds : 0.0)
+      << " offset_min_pct=" << offsetMinPct
+      << " offset_max_pct=" << offsetMaxPct;
+}
+
 void log_mir_dsp_selection(
     const char* trackLabel,
     const MirPrimarySelection& shadow,
