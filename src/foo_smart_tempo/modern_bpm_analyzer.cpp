@@ -1516,8 +1516,10 @@ double ModernBpmAnalyzer::analyze(metadb_handle_ptr track, threaded_process_stat
         kMirPolicySchema);
   }
 
-  const int secondsToRead = get_default_analysis_seconds_to_read();
-  const int samplePasses = get_default_analysis_sample_passes();
+  const int secondsToRead = clamp_analysis_seconds_to_read(
+      (int)bpm_config_analysis_seconds_to_read);
+  const int samplePasses = clamp_analysis_sample_passes(
+      (int)bpm_config_analysis_sample_passes);
 
   const int offsetMinPct = kAnalysisOffsetMinPct;
   const int offsetMaxPct = kAnalysisOffsetMaxPct;
