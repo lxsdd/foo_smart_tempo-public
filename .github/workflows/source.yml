@@ -60,8 +60,14 @@ jobs:
           Copy-Item licenses/wtl-MS-PL.txt wtl/MS-PL.txt -Force
 
       - name: Build Win32 and x64 with public SDK
-        shell: cmd
-        run: call build.bat
+        shell: pwsh
+        run: |
+          # The SDK's independent helpers project includes atlapp.h but does
+          # not inherit Smart Tempo's private WTL include-directory settings.
+          # Export it for ALL MSBuild C++ projects in this build.
+          $env:INCLUDE = (Join-Path $env:GITHUB_WORKSPACE 'wtl/Include') + ';' + $env:INCLUDE
+          & cmd.exe /c 'call build.bat'
+          if ($LASTEXITCODE -ne 0) { throw 'Smart Tempo public SDK build failed' }
 
       - name: Package foobar2000 component
         shell: cmd
