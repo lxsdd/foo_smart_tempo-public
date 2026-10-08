@@ -74,6 +74,12 @@ jobs:
           }
           Copy-Item licenses/wtl-MS-PL.txt wtl/MS-PL.txt -Force
 
+      - name: Enforce source hardening contracts
+        shell: pwsh
+        run: |
+          & ./tests/source_hardening_contract.ps1
+          if ($LASTEXITCODE -ne 0) { throw 'Source hardening contract failed' }
+
       - name: Run isolated synthetic sampling scheduler tests
         shell: pwsh
         run: |
