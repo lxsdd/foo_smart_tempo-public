@@ -156,7 +156,7 @@ void bpm_contextmenu_item::run_scale_bpm(metadb_handle_list_cref p_data, double 
 	if (!smart_tempo::tag_write::safe_update_info_async(
 		p_data,
 		new service_impl_t<file_info_filter_scale_bpm>(bpm_config_bpm_tag.get().get_ptr(), p_scale),
-		"scale-bpm-context-menu", NULL, false)) {
+		"scale-bpm-context-menu", NULL, true)) {
 		FB2K_console_formatter()
 			<< "foo_smart_tempo: Scale BPM action aborted for "
 			<< static_cast<uint64_t>(p_data.get_count())
