@@ -116,10 +116,8 @@ jobs:
           & ./tools/verify-private-data-package-boundary.ps1 -ComponentPath 'build/foo_smart_tempo_2.2.0.fb2k-component'
           & ./tools/verify-fb2k-component.ps1 -ComponentPath 'build/foo_smart_tempo_2.2.0.fb2k-component'
 
-      - name: Upload binary candidate (NOT a public research qualification)
-        uses: actions/upload-artifact@v4
-        with:
-          name: foo_smart_tempo-source-candidate
-          path: build/foo_smart_tempo_2.2.0.fb2k-component
-          if-no-files-found: error
-          retention-days: 7
+      # No upload-artifact here. The generated DLL/component remains inside
+      # the temporary Actions runner for validation, then is discarded.
+      # A public Actions artifact would redistribute binaries even without
+      # a GitHub Release. Restore publishing only after the GPL/MIR and
+      # MS-PL/WTL compatibility gate in issue #2 is resolved.
