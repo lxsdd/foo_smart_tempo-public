@@ -1176,11 +1176,13 @@ void populate_partial_bar_segment_candidates(
   double odfFrameRate = 0.0;
   const std::vector<float> odf =
       onset_detection_function(samples, sampleRate, &odfFrameRate);
+  evaluation.coverage.odf_frames = odf.size();
   if (odf.size() < 8) {
     result.reason = "insufficient_odf";
     return evaluation;
   }
   const std::vector<int> peaks = peak_indices(odf);
+  evaluation.coverage.odf_peaks = peaks.size();
   result.odf_peak_count = peaks.size();
   result.onset_count = peaks.size();
   if (peaks.size() < 3) {
@@ -1197,6 +1199,22 @@ void populate_partial_bar_segment_candidates(
 
   const double duration = result.segment_duration_sec;
   const PossibleDivHierarchies possible = possible_div_hierarchies(duration);
+  // Evaluate *geometry* before the normal fit's early returns. This is
+  // diagnostic only: partial candidates are still scored and made eligible
+  // through precisely the same gates as before.
+  const PossibleDivHierarchies partialPossible =
+      includePartialBarCandidates ? partial_bar_div_hierarchies(duration)
+                                  : PossibleDivHierarchies{};
+  auto countDivisions = [](const PossibleDivHierarchies& hypotheses) {
+    std::size_t count = 0;
+    for (const auto& entry : hypotheses) count += entry.second.size();
+    return count;
+  };
+  evaluation.coverage.complete_tatum_keys = possible.size();
+  evaluation.coverage.complete_division_hypotheses = countDivisions(possible);
+  evaluation.coverage.partial_tatum_keys = partialPossible.size();
+  evaluation.coverage.partial_division_hypotheses =
+      countDivisions(partialPossible);
   if (possible.empty()) {
     result.reason = "no_loop_hypotheses";
     return evaluation;
@@ -1221,6 +1239,7 @@ void populate_partial_bar_segment_candidates(
     result.reason = "missing_bar_division";
     return evaluation;
   }
+  evaluation.coverage.fitted_complete_tatums = experiment.num_divisions;
   const std::vector<float> autocorr = normalized_circular_autocorr(odf);
   std::unordered_map<int, double> beatScoreCache;
   beatScoreCache.reserve(256);
@@ -1237,18 +1256,17 @@ void populate_partial_bar_segment_candidates(
   result.candidate = score >= kLenientLoopThreshold;
   result.reason =
       result.candidate ? "audacity_mir_full" : "audacity_mir_full_below_threshold";
-  const PossibleDivHierarchies partialPossible =
-      includePartialBarCandidates ? partial_bar_div_hierarchies(duration)
-                                  : PossibleDivHierarchies{};
   quantizationCache.reserve(possible.size() + partialPossible.size());
   populate_top_k_segment_candidates(evaluation, possible, odf, autocorr, peaks,
                                     peakValues, quantizationCache,
                                     beatScoreCache);
+  evaluation.coverage.complete_candidate_rows = evaluation.top_k_count;
   if (includePartialBarCandidates) {
     populate_partial_bar_segment_candidates(
         evaluation, partialPossible, odf, autocorr, peaks, peakValues,
         quantizationCache, beatScoreCache);
   }
+  evaluation.coverage.partial_candidate_rows = evaluation.partial_bar_count;
   return evaluation;
 }
 
