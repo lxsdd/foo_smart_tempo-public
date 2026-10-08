@@ -16,7 +16,7 @@ SPEC.loader.exec_module(MODULE)
 
 
 def candidate(track: str, key: int, bpm: int = 120, score: float = 0.2) -> str:
-    values = {name: "1" for name in MODULE.CANDIDATE_FIELDS}
+    values = {name: "1" for name in MODULE.CANDIDATE_FIELDS if name != "origin"}
     values.update(cluster_bpm=str(bpm), local_exact_bpm=str(bpm),
                   local_exact_score=str(score), base_score="0.75",
                   alias_classes="direct,half")
