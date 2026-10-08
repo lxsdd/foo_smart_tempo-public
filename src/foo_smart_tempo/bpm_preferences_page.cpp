@@ -1,6 +1,7 @@
 #include "stdafx.h"
 
 #include "bpm_preferences_page.h"
+#include "analysis_window_config.h"
 #include "preferences.h"
 #include "smart_tempo_helpers.h"
 #include "smart_tempo_mapper.h"
@@ -47,8 +48,6 @@ constexpr int kRuleColumnGenres = 0;
 constexpr int kRuleColumnCenter = 1;
 constexpr int kRuleColumnSpread = 2;
 constexpr double kNewRuleHalfWidthBpm = 15.0;
-constexpr int kSecondsPerWindowChoices[] = {5, 10, 15, 20, 30, 45, 60, 90};
-constexpr int kWindowsPerTrackChoices[] = {1, 3, 5, 10, 20, 50};
 
 template <size_t N>
 int FindPresetIndex(int value, const int (&choices)[N]) {
@@ -990,9 +989,9 @@ void bpm_preferences_page::reset() {
   }
   SetComboSelectionX(ID_CONFIG_WORKER_MODE, get_default_analysis_worker_mode());
   SetComboSelectionX(ID_CONFIG_ANALYSIS_SECONDS,
-                     FindPresetIndex(get_default_analysis_seconds_to_read(), kSecondsPerWindowChoices));
+                     FindPresetIndex(get_default_analysis_seconds_to_read(), smart_tempo::kAnalysisSecondsChoices));
   SetComboSelectionX(ID_CONFIG_ANALYSIS_PASSES,
-                     FindPresetIndex(get_default_analysis_sample_passes(), kWindowsPerTrackChoices));
+                     FindPresetIndex(get_default_analysis_sample_passes(), smart_tempo::kAnalysisSamplePassChoices));
   SetCheckboxFromBool(ID_CONFIG_CREATE_UNMATCHED_PLAYLIST, true);
   SetCheckboxFromBool(ID_CONFIG_CREATE_REVIEW_PLAYLIST, true);
   UpdateUnmatchedPlaylistUiState();
@@ -1073,25 +1072,25 @@ BOOL bpm_preferences_page::OnInitDialog(CWindow wndFocus, LPARAM lInitParam) {
 
   CComboBox seconds_box(ControlHandle(ID_CONFIG_ANALYSIS_SECONDS));
   if (seconds_box.IsWindow()) {
-    for (const int seconds : kSecondsPerWindowChoices) {
+    for (const int seconds : smart_tempo::kAnalysisSecondsChoices) {
       CString text;
       text.Format(_T("%d seconds"), seconds);
       seconds_box.AddString(text);
     }
     seconds_box.SetCurSel(FindPresetIndex(
         clamp_analysis_seconds_to_read((int)bpm_config_analysis_seconds_to_read),
-        kSecondsPerWindowChoices));
+        smart_tempo::kAnalysisSecondsChoices));
   }
   CComboBox passes_box(ControlHandle(ID_CONFIG_ANALYSIS_PASSES));
   if (passes_box.IsWindow()) {
-    for (const int passes : kWindowsPerTrackChoices) {
+    for (const int passes : smart_tempo::kAnalysisSamplePassChoices) {
       CString text;
       text.Format(_T("%d windows"), passes);
       passes_box.AddString(text);
     }
     passes_box.SetCurSel(FindPresetIndex(
         clamp_analysis_sample_passes((int)bpm_config_analysis_sample_passes),
-        kWindowsPerTrackChoices));
+        smart_tempo::kAnalysisSamplePassChoices));
   }
 
   const pfc::string8 bpmTagText =
@@ -1321,15 +1320,15 @@ int bpm_preferences_page::ReadWorkerModeFromUi() const {
 
 int bpm_preferences_page::ReadAnalysisSecondsFromUi() const {
   const int index = GetComboSelectionX(ID_CONFIG_ANALYSIS_SECONDS);
-  return index >= 0 && index < static_cast<int>(std::size(kSecondsPerWindowChoices))
-             ? kSecondsPerWindowChoices[index]
+  return index >= 0 && index < static_cast<int>(std::size(smart_tempo::kAnalysisSecondsChoices))
+             ? smart_tempo::kAnalysisSecondsChoices[index]
              : get_default_analysis_seconds_to_read();
 }
 
 int bpm_preferences_page::ReadAnalysisPassesFromUi() const {
   const int index = GetComboSelectionX(ID_CONFIG_ANALYSIS_PASSES);
-  return index >= 0 && index < static_cast<int>(std::size(kWindowsPerTrackChoices))
-             ? kWindowsPerTrackChoices[index]
+  return index >= 0 && index < static_cast<int>(std::size(smart_tempo::kAnalysisSamplePassChoices))
+             ? smart_tempo::kAnalysisSamplePassChoices[index]
              : get_default_analysis_sample_passes();
 }
 

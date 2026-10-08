@@ -1,5 +1,6 @@
 #include "stdafx.h"
 #include "preferences.h"
+#include "analysis_window_config.h"
 
 namespace {
 static const char* kDefaultGenreRules =
@@ -50,10 +51,6 @@ constexpr const char* kDefaultRoutingScript =
 constexpr const char* kDefaultGenericAnchors =
     "Beat; Beats; Club; Dance; EDM; Electro; Electronic";
 constexpr int kDefaultBpmWritePrecision = (int)BPM_PRECISION_2DP;
-constexpr int kDefaultAnalysisSecondsToRead = 20;
-constexpr int kDefaultAnalysisSamplePasses = 50;
-
-
 constexpr int kDefaultAnalysisWorkerMode = (int)ANALYSIS_WORKER_MAX_THROUGHPUT;
 }
 
@@ -68,24 +65,20 @@ int get_default_bpm_write_precision() noexcept {
   return kDefaultBpmWritePrecision;
 }
 int get_default_analysis_seconds_to_read() noexcept {
-  return kDefaultAnalysisSecondsToRead;
+  return smart_tempo::kDefaultAnalysisSecondsToRead;
 }
 int get_default_analysis_sample_passes() noexcept {
-  return kDefaultAnalysisSamplePasses;
+  return smart_tempo::kDefaultAnalysisSamplePasses;
 }
 int clamp_analysis_seconds_to_read(int value) noexcept {
-  switch (value) {
-    case 5: case 10: case 15: case 20: case 30: case 45: case 60: case 90:
-      return value;
-    default: return get_default_analysis_seconds_to_read();
-  }
+  return smart_tempo::is_supported_analysis_seconds(value)
+             ? value
+             : get_default_analysis_seconds_to_read();
 }
 int clamp_analysis_sample_passes(int value) noexcept {
-  switch (value) {
-    case 1: case 3: case 5: case 10: case 20: case 50:
-      return value;
-    default: return get_default_analysis_sample_passes();
-  }
+  return smart_tempo::is_supported_analysis_sample_passes(value)
+             ? value
+             : get_default_analysis_sample_passes();
 }
 
 
