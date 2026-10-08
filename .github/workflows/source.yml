@@ -43,15 +43,28 @@ jobs:
           path: sdk
           persist-credentials: false
 
-      - name: Checkout public Windows Template Library
-        uses: actions/checkout@v4
-        with:
-          # WTL 9.10 defines CDCHandle after CDCT, which fails under VS 2026
-          # strict C++23 parsing. Pin the redistributable WTL 10 source.
-          repository: nixnodes/WTL10
-          ref: db3c152f6776b77c06730445c6aabf1e7cf9a3e3
-          path: wtl
-          persist-credentials: false
+      - name: Download official WTL 10.1.0 headers (2026 release)
+        shell: pwsh
+        run: |
+          # Published on NuGet by the WTL maintainers, based on the official
+          # WTL 10.01 release for Visual Studio 2022/2026. Never use
+          # credentials or fetch source from any private repository.
+          $url = 'https://api.nuget.org/v3-flatcontainer/wtl/10.1.0/wtl.10.1.0.nupkg'
+          $archive = Join-Path $env:RUNNER_TEMP 'wtl-10.1.0.nupkg'
+          $unpacked = Join-Path $env:RUNNER_TEMP 'wtl-10.1.0-extracted'
+          Invoke-WebRequest -Uri $url -OutFile $archive
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          [IO.Compression.ZipFile]::ExtractToDirectory($archive, $unpacked)
+          $headers = @(Get-ChildItem -LiteralPath $unpacked -Recurse -File -Filter atlapp.h)
+          if ($headers.Count -ne 1) { throw "Expected one WTL atlapp.h, got $($headers.Count)" }
+          $include = $headers[0].Directory.FullName
+          New-Item -ItemType Directory -Force -Path wtl/Include | Out-Null
+          Copy-Item -Path (Join-Path $include '*') -Destination wtl/Include/ -Recurse -Force
+          $required = @('atlapp.h', 'atlgdi.h', 'atlctrls.h', 'atlwinx.h')
+          foreach ($name in $required) {
+            if (-not (Test-Path (Join-Path 'wtl/Include' $name))) { throw "WTL 10.1.0 missing: $name" }
+          }
+          Write-Host "WTL 10.1.0 installed; $((Get-ChildItem wtl/Include -File).Count) public WTL header files"
 
       - name: Verify required dependency and license notices
         shell: pwsh
