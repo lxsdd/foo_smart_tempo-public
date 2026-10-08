@@ -1,0 +1,84 @@
+name: Smart Tempo source build without private BPM data
+
+on:
+  push:
+    branches:
+      - main
+      - 'migration/**'
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: smart-tempo-public-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  source:
+    runs-on: windows-2025-vs2026
+    timeout-minutes: 90
+    steps:
+      - name: Checkout only public source
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Require absence of personal research
+        shell: pwsh
+        run: |
+          $forbidden = @(git ls-files | Where-Object {
+            $_ -match '(^|/)(docs/reports|private-research|owner-data|local-research|holdout|audio-corpus|ground-truth)' -or
+            $_ -match '\.(mp3|flac|wav|wvp|m4a|tsv\.gz|sqlite|sqlite\.gz|b64)$'
+          })
+          if ($forbidden.Count -gt 0) { throw ('Disallowed personal/research payload: ' + ($forbidden -join ', ')) }
+
+      - name: Checkout public foobar2000 SDK (2026-10-01)
+        uses: actions/checkout@v4
+        with:
+          repository: reupen/foobar2000-sdk-unmodified
+          ref: 9e4823ee802dfb704de1ce42401b48b407a54180
+          path: sdk
+          persist-credentials: false
+
+      - name: Checkout public Windows Template Library
+        uses: actions/checkout@v4
+        with:
+          repository: Win32-WTL/WTL
+          ref: 065ef5597383c1231bd4892cf8e94331b29bdb97
+          path: wtl
+          persist-credentials: false
+
+      - name: Verify required dependency and license notices
+        shell: pwsh
+        run: |
+          foreach ($file in @('sdk/sdk-license.txt', 'sdk/foobar2000/shared/shared-Win32.lib', 'sdk/foobar2000/shared/shared-x64.lib', 'wtl/Include/atlapp.h', 'licenses/wtl-MS-PL.txt', 'licenses/kissfft_license.txt', 'src/kiss_fft/COPYING')) {
+            if (-not (Test-Path -LiteralPath $file -PathType Leaf)) { throw "Missing required public SDK/vendor input: $file" }
+          }
+          Copy-Item licenses/wtl-MS-PL.txt wtl/MS-PL.txt -Force
+
+      - name: Build Win32 and x64 with public SDK
+        shell: cmd
+        run: call build.bat
+
+      - name: Package foobar2000 component
+        shell: cmd
+        run: call pack_component.bat
+
+      - name: Assert binary-only package privacy boundary
+        shell: pwsh
+        run: |
+          & ./tools/verify-private-data-package-boundary.ps1 -ComponentPath 'build/foo_smart_tempo_2.2.0.fb2k-component'
+          if ($LASTEXITCODE -ne 0) { throw 'Package privacy boundary failed' }
+          & ./tools/verify-fb2k-component.ps1 -ComponentPath 'build/foo_smart_tempo_2.2.0.fb2k-component'
+          if ($LASTEXITCODE -ne 0) { throw 'Component PE layout failed' }
+
+      - name: Upload binary candidate (NOT a public research qualification)
+        uses: actions/upload-artifact@v4
+        with:
+          name: foo_smart_tempo-source-candidate
+          path: build/foo_smart_tempo_2.2.0.fb2k-component
+          if-no-files-found: error
+          retention-days: 7
