@@ -6,6 +6,7 @@
 #pragma once
 
 #include "hodgkinson_tatum_probe.h"
+#include "mir_frontend_coverage.h"
 
 #include <array>
 #include <span>
@@ -52,6 +53,7 @@ struct HodgkinsonFullMirSegmentCandidate {
 
 struct HodgkinsonFullMirSegmentEvaluation {
   HodgkinsonTatumProbeResult result;
+  MirFrontendCoverage coverage;
   std::array<HodgkinsonFullMirSegmentCandidate, 5> top_k_candidates{};
   std::size_t top_k_count = 0;
   std::array<HodgkinsonFullMirSegmentCandidate, 64>
