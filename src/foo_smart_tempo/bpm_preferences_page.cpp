@@ -47,6 +47,17 @@ constexpr int kRuleColumnGenres = 0;
 constexpr int kRuleColumnCenter = 1;
 constexpr int kRuleColumnSpread = 2;
 constexpr double kNewRuleHalfWidthBpm = 15.0;
+constexpr int kSecondsPerWindowChoices[] = {5, 10, 15, 20, 30, 45, 60, 90};
+constexpr int kWindowsPerTrackChoices[] = {1, 3, 5, 10, 20, 50};
+
+template <size_t N>
+int FindPresetIndex(int value, const int (&choices)[N]) {
+  for (size_t i = 0; i < N; ++i) {
+    if (choices[i] == value) return static_cast<int>(i);
+  }
+  return -1;
+}
+
 
 enum class import_async_event : WPARAM {
   resolve_complete = 1,
@@ -768,6 +779,8 @@ public:
   COMMAND_HANDLER_EX(ID_CONFIG_CREATE_REVIEW_PLAYLIST, BN_CLICKED, OnButtonClicked)
   COMMAND_HANDLER_EX(ID_CONFIG_SMART_TEMPO_ROUTING_TAG, EN_CHANGE, OnEditControlChange)
   COMMAND_HANDLER_EX(ID_CONFIG_WORKER_MODE, CBN_SELCHANGE, OnComboBoxChange)
+  COMMAND_HANDLER_EX(ID_CONFIG_ANALYSIS_SECONDS, CBN_SELCHANGE, OnComboBoxChange)
+  COMMAND_HANDLER_EX(ID_CONFIG_ANALYSIS_PASSES, CBN_SELCHANGE, OnComboBoxChange)
   COMMAND_HANDLER_EX(ID_CONFIG_VERBOSE_LOGGING, BN_CLICKED, OnButtonClicked)
   COMMAND_HANDLER_EX(IDC_BTN_ROUTING_IMPORT, BN_CLICKED, OnButtonClicked)
   MSG_WM_HSCROLL(OnHScroll)
@@ -976,6 +989,10 @@ void bpm_preferences_page::reset() {
     SetDlgItemTextX(ID_CONFIG_GENERIC_ANCHOR_TOKENS, anchorsW.get_ptr());
   }
   SetComboSelectionX(ID_CONFIG_WORKER_MODE, get_default_analysis_worker_mode());
+  SetComboSelectionX(ID_CONFIG_ANALYSIS_SECONDS,
+                     FindPresetIndex(get_default_analysis_seconds_to_read(), kSecondsPerWindowChoices));
+  SetComboSelectionX(ID_CONFIG_ANALYSIS_PASSES,
+                     FindPresetIndex(get_default_analysis_sample_passes(), kWindowsPerTrackChoices));
   SetCheckboxFromBool(ID_CONFIG_CREATE_UNMATCHED_PLAYLIST, true);
   SetCheckboxFromBool(ID_CONFIG_CREATE_REVIEW_PLAYLIST, true);
   UpdateUnmatchedPlaylistUiState();
@@ -1053,6 +1070,29 @@ BOOL bpm_preferences_page::OnInitDialog(CWindow wndFocus, LPARAM lInitParam) {
     worker_mode_box.SetCurSel(workerMode);
   }
 
+
+  CComboBox seconds_box(ControlHandle(ID_CONFIG_ANALYSIS_SECONDS));
+  if (seconds_box.IsWindow()) {
+    for (const int seconds : kSecondsPerWindowChoices) {
+      CString text;
+      text.Format(_T("%d seconds"), seconds);
+      seconds_box.AddString(text);
+    }
+    seconds_box.SetCurSel(FindPresetIndex(
+        clamp_analysis_seconds_to_read((int)bpm_config_analysis_seconds_to_read),
+        kSecondsPerWindowChoices));
+  }
+  CComboBox passes_box(ControlHandle(ID_CONFIG_ANALYSIS_PASSES));
+  if (passes_box.IsWindow()) {
+    for (const int passes : kWindowsPerTrackChoices) {
+      CString text;
+      text.Format(_T("%d windows"), passes);
+      passes_box.AddString(text);
+    }
+    passes_box.SetCurSel(FindPresetIndex(
+        clamp_analysis_sample_passes((int)bpm_config_analysis_sample_passes),
+        kWindowsPerTrackChoices));
+  }
 
   const pfc::string8 bpmTagText =
       sanitize_tag_field_name(bpm_config_bpm_tag.get().get_ptr(), "BPM");
@@ -1277,6 +1317,20 @@ int bpm_preferences_page::ReadBpmWritePrecisionFromUi() const {
 int bpm_preferences_page::ReadWorkerModeFromUi() const {
   return clamp_analysis_worker_mode(
       GetComboSelectionX(ID_CONFIG_WORKER_MODE));
+}
+
+int bpm_preferences_page::ReadAnalysisSecondsFromUi() const {
+  const int index = GetComboSelectionX(ID_CONFIG_ANALYSIS_SECONDS);
+  return index >= 0 && index < static_cast<int>(std::size(kSecondsPerWindowChoices))
+             ? kSecondsPerWindowChoices[index]
+             : get_default_analysis_seconds_to_read();
+}
+
+int bpm_preferences_page::ReadAnalysisPassesFromUi() const {
+  const int index = GetComboSelectionX(ID_CONFIG_ANALYSIS_PASSES);
+  return index >= 0 && index < static_cast<int>(std::size(kWindowsPerTrackChoices))
+             ? kWindowsPerTrackChoices[index]
+             : get_default_analysis_sample_passes();
 }
 
 bool bpm_preferences_page::ReadCheckboxFromUi(int controlID) const {
@@ -2256,6 +2310,8 @@ void bpm_preferences_page::SetImportUiLock(bool locked) {
       ID_CONFIG_REVIEW_PLAYLIST_NAME,
       ID_CONFIG_CREATE_REVIEW_PLAYLIST,
       ID_CONFIG_WORKER_MODE,
+      ID_CONFIG_ANALYSIS_SECONDS,
+      ID_CONFIG_ANALYSIS_PASSES,
       IDC_LIST_GENRE_RULES,
       IDC_EDIT_RULE_GENRES,
       IDC_EDIT_RULE_MIN,
@@ -2329,6 +2385,8 @@ void bpm_preferences_page::apply() {
   bpm_config_write_confidence_tag =
       ReadCheckboxFromUi(ID_CONFIG_WRITE_CONFIDENCE_TAG);
   bpm_config_worker_mode = ReadWorkerModeFromUi();
+  bpm_config_analysis_seconds_to_read = ReadAnalysisSecondsFromUi();
+  bpm_config_analysis_sample_passes = ReadAnalysisPassesFromUi();
   cfg_smart_tempo_verbose_logging =
       ReadCheckboxFromUi(ID_CONFIG_VERBOSE_LOGGING);
   SaveListToConfig();
@@ -2393,6 +2451,10 @@ bool bpm_preferences_page::HasChanged() {
       ReadCheckboxFromUi(ID_CONFIG_WRITE_CONFIDENCE_TAG))
     return true;
   if ((int)bpm_config_worker_mode != ReadWorkerModeFromUi()) return true;
+  if (clamp_analysis_seconds_to_read((int)bpm_config_analysis_seconds_to_read) !=
+      ReadAnalysisSecondsFromUi()) return true;
+  if (clamp_analysis_sample_passes((int)bpm_config_analysis_sample_passes) !=
+      ReadAnalysisPassesFromUi()) return true;
   if (cfg_smart_tempo_verbose_logging !=
       ReadCheckboxFromUi(ID_CONFIG_VERBOSE_LOGGING))
     return true;
@@ -2495,6 +2557,10 @@ void bpm_preferences_page::InitTooltips() {
              _T("Creates or reuses the configured playlist and adds only MIR review-hold/no-write tracks.\n")
              _T("Reanalyzed tracks are reconciled instead of duplicated: unresolved tracks remain once, while resolved tracks are removed.\n")
              _T("It does not add ordinary tracks when automatic tag writing is disabled."));
+  AddTooltip(ID_CONFIG_ANALYSIS_SECONDS,
+             _T("Length of each MIR analysis window. Longer windows add rhythmic context but cost more decode/CPU time. Default: 20 seconds."));
+  AddTooltip(ID_CONFIG_ANALYSIS_PASSES,
+             _T("Number of spaced windows sampled from each track. Fewer windows speed up scans but may reduce evidence. Unknown-length tracks use one. Default: 50."));
   AddTooltip(ID_CONFIG_WORKER_MODE,
              _T("Controls analysis parallelism.\n")
              _T("Max uses all logical CPU cores for fastest library scans.\n")

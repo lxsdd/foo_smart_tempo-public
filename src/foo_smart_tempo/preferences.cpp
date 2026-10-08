@@ -73,6 +73,20 @@ int get_default_analysis_seconds_to_read() noexcept {
 int get_default_analysis_sample_passes() noexcept {
   return kDefaultAnalysisSamplePasses;
 }
+int clamp_analysis_seconds_to_read(int value) noexcept {
+  switch (value) {
+    case 5: case 10: case 15: case 20: case 30: case 45: case 60: case 90:
+      return value;
+    default: return get_default_analysis_seconds_to_read();
+  }
+}
+int clamp_analysis_sample_passes(int value) noexcept {
+  switch (value) {
+    case 1: case 3: case 5: case 10: case 20: case 50:
+      return value;
+    default: return get_default_analysis_sample_passes();
+  }
+}
 
 
 int get_default_analysis_worker_mode() noexcept {
@@ -112,6 +126,10 @@ cfg_string cfg_smart_tempo_generic_anchor_tokens(
     guid_smart_tempo_generic_anchor_tokens,
     get_default_generic_anchor_tokens_text());
 
+cfg_int bpm_config_analysis_seconds_to_read(guid_bpm_config_analysis_seconds_to_read,
+                                            get_default_analysis_seconds_to_read());
+cfg_int bpm_config_analysis_sample_passes(guid_bpm_config_analysis_sample_passes,
+                                          get_default_analysis_sample_passes());
 cfg_int bpm_config_worker_mode(guid_bpm_config_worker_mode,
                                get_default_analysis_worker_mode());
 

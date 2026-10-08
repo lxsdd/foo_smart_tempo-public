@@ -12,6 +12,18 @@ This fresh public lineage is not descended from any historical privately qualifi
 
 Development and CI should use this repository after the initial public candidate is qualified. Previous private release tag `v2.2.0` remains in the separate original archive and is not recreated without verification.
 
+## Configurable MIR sampling (source development candidate)
+
+In foobar2000 Preferences > Tools > Smart Tempo > BPM Analysis Engine, select
+**Seconds/window** (5, 10, 15, 20, 30, 45, 60 or 90 seconds) and
+**Windows/track** (1, 3, 5, 10, 20 or 50). The historical defaults remain
+20 seconds and 50 windows, preserving the prior analysis policy until a user
+chooses otherwise. Both options persist per foobar profile; lower settings
+usually reduce decode time at a potential accuracy cost. Unknown-length tracks
+remain single-pass. These settings control sampling, **not** any tag writes.
+No owner audio or BPM ground truth is used for public testing; changes to
+accuracy must later be evaluated on private holdouts before a release.
+
 ## Copyright
 
 Third-party licenses: foobar2000 SDK notice is in the downloaded SDK at `sdk/sdk-license.txt` (and its pfc/libPPUI subdirectories); WTL MS-PL under `licenses/wtl-MS-PL.txt`; KissFFT under `licenses/kissfft_license.txt`. See upstream projects for their respective copyright details. No third-party benchmark corpus is vendored.

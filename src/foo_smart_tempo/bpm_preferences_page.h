@@ -57,6 +57,8 @@ public:
   COMMAND_HANDLER_EX(ID_CONFIG_CREATE_REVIEW_PLAYLIST, BN_CLICKED, OnButtonClicked)
   COMMAND_HANDLER_EX(ID_CONFIG_SMART_TEMPO_ROUTING_TAG, EN_CHANGE, OnEditControlChange)
   COMMAND_HANDLER_EX(ID_CONFIG_WORKER_MODE, CBN_SELCHANGE, OnComboBoxChange)
+  COMMAND_HANDLER_EX(ID_CONFIG_ANALYSIS_SECONDS, CBN_SELCHANGE, OnComboBoxChange)
+  COMMAND_HANDLER_EX(ID_CONFIG_ANALYSIS_PASSES, CBN_SELCHANGE, OnComboBoxChange)
   COMMAND_HANDLER_EX(ID_CONFIG_AUTO_WRITE_TAG, BN_CLICKED, OnButtonClicked)
   COMMAND_HANDLER_EX(ID_CONFIG_WRITE_CONFIDENCE_TAG, BN_CLICKED, OnButtonClicked)
   COMMAND_HANDLER_EX(ID_CONFIG_VERBOSE_LOGGING, BN_CLICKED, OnButtonClicked)
@@ -139,6 +141,8 @@ private:
   static bool ParseBpmText(const char *text, double &outValue);
   int ReadBpmWritePrecisionFromUi() const;
   int ReadWorkerModeFromUi() const;
+  int ReadAnalysisSecondsFromUi() const;
+  int ReadAnalysisPassesFromUi() const;
   bool ReadCheckboxFromUi(int controlID) const;
   pfc::string8 ReadBpmTagNameFromUi() const;
   pfc::string8 ReadConfidenceTagNameFromUi() const;

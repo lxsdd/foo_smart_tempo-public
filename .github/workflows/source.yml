@@ -74,6 +74,16 @@ jobs:
           }
           Copy-Item licenses/wtl-MS-PL.txt wtl/MS-PL.txt -Force
 
+      - name: Run isolated synthetic sampling scheduler tests
+        shell: pwsh
+        run: |
+          cmake -S tests -B synthetic-test-build -A x64
+          if ($LASTEXITCODE -ne 0) { throw 'Synthetic test CMake setup failed' }
+          cmake --build synthetic-test-build --config Release
+          if ($LASTEXITCODE -ne 0) { throw 'Synthetic test build failed' }
+          ctest --test-dir synthetic-test-build -C Release --output-on-failure
+          if ($LASTEXITCODE -ne 0) { throw 'Synthetic MIR window tests failed' }
+
       - name: Build Win32 and x64 with public SDK
         shell: pwsh
         run: |

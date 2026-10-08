@@ -422,8 +422,10 @@ void bpm_auto_analysis_thread::WorkerMain() {
   m_doneAudioMillis.store(0, std::memory_order_relaxed);
   m_completedAudioMillis.store(0, std::memory_order_relaxed);
   constexpr double kProgressDecodeSafetyMarginSeconds = 0.5;
-  const int progressSecondsToRead = get_default_analysis_seconds_to_read();
-  const int progressSamplePasses = get_default_analysis_sample_passes();
+  const int progressSecondsToRead = clamp_analysis_seconds_to_read(
+      (int)bpm_config_analysis_seconds_to_read);
+  const int progressSamplePasses = clamp_analysis_sample_passes(
+      (int)bpm_config_analysis_sample_passes);
   uint64_t totalAudioMillis = 0;
   for (t_size i = 0; i < total; ++i) {
     const double lengthSec = m_tracks[i]->get_length();

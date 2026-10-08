@@ -76,6 +76,8 @@
 #define IDC_METRONOME_STATUS            1137
 #define IDC_MEASURED_CANDIDATE_FOOTNOTE 1138
 #define ID_BPM_MANUAL_STABILITY         1139
+#define ID_CONFIG_ANALYSIS_SECONDS      1140
+#define ID_CONFIG_ANALYSIS_PASSES       1141
 
 // Next default values for new objects
 //
@@ -83,7 +85,7 @@
 #ifndef APSTUDIO_READONLY_SYMBOLS
 #define _APS_NEXT_RESOURCE_VALUE        113
 #define _APS_NEXT_COMMAND_VALUE         40001
-#define _APS_NEXT_CONTROL_VALUE        1140
+#define _APS_NEXT_CONTROL_VALUE        1142
 #define _APS_NEXT_SYMED_VALUE           104
 #endif
 #endif
