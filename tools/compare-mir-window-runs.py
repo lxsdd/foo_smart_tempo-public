@@ -157,6 +157,7 @@ def parse_log(path: Path) -> dict[tuple[str, int], Track]:
             track.policy = {
                 "write": as_int(get_space_field(payload, "output_would_write")),
                 "hold": as_int(get_space_field(payload, "output_would_review_hold")),
+                "source_candidate": as_int(get_space_field(payload, "source_candidate")),
                 "bpm": as_float(get_space_field(payload, "output_bpm")),
             }
         elif event == "Decision:":
@@ -193,6 +194,23 @@ def parse_log(path: Path) -> dict[tuple[str, int], Track]:
         if track.final["state"] == "WRITE" and track.decision["final_bpm"] <= 0:
             raise EvidenceError("Final writable result contradicts decision")
     return tracks
+
+
+def candidate_stage(track: Track) -> str:
+    """Diagnostic stage only; never equate policy state with ground truth."""
+    if not track.policy:
+        return "UNKNOWN_POLICY"
+    has_board = len(track.candidates) > 0
+    has_source = track.policy["source_candidate"] == 1
+    if track.policy["source_candidate"] not in (0, 1):
+        return "INCONSISTENT"
+    if not has_board and not has_source:
+        return "NO_MEASURED_SOURCE"
+    if not has_board and has_source:
+        return "SOURCE_WITHOUT_POLICY_BOARD"
+    if track.final["state"] == "HOLD":
+        return "MEASURED_BUT_HOLD"
+    return "MEASURED_AND_OUTPUT"
 
 
 def compare(baseline: dict, variant: dict) -> dict:
@@ -233,6 +251,8 @@ def compare(baseline: dict, variant: dict) -> dict:
             "variant_passes": b.plan["effective_passes"],
             "baseline_candidate_count": len(a.candidates),
             "variant_candidate_count": len(b.candidates),
+            "baseline_candidate_stage": candidate_stage(a),
+            "variant_candidate_stage": candidate_stage(b),
             "identical_candidate_rows": candidate_overlap,
             "candidate_board_identical": ca == cb,
             "baseline_state": a.final["state"],
@@ -259,6 +279,12 @@ def compare(baseline: dict, variant: dict) -> dict:
         "write_to_write": counts["WRITE", "WRITE"],
         "hold_to_hold": counts["HOLD", "HOLD"],
         "candidate_boards_changed": sum(not r["candidate_board_identical"] for r in rows),
+        "baseline_candidate_stages": dict(sorted(collections.Counter(
+            r["baseline_candidate_stage"] for r in rows).items())),
+        "variant_candidate_stages": dict(sorted(collections.Counter(
+            r["variant_candidate_stage"] for r in rows).items())),
+        "candidate_stage_changes": sum(
+            r["baseline_candidate_stage"] != r["variant_candidate_stage"] for r in rows),
         "decision_classes_changed": sum(r["decision_class_changed"] for r in rows),
         "mean_baseline_time_ms": sum(r["baseline_time_ms"] for r in rows) / len(rows),
         "mean_variant_time_ms": sum(r["variant_time_ms"] for r in rows) / len(rows),

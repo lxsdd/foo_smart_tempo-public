@@ -26,3 +26,22 @@ The files are written **only** where you request them locally. The output uses s
 - A green public C++ build or synthetic parser test is not a real-audio/holdout/foobar runtime PASS. D12's retained local Repair 4 worktree and its real audio evidence gate remain independent; do not rewrite/clean that worktree to use this tool.
 
 Never enable an auto-voting or averaging policy based on these comparisons. Any change to candidate generation, writer behavior, or selector thresholds requires a separately controlled experiment and real-audio acceptance.
+
+## D12 candidate-stage diagnosis (read-only)
+
+The comparator now separates an **empty policy candidate board with no source candidate**
+(`NO_MEASURED_SOURCE`) from a **measured board that nevertheless results in a
+hold** (`MEASURED_BUT_HOLD`). It also reports `MEASURED_AND_OUTPUT`,
+`SOURCE_WITHOUT_POLICY_BOARD`, and `UNKNOWN_POLICY` explicitly.
+
+These are *observable telemetry states*, not explanations for *why* the
+frontend generated no candidate, and not BPM accuracy judgments.
+`SOURCE_WITHOUT_POLICY_BOARD` requires follow-up; it must not be silently
+counted as a successful candidate-generation recovery.
+
+The aggregate `candidate_stage_changes` and per-track anonymized stage
+fields can identify whether a revised window changed the **candidate
+generation stage** or only a later hold decision. Real D12 classification,
+the retained dirty Repair 4 worktree, and true BPM reference scoring still
+require privately retained evidence. No synthetic result licenses a change
+to production candidate generation or a physical tag write.
