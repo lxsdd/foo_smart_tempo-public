@@ -90,6 +90,12 @@ jobs:
           ctest --test-dir synthetic-test-build -C Release --output-on-failure
           if ($LASTEXITCODE -ne 0) { throw 'Synthetic MIR window tests failed' }
 
+      - name: Run privacy-safe MW1 evidence comparator tests
+        shell: pwsh
+        run: |
+          python -m unittest discover -s tests -p 'test_mw1_comparator.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'MW1 synthetic evaluator tests failed' }
+
       - name: Build Win32 and x64 with public SDK
         shell: pwsh
         run: |
