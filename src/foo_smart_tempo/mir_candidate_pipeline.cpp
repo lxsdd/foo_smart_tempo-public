@@ -6071,7 +6071,11 @@ MirLocalExactCache::MirLocalExactCache(
       m_onsetSpanSamples = *maxIt - *minIt;
     }
   }
-  m_scoreByBpmBits.reserve(8192);
+  // The accepted 60-track performance profile reached 10,543 unique
+  // Local-Exact scan points on one track. Reserve above that observed ceiling
+  // so the score table does not rehash mid-analysis; this changes allocation
+  // behavior only, never candidate arithmetic or ordering.
+  m_scoreByBpmBits.reserve(16384);
   m_resultByClusterBits.reserve(256);
 }
 
