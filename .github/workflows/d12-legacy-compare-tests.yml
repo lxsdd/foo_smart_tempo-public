@@ -1,0 +1,33 @@
+name: D12 synthetic cross-build comparison
+
+on:
+  pull_request:
+    paths:
+      - 'tools/compare-d12-builds.py'
+      - 'tests/test_d12_crossbuild.py'
+      - '.github/workflows/d12-legacy-compare-tests.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'tools/compare-d12-builds.py'
+      - 'tests/test_d12_crossbuild.py'
+      - '.github/workflows/d12-legacy-compare-tests.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  d12-aggregate-only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Checkout public source only
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Synthetic legacy/current comparison regressions
+        run: python3 -m unittest discover -s tests -p 'test_d12_crossbuild.py' -v
+      - name: No private evidence or build artifact upload
+        run: |
+          test ! -d private-research
+          test ! -d owner-data
