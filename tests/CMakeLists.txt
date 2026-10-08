@@ -5,3 +5,7 @@ enable_testing()
 add_executable(analysis_window_test analysis_window_test.cpp)
 target_compile_features(analysis_window_test PRIVATE cxx_std_20)
 add_test(NAME analysis_window_schedule COMMAND analysis_window_test)
+
+add_executable(mir_onset_gate_test mir_onset_gate_test.cpp)
+target_compile_features(mir_onset_gate_test PRIVATE cxx_std_20)
+add_test(NAME mir_onset_gate COMMAND mir_onset_gate_test)

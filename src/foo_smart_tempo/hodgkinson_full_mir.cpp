@@ -6,6 +6,7 @@
 #include "stdafx.h"
 
 #include "hodgkinson_full_mir.h"
+#include "mir_onset_gate.h"
 
 #include <algorithm>
 #include <array>
@@ -411,15 +412,7 @@ void subtract_moving_average(std::vector<float>& x, double hopRate) {
 
 [[nodiscard]] bool is_single_event(const std::vector<int>& peaks,
                                    const std::vector<float>& values) {
-  if (peaks.empty() || values.empty()) {
-    return true;
-  }
-  const double sum = std::accumulate(values.begin(), values.end(), 0.0);
-  const double average = sum / static_cast<double>(values.size());
-  const auto aboveAverage = std::count_if(
-      values.begin(), values.end(),
-      [average](float value) { return static_cast<double>(value) > average; });
-  return aboveAverage <= 1;
+  return mir_is_single_effective_onset(peaks.size(), values);
 }
 
 [[nodiscard]] PossibleDivHierarchies possible_div_hierarchies(
