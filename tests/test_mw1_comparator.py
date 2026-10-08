@@ -16,7 +16,7 @@ SPEC.loader.exec_module(MODULE)
 
 
 def candidate(track: str, key: int, bpm: int = 120, score: float = 0.2) -> str:
-    values = {name: "1" for name in MODULE.CANDIDATE_FIELDS}
+    values = {name: "1" for name in MODULE.CANDIDATE_FIELDS if name != "origin"}
     values.update(cluster_bpm=str(bpm), local_exact_bpm=str(bpm),
                   local_exact_score=str(score), base_score="0.75",
                   alias_classes="direct,half")
@@ -136,6 +136,36 @@ class EvidenceComparatorTests(unittest.TestCase):
         b = MODULE.parse_log(self.log(b_lines, "b.txt"))
         result = MODULE.compare(a, b)
         self.assertEqual(result["candidate_boards_changed"], 1)
+
+    def test_mixed_sampling_plan_within_run_rejected(self):
+        a = track_lines("Synthetic One", 11, seconds=20) + track_lines(
+            "Synthetic Two", 22, seconds=10)
+        b = track_lines("Synthetic One", 11, seconds=20) + track_lines(
+            "Synthetic Two", 22, seconds=20)
+        with self.assertRaisesRegex(MODULE.EvidenceError, "Mixed sampling"):
+            MODULE.compare(
+                MODULE.parse_log(self.log(a, "mixed.txt")),
+                MODULE.parse_log(self.log(b, "uniform.txt")),
+            )
+
+    def test_two_dimensions_changed_rejected(self):
+        baseline = MODULE.parse_log(self.log(track_lines("Synthetic One", 11), "base.txt"))
+        variant = MODULE.parse_log(self.log(
+            track_lines("Synthetic One", 11, seconds=10, passes=5), "variant.txt"))
+        with self.assertRaisesRegex(MODULE.EvidenceError, "confounded experiment"):
+            MODULE.compare(baseline, variant)
+
+    def test_repeat_run_permitted_for_determinism(self):
+        a = MODULE.parse_log(self.log(track_lines("Synthetic One", 11), "a.txt"))
+        b = MODULE.parse_log(self.log(track_lines("Synthetic One", 11), "b.txt"))
+        self.assertEqual(MODULE.compare(a, b)["sweep_dimension"], "repeat")
+
+    def test_candidate_origin_is_part_of_full_signature(self):
+        a = MODULE.parse_log(self.log(track_lines("Synthetic One", 11), "a.txt"))
+        b_lines = [line.replace("origin=fullboard", "origin=other-measured")
+                   for line in track_lines("Synthetic One", 11)]
+        b = MODULE.parse_log(self.log(b_lines, "b.txt"))
+        self.assertEqual(MODULE.compare(a, b)["candidate_boards_changed"], 1)
 
     def test_final_bpm_without_measured_decision_rejected(self):
         lines = [l.replace("final=120.00", "final=0.00") for l in track_lines("Synthetic One", 11)]
