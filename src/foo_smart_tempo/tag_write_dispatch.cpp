@@ -6,6 +6,47 @@
 
 namespace smart_tempo::tag_write {
 
+namespace {
+
+bool is_known_embedded_cue_carrier(const char* path) noexcept {
+  const char* extension = pfc::string_extension(path != nullptr ? path : "");
+  return pfc::stricmp_ascii(extension, "mp3") == 0 ||
+         pfc::stricmp_ascii(extension, "flac") == 0 ||
+         pfc::stricmp_ascii(extension, "wv") == 0;
+}
+
+}  // namespace
+
+target_safety classify_target(const playable_location& location) noexcept {
+  if (location.get_subsong() != 0 &&
+      is_known_embedded_cue_carrier(location.get_path())) {
+    return target_safety::blocked_unsafe_virtual_subsong;
+  }
+  return target_safety::safe;
+}
+
+bool selection_is_safe(metadb_handle_list_cref items,
+                       pfc::string_base* firstBlockedPath,
+                       uint32_t* firstBlockedSubsong) noexcept {
+  for (const auto& item : items) {
+    if (!item.is_valid()) {
+      continue;
+    }
+    if (classify_target(item->get_location()) !=
+        target_safety::blocked_unsafe_virtual_subsong) {
+      continue;
+    }
+    if (firstBlockedPath != nullptr) {
+      *firstBlockedPath = item->get_path();
+    }
+    if (firstBlockedSubsong != nullptr) {
+      *firstBlockedSubsong = item->get_subsong_index();
+    }
+    return false;
+  }
+  return true;
+}
+
 bool safe_update_info_async(metadb_handle_list_cref items,
                             service_ptr_t<file_info_filter> filter,
                             const char* contextLabel,
@@ -21,6 +62,30 @@ bool safe_update_info_async(metadb_handle_list_cref items,
   // foobar2000 main window instead of a result/progress dialog that is commonly
   // destroyed immediately after queueing the write.
   const HWND dispatchParent = core_api::get_main_window();
+
+  pfc::string8 blockedPath;
+  uint32_t blockedSubsong = 0;
+  if (!selection_is_safe(items, &blockedPath, &blockedSubsong)) {
+    FB2K_console_formatter()
+        << "foo_smart_tempo: [Tag Write] blocked context=" << safeContext
+        << ", reason=unsafe-embedded-cue-virtual-subsong"
+        << ", path=" << blockedPath.get_ptr()
+        << ", subsong=" << blockedSubsong
+        << ", items=" << queuedItems;
+    if (showPopupOnFailure) {
+      pfc::string_formatter message;
+      message
+          << "Smart Tempo did not write BPM tags because the selection contains "
+             "an embedded-Cue virtual track.\n\n"
+          << "Direct generic metadata writes to MP3, FLAC or WavPack virtual "
+             "subsongs can rewrite the embedded Cue Sheet and unrelated physical "
+             "metadata.\n\n"
+          << "Analyze the track if desired, then write BPM only to a qualified "
+             "physical target or use a dedicated virtual-metadata editor.";
+      popup_message::g_show(message.get_ptr(), "Smart Tempo: write blocked");
+    }
+    return false;
+  }
 
   try {
     pfc::string_formatter queuedLine;
