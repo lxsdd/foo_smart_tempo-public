@@ -70,4 +70,31 @@ Require-Text 'src/foo_smart_tempo/bpm_contextmenu_item.cpp' @(
     '"scale-bpm-context-menu", NULL, true'
 )
 
+Require-Text '.github/workflows/private-personal-component.yml' @(
+    'workflow_dispatch:',
+    'contents: write',
+    "github.actor == github.repository_owner && github.ref == 'refs/heads/main'",
+    'Require absence of personal research',
+    'verify-private-data-package-boundary.ps1',
+    'verify-fb2k-component.ps1',
+    'gh release create',
+    '--draft',
+    'if (-not $release.draft)',
+    'git/ref/tags/$tag',
+    'gh release delete $tag',
+    'DRAFT_RELEASE_ONLY'
+) @(
+    'uses: actions/upload-artifact@',
+    '--prerelease',
+    '--latest'
+)
+
+$privateWorkflow = Get-Content -LiteralPath '.github/workflows/private-personal-component.yml' -Raw
+if ($privateWorkflow -match '(?m)^\s*push\s*:') {
+    throw 'Private personal component workflow must never run on push.'
+}
+if ($privateWorkflow -match '(?m)^\s*pull_request\s*:') {
+    throw 'Private personal component workflow must never run on pull_request.'
+}
+
 Write-Host 'SOURCE_HARDENING_CONTRACT=PASS'
