@@ -1,0 +1,322 @@
+// Microsoft Visual C++ generated resource script.
+//
+#include "resource.h"
+
+#define APSTUDIO_READONLY_SYMBOLS
+/////////////////////////////////////////////////////////////////////////////
+//
+// Generated from the TEXTINCLUDE 2 resource.
+//
+#include "afxres.h"
+
+/////////////////////////////////////////////////////////////////////////////
+#undef APSTUDIO_READONLY_SYMBOLS
+
+/////////////////////////////////////////////////////////////////////////////
+// Englisch (Australien) resources
+
+#if !defined(AFX_RESOURCE_DLL) || defined(AFX_TARG_ENA)
+LANGUAGE LANG_ENGLISH, SUBLANG_ENGLISH_AUS
+#pragma code_page(1252)
+
+#ifdef APSTUDIO_INVOKED
+/////////////////////////////////////////////////////////////////////////////
+//
+// TEXTINCLUDE
+//
+
+1 TEXTINCLUDE 
+BEGIN
+    "resource.h\0"
+END
+
+2 TEXTINCLUDE 
+BEGIN
+    "#include ""afxres.h""\r\n"
+    "\0"
+END
+
+3 TEXTINCLUDE 
+BEGIN
+    "\r\n"
+    "\0"
+END
+
+#endif    // APSTUDIO_INVOKED
+
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// DESIGNINFO
+//
+
+#ifdef APSTUDIO_INVOKED
+GUIDELINES DESIGNINFO
+BEGIN
+    IDD_BPM_RESULT_DIALOG, DIALOG
+    BEGIN
+        LEFTMARGIN, 7
+        RIGHTMARGIN, 388
+        TOPMARGIN, 7
+        BOTTOMMARGIN, 235
+    END
+
+    IDD_BPM_PREFERENCES, DIALOG
+    BEGIN
+        LEFTMARGIN, 7
+        RIGHTMARGIN, 325
+        TOPMARGIN, 7
+        BOTTOMMARGIN, 281
+    END
+
+    IDD_BPM_MANUAL_DIALOG, DIALOG
+    BEGIN
+        LEFTMARGIN, 7
+        RIGHTMARGIN, 297
+        TOPMARGIN, 7
+        BOTTOMMARGIN, 123
+    END
+
+    IDD_BPM_PROGRESS_DIALOG, DIALOG
+    BEGIN
+        LEFTMARGIN, 7
+        RIGHTMARGIN, 388
+        TOPMARGIN, 7
+        BOTTOMMARGIN, 60
+    END
+END
+#endif    // APSTUDIO_INVOKED
+
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// Dialog
+//
+
+IDD_BPM_RESULT_DIALOG DIALOGEX 0, 0, 395, 242
+STYLE DS_SETFONT | DS_FIXEDSYS | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_THICKFRAME
+CAPTION "Smart Tempo Analysis Results"
+FONT 8, "MS Shell Dlg", 400, 0, 0x1
+BEGIN
+    CONTROL         "",ID_BPM_RESULT_LIST,"SysListView32",LVS_REPORT | LVS_ALIGNLEFT | WS_BORDER | WS_TABSTOP,7,7,381,191
+    LTEXT           "",ID_RESULT_BPM_TAG,8,204,210,8
+    PUSHBUTTON      "&Double BPM",ID_DOUBLE_BPM_BUTTON,6,221,54,14
+    PUSHBUTTON      "&Halve BPM",ID_HALVE_BPM_BUTTON,64,221,54,14
+    PUSHBUTTON      "Measured BPM...",ID_RESULT_MEASURED_CANDIDATES_BUTTON,122,221,96,14
+    PUSHBUTTON      "Manual BPM Calculation",ID_RESULT_MANUAL_BUTTON,226,204,106,14
+    PUSHBUTTON      "Preferences",ID_RESULT_PREFERENCES_BUTTON,338,204,50,14
+    PUSHBUTTON      "&Update files",IDOK,226,221,106,14
+    DEFPUSHBUTTON   "Cancel",IDCANCEL,338,221,50,14
+END
+
+IDD_BPM_PREFERENCES DIALOGEX 0, 0, 332, 288
+STYLE DS_SETFONT | DS_FIXEDSYS | WS_CHILD | DS_CONTROL | WS_CLIPCHILDREN | WS_CLIPSIBLINGS
+FONT 8, "MS Shell Dlg", 400, 0, 0x0
+BEGIN
+    CONTROL         "",ID_CONFIG_PREF_TABS,"SysTabControl32",WS_TABSTOP | WS_CLIPCHILDREN,0,0,332,288
+END
+
+IDD_BPM_PREF_TAGGING DIALOGEX 0, 0, 326, 272
+STYLE DS_SETFONT | DS_FIXEDSYS | WS_CHILD | DS_CONTROL
+FONT 8, "MS Shell Dlg", 400, 0, 0x0
+BEGIN
+    GROUPBOX        "Tagging Options",ID_GROUP_TAGGING,7,7,312,76
+    LTEXT           "Tag name",IDC_STATIC,14,20,50,8,SS_CENTERIMAGE
+    EDITTEXT        ID_CONFIG_BPM_TAG,88,17,110,14,ES_AUTOHSCROLL
+    LTEXT           "Write precision",IDC_STATIC,14,34,60,8,SS_CENTERIMAGE
+    COMBOBOX        ID_CONFIG_BPM_PRECISION,88,31,110,14,CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    LTEXT           "Confidence tag",IDC_STATIC_CONFIDENCE_TAG,14,48,60,8,SS_CENTERIMAGE
+    EDITTEXT        ID_CONFIG_CONFIDENCE_TAG_NAME,88,45,110,14,ES_AUTOHSCROLL
+    CONTROL         "Write tag",ID_CONFIG_WRITE_CONFIDENCE_TAG,
+                    "Button",BS_AUTOCHECKBOX | WS_TABSTOP,204,47,80,10
+    CONTROL         "Write tags automatically",ID_CONFIG_AUTO_WRITE_TAG,
+                    "Button",BS_AUTOCHECKBOX | WS_TABSTOP,14,64,170,10
+END
+
+IDD_BPM_PREF_ALGO DIALOGEX 0, 0, 326, 272
+STYLE DS_SETFONT | DS_FIXEDSYS | WS_CHILD | DS_CONTROL
+FONT 8, "MS Shell Dlg", 400, 0, 0x0
+BEGIN
+    GROUPBOX        "Smart Metadata Routing",IDC_STATIC,7,7,312,73
+    LTEXT           "Routing script:",IDC_STATIC,14,20,68,8,SS_CENTERIMAGE
+    EDITTEXT        ID_CONFIG_SMART_TEMPO_ROUTING_TAG,88,17,224,14,ES_AUTOHSCROLL
+    LTEXT           "Recommended: GENRE + STYLE. Use %style% first only for curated style-first libraries.",IDC_STATIC,14,34,298,8
+    LTEXT           "Unmatched playlist:",IDC_STATIC,14,46,68,8,SS_CENTERIMAGE
+    EDITTEXT        ID_CONFIG_SMART_TEMPO_PLAYLIST_NAME,88,43,122,14,ES_AUTOHSCROLL
+    CONTROL         "Create playlist",ID_CONFIG_CREATE_UNMATCHED_PLAYLIST,
+                    "Button",BS_AUTOCHECKBOX | WS_TABSTOP,214,45,98,10
+    LTEXT           "Generic routing:",IDC_STATIC,14,60,68,8,SS_CENTERIMAGE
+    EDITTEXT        ID_CONFIG_GENERIC_ANCHOR_TOKENS,88,57,166,14,ES_AUTOHSCROLL
+    PUSHBUTTON      "Import...",IDC_BTN_ROUTING_IMPORT,258,57,54,14
+
+    GROUPBOX        "Review Hold Playlist",IDC_STATIC,7,87,312,33
+    LTEXT           "Review playlist:",IDC_STATIC,14,100,68,8,SS_CENTERIMAGE
+    EDITTEXT        ID_CONFIG_REVIEW_PLAYLIST_NAME,88,97,122,14,ES_AUTOHSCROLL
+    CONTROL         "Create playlist",ID_CONFIG_CREATE_REVIEW_PLAYLIST,
+                    "Button",BS_AUTOCHECKBOX | WS_TABSTOP,214,99,98,10
+
+    GROUPBOX        "BPM Analysis Engine",IDC_STATIC,7,127,312,48
+    LTEXT           "CPU usage:",IDC_STATIC,14,140,68,8,SS_CENTERIMAGE
+    COMBOBOX        ID_CONFIG_WORKER_MODE,88,137,100,70,CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    CONTROL         "Enable verbose logging",ID_CONFIG_VERBOSE_LOGGING,
+                    "Button",BS_AUTOCHECKBOX | WS_TABSTOP,14,157,170,10
+END
+
+IDD_BPM_MEASURED_CANDIDATE_DIALOG DIALOGEX 0, 0, 395, 302
+STYLE DS_SETFONT | DS_FIXEDSYS | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_THICKFRAME
+CAPTION "Measured BPM Candidates"
+FONT 8, "MS Shell Dlg", 400, 0, 0x1
+BEGIN
+    LTEXT           "",IDC_MEASURED_CANDIDATE_HINT,7,7,381,33
+    CONTROL         "",IDC_MEASURED_CANDIDATE_LIST,"SysListView32",LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS | WS_BORDER | WS_TABSTOP,7,43,381,176
+    GROUPBOX        "Metronome verification",IDC_METRONOME_GROUP,7,223,381,48,BS_GROUPBOX,WS_EX_TRANSPARENT
+    PUSHBUTTON      "Start / Sync",IDC_METRONOME_SYNC,14,232,61,14
+    PUSHBUTTON      "Stop",IDC_METRONOME_STOP,78,232,60,14
+    PUSHBUTTON      "-10 ms",IDC_METRONOME_NUDGE_EARLIER,142,232,42,14
+    PUSHBUTTON      "+10 ms",IDC_METRONOME_NUDGE_LATER,188,232,42,14
+    COMBOBOX        IDC_METRONOME_METER,307,232,74,70,CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    LTEXT           "Off",IDC_METRONOME_STATUS,14,253,210,8
+    LTEXT           "Volume",IDC_STATIC,232,253,34,8
+    CONTROL         "",IDC_METRONOME_VOLUME,"msctls_trackbar32",TBS_HORZ | TBS_NOTICKS | WS_TABSTOP,268,248,113,16
+    LTEXT           "Only a measured candidate can be selected. Nothing changes until you confirm.",IDC_MEASURED_CANDIDATE_FOOTNOTE,7,279,258,16
+    DEFPUSHBUTTON   "Use selected BPM",IDOK,274,281,76,14
+    PUSHBUTTON      "Cancel",IDCANCEL,354,281,34,14
+END
+
+IDD_BPM_PREF_GENRES DIALOGEX 0, 0, 326, 272
+STYLE DS_SETFONT | DS_FIXEDSYS | WS_CHILD | DS_CONTROL
+FONT 8, "MS Shell Dlg", 400, 0, 0x0
+BEGIN
+    GROUPBOX        "Smart Genre Rules",IDC_STATIC,7,7,312,263
+    LTEXT           "Configured Genre Rules:",IDC_STATIC,14,20,102,8
+    PUSHBUTTON      "Import from Clipboard",IDC_BTN_RULE_IMPORT_CLIPBOARD,118,16,95,14
+    PUSHBUTTON      "Export to Clipboard",IDC_BTN_RULE_EXPORT_CLIPBOARD,217,16,95,14
+    CONTROL         "",IDC_LIST_GENRE_RULES,"SysListView32",LVS_REPORT | LVS_NOSORTHEADER | LVS_SHOWSELALWAYS | WS_BORDER | WS_TABSTOP,14,39,298,132
+    LTEXT           "Genres / Tokens",IDC_STATIC,14,176,68,8
+    EDITTEXT        IDC_EDIT_RULE_GENRES,82,173,230,14,ES_AUTOHSCROLL
+    LTEXT           "Center BPM",IDC_STATIC,14,192,52,8,SS_CENTERIMAGE
+    EDITTEXT        IDC_EDIT_RULE_MIN,82,189,60,14,ES_AUTOHSCROLL
+    LTEXT           "Soft metadata prior only; measured MIR candidates remain authoritative.",IDC_STATIC,14,210,298,8
+    PUSHBUTTON      "Add",IDC_BTN_RULE_ADD,14,247,50,14
+    PUSHBUTTON      "Update",IDC_BTN_RULE_UPDATE,68,247,50,14
+    PUSHBUTTON      "Remove",IDC_BTN_RULE_REMOVE,122,247,50,14
+    PUSHBUTTON      "Up",IDC_BTN_RULE_UP,208,247,50,14
+    PUSHBUTTON      "Down",IDC_BTN_RULE_DOWN,262,247,50,14
+END
+
+IDD_BPM_ROUTING_IMPORT_DIALOG DIALOGEX 0, 0, 360, 236
+STYLE DS_SETFONT | DS_FIXEDSYS | DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_THICKFRAME
+CAPTION "Import Routing Values"
+FONT 8, "MS Shell Dlg", 400, 0, 0x1
+BEGIN
+    LTEXT           "Select library values to import into Smart Genre Rules:",IDC_STATIC_IMPORT_HINT,7,7,346,16
+    CONTROL         "",IDC_IMPORT_VALUES_LIST,"SysListView32",LVS_REPORT | LVS_SHOWSELALWAYS | WS_BORDER | WS_TABSTOP,7,25,346,176
+    PUSHBUTTON      "Select All",IDC_BTN_IMPORT_SELECT_ALL,180,214,54,14
+    PUSHBUTTON      "Clear All",IDC_BTN_IMPORT_CLEAR_ALL,238,214,54,14
+    PUSHBUTTON      "Apply",IDOK,296,214,57,14
+    DEFPUSHBUTTON   "Cancel",IDCANCEL,7,214,57,14
+END
+
+IDD_BPM_MANUAL_DIALOG DIALOGEX 0, 0, 304, 198
+STYLE DS_SETFONT | DS_MODALFRAME | DS_FIXEDSYS | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Manual BPM Calculation"
+FONT 8, "MS Shell Dlg", 400, 0, 0x1
+BEGIN
+    LTEXT           "Click or tap the spacebar to the beat of the playing song.\n\nOnce the timing is stable, click ""Update file"" to write the BPM value to the song's tag.",IDC_STATIC,138,40,159,50
+    DEFPUSHBUTTON   "&Tap Here",ID_BPM_MANUAL_TAP_BUTTON,7,7,120,66
+    PUSHBUTTON      "&Update file",ID_BPM_MANUAL_UPDATE_TAG_BUTTON,7,121,54,14
+    CONTROL         "Always on top",IDC_CHK_MANUAL_ALWAYS_ON_TOP,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,68,123,72,10
+    PUSHBUTTON      "Preferences",ID_MANUAL_PREFERENCES_BUTTON,243,104,54,14
+    PUSHBUTTON      "Close",IDCANCEL,243,121,54,14
+    CTEXT           "Calculated BPM",IDC_STATIC,138,6,159,8
+    CTEXT           "0",ID_BPM_MANUAL_BPM,138,18,159,8
+    CTEXT           "Tap to begin",ID_BPM_MANUAL_STABILITY,138,28,159,8,SS_NOTIFY
+    LTEXT           "The BPM will be written to the %BPM% tag.",ID_MANUAL_BPM_TAG,7,95,230,8
+    LTEXT           "",ID_BPM_MANUAL_TRACK_INFO,7,107,230,8,SS_NOTIFY
+    PUSHBUTTON      "&Reset BPM",ID_BPM_MANUAL_RESET_BUTTON,7,77,120,14
+    GROUPBOX        "Metronome verification",IDC_METRONOME_GROUP,7,143,290,48,BS_GROUPBOX,WS_EX_TRANSPARENT
+    PUSHBUTTON      "Start / Sync",IDC_METRONOME_SYNC,14,152,61,14
+    PUSHBUTTON      "Stop",IDC_METRONOME_STOP,78,152,60,14
+    PUSHBUTTON      "-10 ms",IDC_METRONOME_NUDGE_EARLIER,142,152,42,14
+    PUSHBUTTON      "+10 ms",IDC_METRONOME_NUDGE_LATER,188,152,42,14
+    COMBOBOX        IDC_METRONOME_METER,234,152,56,70,CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    LTEXT           "Off",IDC_METRONOME_STATUS,14,174,174,8
+    LTEXT           "Volume",IDC_STATIC,193,174,34,8
+    CONTROL         "",IDC_METRONOME_VOLUME,"msctls_trackbar32",TBS_HORZ | TBS_NOTICKS | WS_TABSTOP,228,169,62,16
+END
+
+IDD_BPM_PROGRESS_DIALOG DIALOGEX 0, 0, 395, 86
+STYLE DS_SETFONT | DS_MODALFRAME | DS_FIXEDSYS | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Analyzing..."
+FONT 8, "MS Shell Dlg", 400, 0, 0x1
+BEGIN
+    LTEXT           "Analyzing...",ID_BPM_PROGRESS_FILE,7,7,381,30
+    CONTROL         "",ID_BPM_PROGRESS_TOTAL,"msctls_progress32",WS_BORDER | WS_TABSTOP,7,41,381,14
+    LTEXT           "Time elapsed: 00:00, ETA calibrating...",ID_BPM_PROGRESS_INFO,7,64,265,8,SS_NOTIFY
+    PUSHBUTTON      "Pause",ID_BPM_PROGRESS_PAUSE,283,60,50,14
+    PUSHBUTTON      "Abort",ID_BPM_PROGRESS_ABORT,338,60,50,14
+END
+
+IDD_BPM_OVERWRITE_PROMPT_DIALOG DIALOGEX 0, 0, 260, 98
+STYLE DS_SETFONT | DS_MODALFRAME | DS_FIXEDSYS | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Smart Tempo Analysis"
+FONT 8, "MS Shell Dlg", 400, 0, 0x1
+BEGIN
+    LTEXT           "",IDC_BPM_OVERWRITE_PROMPT_TEXT,7,7,246,58
+    PUSHBUTTON      "Yes",IDYES,96,77,50,14
+    DEFPUSHBUTTON   "No",IDNO,150,77,50,14
+    PUSHBUTTON      "Cancel",IDCANCEL,204,77,50,14
+END
+
+
+#endif    // Englisch (Australien) resources
+/////////////////////////////////////////////////////////////////////////////
+
+
+
+#ifndef APSTUDIO_INVOKED
+/////////////////////////////////////////////////////////////////////////////
+//
+// Generated from the TEXTINCLUDE 3 resource.
+//
+
+
+/////////////////////////////////////////////////////////////////////////////
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// Version
+//
+
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION 2,2,0,0
+PRODUCTVERSION 2,2,0,0
+ FILEFLAGSMASK 0x3fL
+#ifdef _DEBUG
+ FILEFLAGS 0x1L
+#else
+ FILEFLAGS 0x0L
+#endif
+ FILEOS 0x40004L
+ FILETYPE 0x2L
+ FILESUBTYPE 0x0L
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904b0"
+        BEGIN
+            VALUE "FileDescription", "Smart Tempo\0"
+            VALUE "FileVersion", "2.2.0\0"
+            VALUE "InternalName", "foo_smart_tempo\0"
+            VALUE "OriginalFilename", "foo_smart_tempo.dll\0"
+            VALUE "ProductName", "Smart Tempo\0"
+            VALUE "ProductVersion", "2.2.0\0"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x0409, 1200
+    END
+END
+#endif    // not APSTUDIO_INVOKED
+

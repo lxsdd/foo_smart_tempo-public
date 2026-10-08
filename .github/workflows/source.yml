@@ -1,0 +1,115 @@
+name: Smart Tempo source build without private BPM data
+
+on:
+  push:
+    branches:
+      - main
+      - 'migration/**'
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: smart-tempo-public-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  source:
+    runs-on: windows-2025-vs2026
+    timeout-minutes: 90
+    steps:
+      - name: Checkout only public source
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Require absence of personal research
+        shell: pwsh
+        run: |
+          $forbidden = @(git ls-files | Where-Object {
+            $_ -match '(^|/)(docs/reports|private-research|owner-data|local-research|holdout|audio-corpus|ground-truth)' -or
+            $_ -match '\.(mp3|flac|wav|wvp|m4a|tsv\.gz|sqlite|sqlite\.gz|b64)$'
+          })
+          if ($forbidden.Count -gt 0) { throw ('Disallowed personal/research payload: ' + ($forbidden -join ', ')) }
+
+      - name: Checkout public foobar2000 SDK (2026-10-01)
+        uses: actions/checkout@v4
+        with:
+          repository: reupen/foobar2000-sdk-unmodified
+          ref: 9e4823ee802dfb704de1ce42401b48b407a54180
+          path: sdk
+          persist-credentials: false
+
+      - name: Download official WTL 10.1.0 headers (2026 release)
+        shell: pwsh
+        run: |
+          # Published on NuGet by the WTL maintainers, based on the official
+          # WTL 10.01 release for Visual Studio 2022/2026. Never use
+          # credentials or fetch source from any private repository.
+          $url = 'https://api.nuget.org/v3-flatcontainer/wtl/10.1.0/wtl.10.1.0.nupkg'
+          $archive = Join-Path $env:RUNNER_TEMP 'wtl-10.1.0.nupkg'
+          $unpacked = Join-Path $env:RUNNER_TEMP 'wtl-10.1.0-extracted'
+          Invoke-WebRequest -Uri $url -OutFile $archive
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          [IO.Compression.ZipFile]::ExtractToDirectory($archive, $unpacked)
+          $headers = @(Get-ChildItem -LiteralPath $unpacked -Recurse -File -Filter atlapp.h)
+          if ($headers.Count -ne 1) { throw "Expected one WTL atlapp.h, got $($headers.Count)" }
+          $include = $headers[0].Directory.FullName
+          New-Item -ItemType Directory -Force -Path wtl/Include | Out-Null
+          Copy-Item -Path (Join-Path $include '*') -Destination wtl/Include/ -Recurse -Force
+          $required = @('atlapp.h', 'atlgdi.h', 'atlctrls.h', 'atlwinx.h')
+          foreach ($name in $required) {
+            if (-not (Test-Path (Join-Path 'wtl/Include' $name))) { throw "WTL 10.1.0 missing: $name" }
+          }
+          Write-Host "WTL 10.1.0 installed; $((Get-ChildItem wtl/Include -File).Count) public WTL header files"
+
+      - name: Verify required dependency and license notices
+        shell: pwsh
+        run: |
+          foreach ($file in @('sdk/sdk-license.txt', 'sdk/foobar2000/shared/shared-Win32.lib', 'sdk/foobar2000/shared/shared-x64.lib', 'wtl/Include/atlapp.h', 'licenses/wtl-MS-PL.txt', 'licenses/kissfft_license.txt', 'src/kiss_fft/COPYING')) {
+            if (-not (Test-Path -LiteralPath $file -PathType Leaf)) { throw "Missing required public SDK/vendor input: $file" }
+          }
+          Copy-Item licenses/wtl-MS-PL.txt wtl/MS-PL.txt -Force
+
+      - name: Build Win32 and x64 with public SDK
+        shell: pwsh
+        run: |
+          # The SDK's independent helpers project includes atlapp.h but does
+          # not inherit Smart Tempo's private WTL include-directory settings.
+          # Export it for ALL MSBuild C++ projects in this build.
+          $wtlInclude = Join-Path $env:GITHUB_WORKSPACE 'wtl/Include'
+          $env:INCLUDE = $wtlInclude + ';' + $env:INCLUDE
+          # MSVC's CL environment variable adds arguments to EVERY cl.exe
+          # invocation, including subprojects with hard-coded include paths.
+          # The current MSVC v145/C++23 parser rejects several legacy WTL
+          # non-dependent names inside class templates (CDCHandle, ModifyStyle,
+          # GetWndClassName). Microsoft's /Zc:twoPhase- preserves historical
+          # delayed lookup while retaining the other /permissive- diagnostics.
+          $env:CL = '/Zc:twoPhase- /I"' + $wtlInclude + '" ' + $env:CL
+          Write-Host "WTL headers supplied to all MSVC projects: $wtlInclude"
+          & cmd.exe /c 'call build.bat'
+          if ($LASTEXITCODE -ne 0) { throw 'Smart Tempo public SDK build failed' }
+
+      - name: Package foobar2000 component
+        shell: cmd
+        run: call pack_component.bat
+
+      - name: Assert binary-only package privacy boundary
+        shell: pwsh
+        run: |
+          # The PowerShell validators use terminating exceptions, NOT process
+          # exit codes. $LASTEXITCODE is stale after invoking a .ps1 script.
+          $ErrorActionPreference = 'Stop'
+          & ./tools/verify-private-data-package-boundary.ps1 -ComponentPath 'build/foo_smart_tempo_2.2.0.fb2k-component'
+          & ./tools/verify-fb2k-component.ps1 -ComponentPath 'build/foo_smart_tempo_2.2.0.fb2k-component'
+
+      - name: Upload binary candidate (NOT a public research qualification)
+        uses: actions/upload-artifact@v4
+        with:
+          name: foo_smart_tempo-source-candidate
+          path: build/foo_smart_tempo_2.2.0.fb2k-component
+          if-no-files-found: error
+          retention-days: 7
