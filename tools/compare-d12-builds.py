@@ -12,7 +12,7 @@ import collections
 import json
 import math
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field as dataclass_field
 from pathlib import Path
 
 EVENT = re.compile(
@@ -66,18 +66,18 @@ def csv_field(payload: str, name: str) -> str:
 @dataclass
 class Track:
     # Identity and display labels remain only in memory, never in output.
-    identity: tuple[str, int] = field(repr=False)
-    label: str = field(repr=False)
-    build: str = field(repr=False)
+    identity: tuple[str, int] = dataclass_field(repr=False)
+    label: str = dataclass_field(repr=False)
+    build: str = dataclass_field(repr=False)
     schema: str = ""
     plan: tuple[int, int, int, int] | None = None
-    board: list[str] = field(default_factory=list, repr=False)
+    board: list[str] = dataclass_field(default_factory=list, repr=False)
     source_candidate: int | None = None
     decision: str | None = None
     state: str | None = None
     bpm: float | None = None
     timing_ms: float | None = None
-    segments: dict[int, tuple[int, str]] = field(default_factory=dict, repr=False)
+    segments: dict[int, tuple[int, str]] = dataclass_field(default_factory=dict, repr=False)
 
 
 @dataclass
@@ -85,7 +85,7 @@ class Run:
     tracks: dict[tuple[str, int], Track]
     requested: tuple[int, int, int, int]
     has_per_track_geometry: bool
-    build: str = field(repr=False)
+    build: str = dataclass_field(repr=False)
     schema: str = ""
 
 
@@ -106,7 +106,7 @@ def parse(path: Path) -> Run:
     for label, event, payload in events:
         if event != "MirAnalysisProvenance":
             continue
-        raw_key = field(payload, "track_key")
+        raw_key = dataclass_field(payload, "track_key")
         key = (raw_key, integer(field(payload, "subsong")))
         if not raw_key.isdecimal() or key in tracks:
             raise EvidenceError("Invalid or repeated track provenance")
@@ -120,7 +120,7 @@ def parse(path: Path) -> Run:
         if event == "MirAnalysisProvenance":
             continue
         if event in {"MirSamplingPlan", "MirPolicyCandidateBoard"}:
-            raw_key = field(payload, "track_key")
+            raw_key = dataclass_field(payload, "track_key")
             if event == "MirSamplingPlan":
                 key = (raw_key, integer(field(payload, "subsong")))
             else:
@@ -165,7 +165,7 @@ def parse(path: Path) -> Run:
         elif event == "HodgkinsonPrimarySegment":
             index = integer(field(payload, "segment_index"))
             count = integer(field(payload, "segment_count"))
-            reason = field(payload, "reason")
+            reason = dataclass_field(payload, "reason")
             if count == 0 or index >= count or not re.fullmatch(
                 r"[a-z][a-z0-9_]*", reason
             ):
