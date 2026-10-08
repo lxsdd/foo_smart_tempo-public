@@ -177,6 +177,26 @@ struct OdfFftWorkspace {
   return workspace;
 }
 
+struct OdfSmoothingWorkspace {
+  int half_width = -1;
+  std::vector<float> window;
+  std::vector<float> average;
+
+  void ensure(int requestedHalfWidth, std::size_t sampleCount) {
+    if (requestedHalfWidth != half_width) {
+      half_width = requestedHalfWidth;
+      window = make_normalized_hann(
+          static_cast<std::size_t>(2 * half_width + 1));
+    }
+    average.resize(sampleCount);
+  }
+};
+
+[[nodiscard]] OdfSmoothingWorkspace& odf_smoothing_workspace() {
+  thread_local OdfSmoothingWorkspace workspace;
+  return workspace;
+}
+
 [[nodiscard]] int frame_size_for_sample_rate(double sampleRate) noexcept {
   if (!is_finite_positive(sampleRate)) {
     return 0;
@@ -277,19 +297,19 @@ void power_spectrum(kiss_fftr_cfg fft,
   return novelty;
 }
 
-[[nodiscard]] std::vector<float> moving_average(const std::vector<float>& x,
-                                                double hopRate) {
+void subtract_moving_average(std::vector<float>& x, double hopRate) {
   if (x.empty() || !(hopRate > 0.0)) {
-    return std::vector<float>(x.size(), 0.0f);
+    return;
   }
   constexpr double kSmoothingWindowDuration = 0.2;
   const int halfWidth =
       static_cast<int>(std::lround(kSmoothingWindowDuration * hopRate / 4.0)) *
           2 +
       1;
-  const std::vector<float> window =
-      make_normalized_hann(static_cast<std::size_t>(2 * halfWidth + 1));
-  std::vector<float> average(x.size(), 0.0f);
+  OdfSmoothingWorkspace& workspace = odf_smoothing_workspace();
+  workspace.ensure(halfWidth, x.size());
+  const auto& window = workspace.window;
+  auto& average = workspace.average;
   for (std::size_t n = 0; n < x.size(); ++n) {
     float y = 0.0f;
     for (int offset = -halfWidth; offset <= halfWidth; ++offset) {
@@ -306,7 +326,9 @@ void power_spectrum(kiss_fftr_cfg fft,
     constexpr float kThresholdRaiser = 1.5f;
     average[n] = y * kThresholdRaiser;
   }
-  return average;
+  for (std::size_t i = 0; i < x.size(); ++i) {
+    x[i] = std::max(0.0f, x[i] - average[i]);
+  }
 }
 
 [[nodiscard]] std::vector<float> onset_detection_function(
@@ -368,10 +390,7 @@ void power_spectrum(kiss_fftr_cfg fft,
     return {};
   }
 
-  const std::vector<float> avg = moving_average(odf, odfFrameRate);
-  for (std::size_t i = 0; i < odf.size(); ++i) {
-    odf[i] = std::max(0.0f, odf[i] - avg[i]);
-  }
+  subtract_moving_average(odf, odfFrameRate);
   return odf;
 }
 
