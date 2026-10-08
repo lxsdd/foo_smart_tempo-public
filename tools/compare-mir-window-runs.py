@@ -18,7 +18,7 @@ from pathlib import Path
 
 EVENT = re.compile(
     r"foo_smart_tempo: \[(?P<label>.*)\] "
-    r"(?P<event>MirAnalysisProvenance|MirSamplingPlan|MirPolicyCandidateBoard|"
+    r"(?P<event>MirAnalysisProvenance|MirSamplingPlan|HodgkinsonPrimarySegment|MirPolicyCandidateBoard|"
     r"MirPolicyDecision|Decision:|Track Timing:|Final Output:)(?=\s|$)"
 )
 BPM = re.compile(r"^([0-9]+(?:[.,][0-9]+)?) BPM(?:,|$)")
@@ -74,6 +74,7 @@ class Track:
     schema: str
     plan: dict = field(default_factory=dict)
     candidates: list[tuple] = field(default_factory=list)
+    segments: dict[int, tuple[int, str, int, int]] = field(default_factory=dict)
     policy: dict = field(default_factory=dict)
     decision: dict = field(default_factory=dict)
     final: dict = field(default_factory=dict)
@@ -147,6 +148,24 @@ def parse_log(path: Path) -> dict[tuple[str, int], Track]:
                 "offset_min_pct": as_int(get_space_field(payload, "offset_min_pct")),
                 "offset_max_pct": as_int(get_space_field(payload, "offset_max_pct")),
             }
+        elif event == "HodgkinsonPrimarySegment":
+            segment_index = as_int(get_space_field(payload, "segment_index"))
+            segment_count = as_int(get_space_field(payload, "segment_count"))
+            candidate = as_int(get_space_field(payload, "candidate"))
+            onset_count = as_int(get_space_field(payload, "onset_count"))
+            reason = get_space_field(payload, "reason")
+            if segment_count == 0 or segment_index >= segment_count:
+                raise EvidenceError("Invalid primary segment index/count")
+            if candidate not in (0, 1):
+                raise EvidenceError("Invalid segment candidate flag")
+            if not re.fullmatch(r"[a-z][a-z0-9_]*", reason):
+                raise EvidenceError("Malformed segment exit reason")
+            if segment_index in track.segments:
+                raise EvidenceError("Duplicate primary segment")
+            if track.segments and next(iter(track.segments.values()))[0] != segment_count:
+                raise EvidenceError("Inconsistent primary segment count")
+            track.segments[segment_index] = (
+                segment_count, reason, candidate, onset_count)
         elif event == "MirPolicyCandidateBoard":
             if get_space_field(payload, "schema") != "mir_policy_candidate_board_v1":
                 raise EvidenceError("Unsupported candidate board schema")
@@ -213,6 +232,26 @@ def candidate_stage(track: Track) -> str:
     return "MEASURED_AND_OUTPUT"
 
 
+def primary_segment_reasons(track: Track) -> dict[str, int]:
+    """Exact frontend exit counts; not a ground-truth or causal judgment."""
+    return dict(sorted(collections.Counter(
+        entry[1] for entry in track.segments.values()).items()))
+
+
+def primary_segment_coverage(track: Track) -> str:
+    if not track.segments:
+        return "NO_TRACE"
+    declared = next(iter(track.segments.values()))[0]
+    return "COMPLETE" if len(track.segments) == declared else "PARTIAL"
+
+
+def aggregate_primary_segment_reasons(rows: list[dict], field: str) -> dict[str, int]:
+    totals: collections.Counter[str] = collections.Counter()
+    for row in rows:
+        totals.update(row[field])
+    return dict(sorted(totals.items()))
+
+
 def compare(baseline: dict, variant: dict) -> dict:
     if set(baseline) != set(variant):
         raise EvidenceError("Track identity mismatch: all runs must use identical tracks")
@@ -255,6 +294,13 @@ def compare(baseline: dict, variant: dict) -> dict:
             "variant_candidate_stage": candidate_stage(b),
             "identical_candidate_rows": candidate_overlap,
             "candidate_board_identical": ca == cb,
+            "baseline_segment_reasons": primary_segment_reasons(a),
+            "variant_segment_reasons": primary_segment_reasons(b),
+            "baseline_segment_trace_coverage": primary_segment_coverage(a),
+            "variant_segment_trace_coverage": primary_segment_coverage(b),
+            "primary_segment_reasons_changed": (
+                primary_segment_reasons(a) != primary_segment_reasons(b)
+            ),
             "baseline_state": a.final["state"],
             "variant_state": b.final["state"],
             "baseline_bpm": a.final["bpm"],
@@ -285,6 +331,16 @@ def compare(baseline: dict, variant: dict) -> dict:
             r["variant_candidate_stage"] for r in rows).items())),
         "candidate_stage_changes": sum(
             r["baseline_candidate_stage"] != r["variant_candidate_stage"] for r in rows),
+        "primary_segment_reason_changes": sum(
+            r["primary_segment_reasons_changed"] for r in rows),
+        "baseline_incomplete_segment_traces": sum(
+            r["baseline_segment_trace_coverage"] != "COMPLETE" for r in rows),
+        "variant_incomplete_segment_traces": sum(
+            r["variant_segment_trace_coverage"] != "COMPLETE" for r in rows),
+        "baseline_primary_segment_reason_totals": aggregate_primary_segment_reasons(
+            rows, "baseline_segment_reasons"),
+        "variant_primary_segment_reason_totals": aggregate_primary_segment_reasons(
+            rows, "variant_segment_reasons"),
         "decision_classes_changed": sum(r["decision_class_changed"] for r in rows),
         "mean_baseline_time_ms": sum(r["baseline_time_ms"] for r in rows) / len(rows),
         "mean_variant_time_ms": sum(r["variant_time_ms"] for r in rows) / len(rows),
@@ -298,8 +354,17 @@ def main() -> int:
     parser.add_argument("--variant", type=Path, required=True)
     parser.add_argument("--output-json", type=Path, required=True)
     parser.add_argument("--output-csv", type=Path)
+    parser.add_argument(
+        "--require-complete-segment-traces", action="store_true",
+        help="Fail if any track lacks a complete primary-segment exit trace")
     args = parser.parse_args()
     result = compare(parse_log(args.baseline), parse_log(args.variant))
+    if args.require_complete_segment_traces and (
+        result["baseline_incomplete_segment_traces"] or
+        result["variant_incomplete_segment_traces"]
+    ):
+        raise EvidenceError(
+            "Incomplete primary-segment traces; D12 diagnosis is not qualified")
     args.output_json.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     if args.output_csv:
         with args.output_csv.open("w", newline="", encoding="utf-8") as out:
