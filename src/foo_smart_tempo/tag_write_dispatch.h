@@ -9,6 +9,16 @@
 
 namespace smart_tempo::tag_write {
 
+enum class target_safety {
+    safe,
+    blocked_unsafe_virtual_subsong,
+};
+
+target_safety classify_target(const playable_location& location) noexcept;
+bool selection_is_safe(metadb_handle_list_cref items,
+                       pfc::string_base* firstBlockedPath = nullptr,
+                       uint32_t* firstBlockedSubsong = nullptr) noexcept;
+
 bool safe_update_info_async(metadb_handle_list_cref items,
                             service_ptr_t<file_info_filter> filter,
                             const char* contextLabel,
