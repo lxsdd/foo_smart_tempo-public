@@ -1,0 +1,7 @@
+<Project>
+  <PropertyGroup>
+    <PlatformToolset>v145</PlatformToolset>
+    <LanguageStandard>stdcpp23</LanguageStandard>
+    <ConformanceMode>true</ConformanceMode>
+  </PropertyGroup>
+</Project>
