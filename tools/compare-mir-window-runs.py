@@ -354,8 +354,17 @@ def main() -> int:
     parser.add_argument("--variant", type=Path, required=True)
     parser.add_argument("--output-json", type=Path, required=True)
     parser.add_argument("--output-csv", type=Path)
+    parser.add_argument(
+        "--require-complete-segment-traces", action="store_true",
+        help="Fail if any track lacks a complete primary-segment exit trace")
     args = parser.parse_args()
     result = compare(parse_log(args.baseline), parse_log(args.variant))
+    if args.require_complete_segment_traces and (
+        result["baseline_incomplete_segment_traces"] or
+        result["variant_incomplete_segment_traces"]
+    ):
+        raise EvidenceError(
+            "Incomplete primary-segment traces; D12 diagnosis is not qualified")
     args.output_json.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     if args.output_csv:
         with args.output_csv.open("w", newline="", encoding="utf-8") as out:
