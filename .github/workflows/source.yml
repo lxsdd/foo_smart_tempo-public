@@ -71,7 +71,11 @@ jobs:
           $env:INCLUDE = $wtlInclude + ';' + $env:INCLUDE
           # MSVC's CL environment variable adds arguments to EVERY cl.exe
           # invocation, including subprojects with hard-coded include paths.
-          $env:CL = '/I"' + $wtlInclude + '" ' + $env:CL
+          # The current MSVC v145/C++23 parser rejects several legacy WTL
+          # non-dependent names inside class templates (CDCHandle, ModifyStyle,
+          # GetWndClassName). Microsoft's /Zc:twoPhase- preserves historical
+          # delayed lookup while retaining the other /permissive- diagnostics.
+          $env:CL = '/Zc:twoPhase- /I"' + $wtlInclude + '" ' + $env:CL
           Write-Host "WTL headers supplied to all MSVC projects: $wtlInclude"
           & cmd.exe /c 'call build.bat'
           if ($LASTEXITCODE -ne 0) { throw 'Smart Tempo public SDK build failed' }
