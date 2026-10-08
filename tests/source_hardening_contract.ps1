@@ -79,12 +79,15 @@ Require-Text '.github/workflows/private-personal-component.yml' @(
     'verify-fb2k-component.ps1',
     'gh release create',
     '--draft',
-    'if (-not $release.draft)',
+    'releases?per_page=100',
+    '$matches.Count -ne 1',
+    'if (-not $release.draft',
     'git/ref/tags/$tag',
     'gh release delete $tag',
     'DRAFT_RELEASE_ONLY'
 ) @(
     'uses: actions/upload-artifact@',
+    'releases/tags/$tag',
     '--prerelease',
     '--latest'
 )

@@ -186,13 +186,24 @@ jobs:
             --draft
           if ($LASTEXITCODE -ne 0) { throw 'Draft release creation failed' }
 
-          $release = gh api "repos/${{ github.repository }}/releases/tags/$tag" | ConvertFrom-Json
-          if (-not $release.draft) {
-            gh release delete $tag --repo '${{ github.repository }}' --yes
-            throw 'Safety violation: created release is not a draft.'
+          # GitHub exposes newly created drafts through the releases collection
+          # under an internal untagged-* browser URL. GET /releases/tags/<tag>
+          # intentionally does not resolve such an unpublished draft.
+          $allReleases = gh api "repos/${{ github.repository }}/releases?per_page=100" | ConvertFrom-Json
+          $matches = @($allReleases | Where-Object {
+            $_.tag_name -eq $tag -and $_.name -eq "PRIVATE personal Smart Tempo build ${{ github.sha }}"
+          })
+          if ($matches.Count -ne 1) {
+            gh release delete $tag --repo '${{ github.repository }}' --yes 2>$null
+            throw "Safety violation: expected exactly one matching draft release, got $($matches.Count)."
+          }
+          $release = $matches[0]
+          if (-not $release.draft -or $release.prerelease) {
+            gh release delete $tag --repo '${{ github.repository }}' --yes 2>$null
+            throw 'Safety violation: created release is not a private draft.'
           }
           if ($release.assets.Count -ne 2) {
-            gh release delete $tag --repo '${{ github.repository }}' --yes
+            gh release delete $tag --repo '${{ github.repository }}' --yes 2>$null
             throw "Safety violation: expected 2 private draft assets, got $($release.assets.Count)."
           }
 
