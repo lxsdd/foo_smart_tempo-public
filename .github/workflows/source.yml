@@ -77,8 +77,8 @@ jobs:
       - name: Enforce source hardening contracts
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
           & ./tests/source_hardening_contract.ps1
-          if ($LASTEXITCODE -ne 0) { throw 'Source hardening contract failed' }
 
       - name: Run isolated synthetic sampling scheduler tests
         shell: pwsh
