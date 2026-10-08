@@ -46,8 +46,10 @@ jobs:
       - name: Checkout public Windows Template Library
         uses: actions/checkout@v4
         with:
-          repository: Win32-WTL/WTL
-          ref: 065ef5597383c1231bd4892cf8e94331b29bdb97
+          # WTL 9.10 defines CDCHandle after CDCT, which fails under VS 2026
+          # strict C++23 parsing. Pin the redistributable WTL 10 source.
+          repository: nixnodes/WTL10
+          ref: db3c152f6776b77c06730445c6aabf1e7cf9a3e3
           path: wtl
           persist-credentials: false
 
