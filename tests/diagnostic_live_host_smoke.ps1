@@ -101,7 +101,11 @@ function Run-Case([string]$installer,[string]$root,[string]$inputFile,[string[]]
   foreach ($file in $files) { $baseline[$file]=Stamp $file }
   $hostProcess=$null
   try {
-    $hostProcess=Launch $exe @()
+    # Only the CI-probe DLL knows this disposable media path. It invokes
+    # menu_helpers::run_command_context() by GUID on the host's main thread.
+    $env:SMART_TEMPO_CI_FIXTURE=$inputFile
+    try { $hostProcess=Launch $exe @() }
+    finally { Remove-Item Env:SMART_TEMPO_CI_FIXTURE -ErrorAction SilentlyContinue }
     $until=[DateTime]::UtcNow.AddSeconds(40)
     $loaded=$false
     while ([DateTime]::UtcNow -lt $until) {
@@ -135,36 +139,15 @@ function Run-Case([string]$installer,[string]$root,[string]$inputFile,[string[]]
       Write-Host ("FOOBAR_FIRST_RUN_SETUP_{0}=CLOSED" -f $label)
     }
     Start-Sleep -Seconds 2
-    # Built-in context_command naming differs across foobar versions.
-    # Probe leaf and grouped command, never the potentially writing command.
+    # Authorize dispatch only after the host has completed first-run setup.
+    # This readiness marker is not a media file and is created in runner temp.
+    $ready=$inputFile+'.ready'
+    if (Test-Path -LiteralPath $ready) { throw 'Unexpected stale probe marker' }
+    New-Item -ItemType File -Path $ready -ErrorAction Stop | Out-Null
+    Write-Host ("HOST_SDK_PROBE_ARMED_{0}=TRUE" -f $label)
     $dialog=[IntPtr]::Zero
-    $seenProgress=$false
-    Write-Host ("HOST_WINDOWS_BEFORE_{0}: {1}" -f $label,[STUI]::Titles($hostProcess.Id))
-    foreach ($commandName in @(
-      'Analyze selected tracks (no tag writes)',
-      'Smart Tempo/Analyze selected tracks (no tag writes)'
-    )) {
-      Write-Host ("DIAGNOSTIC_CLI_TRY_{0}: {1}" -f $label,$commandName)
-      $dispatch=Launch $exe @(('/context_command:'+$commandName),$inputFile)
-      if (-not $dispatch.WaitForExit(15000) -or $dispatch.ExitCode -ne 0) { throw 'Diagnostic launcher failed' }
-      $probeUntil=[DateTime]::UtcNow.AddSeconds(12)
-      while ([DateTime]::UtcNow -lt $probeUntil) {
-        $dialog=[STUI]::Find($hostProcess.Id,'DIAGNOSTIC / NO WRITE')
-        $progress=[STUI]::Find($hostProcess.Id,'Analyzing...')
-        if ($dialog -ne [IntPtr]::Zero -or $progress -ne [IntPtr]::Zero) {
-          $seenProgress=$true
-          break
-        }
-        Start-Sleep -Milliseconds 600
-      }
-      if ($seenProgress) { break }
-      Write-Host ("HOST_WINDOWS_AFTER_ATTEMPT_{0}: {1}" -f $label,[STUI]::Titles($hostProcess.Id))
-    }
-    if (-not $seenProgress) {
-      throw "No evidence of context-command execution for $label; see host window titles"
-    }
     $until=[DateTime]::UtcNow.AddSeconds(150)
-    while ($dialog -eq [IntPtr]::Zero -and [DateTime]::UtcNow -lt $until) {
+    while ([DateTime]::UtcNow -lt $until) {
       $hostProcess.Refresh()
       if ($hostProcess.HasExited) { throw 'foobar crashed during analysis' }
       $dialog=[STUI]::Find($hostProcess.Id,'DIAGNOSTIC / NO WRITE')
@@ -173,7 +156,7 @@ function Run-Case([string]$installer,[string]$root,[string]$inputFile,[string[]]
     }
     if ($dialog -eq [IntPtr]::Zero) {
       Write-Host ("HOST_WINDOWS_AT_TIMEOUT_{0}: {1}" -f $label,[STUI]::Titles($hostProcess.Id))
-      throw "Diagnostic result did not open for $label"
+      throw "CI SDK probe did not reach diagnostic results for $label"
     }
     $rows=[STUI]::Rows($dialog)
     if ($rows -lt $minimum) { throw "Only $rows result rows for $label; expected $minimum" }
