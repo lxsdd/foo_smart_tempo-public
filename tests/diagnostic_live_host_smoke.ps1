@@ -115,6 +115,25 @@ function Run-Case([string]$installer,[string]$root,[string]$inputFile,[string[]]
       if ($loaded) { break }
     }
     if (-not $loaded) { throw 'Component did not load in product test' }
+    # A new portable foobar profile starts behind the modal appearance
+    # setup. Acknowledge only this identified first-run UI, no write dialog.
+    $quick=[IntPtr]::Zero
+    $quickDeadline=[DateTime]::UtcNow.AddSeconds(10)
+    while ([DateTime]::UtcNow -lt $quickDeadline) {
+      $quick=[STUI]::Find($hostProcess.Id,'Quick Appearance Setup')
+      if ($quick -ne [IntPtr]::Zero) { break }
+      Start-Sleep -Milliseconds 300
+    }
+    if ($quick -ne [IntPtr]::Zero) {
+      Write-Host ("FOOBAR_FIRST_RUN_SETUP_{0}=DETECTED" -f $label)
+      if ([STUI]::GetDlgItem($quick,1) -eq [IntPtr]::Zero) {
+        throw 'Quick Appearance Setup does not have a standard OK button'
+      }
+      [void][STUI]::SendMessage($quick,0x111,[IntPtr]::new(1),[IntPtr]::Zero)
+      Start-Sleep -Seconds 2
+      if ([STUI]::IsWindow($quick)) { throw 'Quick Appearance Setup did not close' }
+      Write-Host ("FOOBAR_FIRST_RUN_SETUP_{0}=CLOSED" -f $label)
+    }
     Start-Sleep -Seconds 2
     # Built-in context_command naming differs across foobar versions.
     # Probe leaf and grouped command, never the potentially writing command.
