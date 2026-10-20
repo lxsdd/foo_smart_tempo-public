@@ -25,6 +25,7 @@ Assert-PE $component
 Add-Type @'
 using System;
 using System.Text;
+using System.Collections.Generic;
 using System.Runtime.InteropServices;
 public static class STUI {
   public delegate bool Callback(IntPtr h, IntPtr p);
@@ -47,6 +48,20 @@ public static class STUI {
       return true;
     },IntPtr.Zero);
     return result;
+  }
+  public static string Titles(int expected) {
+    var names=new List<string>();
+    EnumWindows((h,p)=>{
+      uint pid;
+      GetWindowThreadProcessId(h,out pid);
+      if(pid==(uint)expected) {
+        var s=new StringBuilder(512);
+        GetWindowText(h,s,s.Capacity);
+        if(s.Length>0) names.Add(s.ToString());
+      }
+      return true;
+    },IntPtr.Zero);
+    return string.Join(" || ",names);
   }
   public static int Rows(IntPtr h) {
     var list=GetDlgItem(h,1006);
@@ -101,20 +116,46 @@ function Run-Case([string]$installer,[string]$root,[string]$inputFile,[string[]]
     }
     if (-not $loaded) { throw 'Component did not load in product test' }
     Start-Sleep -Seconds 2
-    # Built-in foobar context_command targets this *exact* disposable file.
-    # No keyboard focus, playlist selection, playback, or extra components.
-    $dispatch=Launch $exe @('/context_command:Smart Tempo/Analyze selected tracks (no tag writes)',$inputFile)
-    if (-not $dispatch.WaitForExit(15000) -or $dispatch.ExitCode -ne 0) { throw 'Diagnostic command launcher failed' }
+    # Built-in context_command naming differs across foobar versions.
+    # Probe leaf and grouped command, never the potentially writing command.
     $dialog=[IntPtr]::Zero
+    $seenProgress=$false
+    Write-Host ("HOST_WINDOWS_BEFORE_{0}: {1}" -f $label,[STUI]::Titles($hostProcess.Id))
+    foreach ($commandName in @(
+      'Analyze selected tracks (no tag writes)',
+      'Smart Tempo/Analyze selected tracks (no tag writes)'
+    )) {
+      Write-Host ("DIAGNOSTIC_CLI_TRY_{0}: {1}" -f $label,$commandName)
+      $dispatch=Launch $exe @(('/context_command:'+$commandName),$inputFile)
+      if (-not $dispatch.WaitForExit(15000) -or $dispatch.ExitCode -ne 0) { throw 'Diagnostic launcher failed' }
+      $probeUntil=[DateTime]::UtcNow.AddSeconds(12)
+      while ([DateTime]::UtcNow -lt $probeUntil) {
+        $dialog=[STUI]::Find($hostProcess.Id,'DIAGNOSTIC / NO WRITE')
+        $progress=[STUI]::Find($hostProcess.Id,'Analyzing...')
+        if ($dialog -ne [IntPtr]::Zero -or $progress -ne [IntPtr]::Zero) {
+          $seenProgress=$true
+          break
+        }
+        Start-Sleep -Milliseconds 600
+      }
+      if ($seenProgress) { break }
+      Write-Host ("HOST_WINDOWS_AFTER_ATTEMPT_{0}: {1}" -f $label,[STUI]::Titles($hostProcess.Id))
+    }
+    if (-not $seenProgress) {
+      throw "No evidence of context-command execution for $label; see host window titles"
+    }
     $until=[DateTime]::UtcNow.AddSeconds(150)
-    while ([DateTime]::UtcNow -lt $until) {
+    while ($dialog -eq [IntPtr]::Zero -and [DateTime]::UtcNow -lt $until) {
       $hostProcess.Refresh()
       if ($hostProcess.HasExited) { throw 'foobar crashed during analysis' }
       $dialog=[STUI]::Find($hostProcess.Id,'DIAGNOSTIC / NO WRITE')
       if ($dialog -ne [IntPtr]::Zero) { break }
       Start-Sleep -Milliseconds 700
     }
-    if ($dialog -eq [IntPtr]::Zero) { throw "Diagnostic result did not open for $label" }
+    if ($dialog -eq [IntPtr]::Zero) {
+      Write-Host ("HOST_WINDOWS_AT_TIMEOUT_{0}: {1}" -f $label,[STUI]::Titles($hostProcess.Id))
+      throw "Diagnostic result did not open for $label"
+    }
     $rows=[STUI]::Rows($dialog)
     if ($rows -lt $minimum) { throw "Only $rows result rows for $label; expected $minimum" }
     if (-not [STUI]::ButtonDisabled($dialog)) { throw 'Diagnostic Update control enabled' }
