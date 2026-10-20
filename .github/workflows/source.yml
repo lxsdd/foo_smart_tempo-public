@@ -118,12 +118,12 @@ jobs:
       # Actual host loading is required in BOTH architectures, not just
       # a successful MSVC link. Keep each test in this same ephemeral build job.
       - name: HARD GATE - real foobar2000 Win32 component load
-        uses: lxsdd/dev-infrastructure-public/.github/actions/foobar-host-smoke@0d5baa8c655abd9b447556505fa98ce1396a3135
+        uses: lxsdd/dev-infrastructure-public/.github/actions/foobar-host-smoke@37abc33f4dd7048e66462d4bee4e69f9ffeedbc9
         with:
           architecture: Win32
           component-dll: build/foo_smart_tempo.dll
       - name: HARD GATE - real foobar2000 x64 component load
-        uses: lxsdd/dev-infrastructure-public/.github/actions/foobar-host-smoke@0d5baa8c655abd9b447556505fa98ce1396a3135
+        uses: lxsdd/dev-infrastructure-public/.github/actions/foobar-host-smoke@37abc33f4dd7048e66462d4bee4e69f9ffeedbc9
         with:
           architecture: x64
           component-dll: build/x64/foo_smart_tempo.dll
