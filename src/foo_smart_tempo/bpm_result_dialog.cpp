@@ -1605,7 +1605,7 @@ LRESULT bpm_result_dialog::OnInitDialog(CWindow wndFocus, LPARAM lInitParam)
     if (m_batchDryRunMode) {
         // The UI is additionally protected by OnOK and the auto-write guard.
         // Do not rely on the controls alone for write safety.
-        if (updateButton != nullptr) updateButton.EnableWindow(FALSE);
+        if (updateButton != nullptr) ::EnableWindow(updateButton, FALSE);
         GetDlgItem(ID_RESULT_MANUAL_BUTTON).EnableWindow(FALSE);
         GetDlgItem(ID_RESULT_MEASURED_CANDIDATES_BUTTON).EnableWindow(FALSE);
         SetWindowTextW(L"Smart Tempo Analysis Results - DIAGNOSTIC / NO WRITE");
