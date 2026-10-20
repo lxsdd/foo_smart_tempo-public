@@ -127,6 +127,19 @@ jobs:
         with:
           architecture: x64
           component-dll: build/x64/foo_smart_tempo.dll
+      # Product-specific runtime qualification: unlike shared host-load smoke,
+      # exercise the real diagnostic context action on disposable WAV/CUE.
+      # The two checks must pass independently. No artifacts are uploaded.
+      - name: HARD GATE - Win32 diagnostic menu and media no-write
+        shell: pwsh
+        run: |
+          & ./tests/diagnostic_live_host_smoke.ps1 -Architecture Win32 -ComponentDll 'build/foo_smart_tempo.dll'
+
+      - name: HARD GATE - x64 diagnostic menu and media no-write
+        shell: pwsh
+        run: |
+          & ./tests/diagnostic_live_host_smoke.ps1 -Architecture x64 -ComponentDll 'build/x64/foo_smart_tempo.dll'
+
       - name: Package foobar2000 component
         shell: cmd
         run: call pack_component.bat
