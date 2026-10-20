@@ -21,17 +21,25 @@ tracks (no tag writes)** is separate from ordinary Smart Tempo Analysis.
 called by this new action. This is NOT a claim that all third-party foobar
 components or arbitrary host-side file operations are safe.
 
-## Qualification
+## Qualification (20 October 2026)
 
-The public CI includes a source-level hardening contract and Win32/x64 builds.
-The shared foobar2000 2.26.1 runner loads the DLL in a real process in both
-architectures, with synthetic WAV/CUE no-write *CLI* checks.
+The public CI includes source-level no-write entrypoint contracts and
+Win32/x64 builds. Shared foobar2000 2.26.1 host smoke confirms component
+loading. **In addition**, product-specific runtime CI in PR #21
+(run [39444331276](https://github.com/lxsdd/foo_smart_tempo-public/actions/runs/39444331276))
+invoked the actual diagnostic context command GUID on isolated synthetic
+rhythmic WAV and two-track external CUE fixtures for **both** architectures.
 
-Host module loading is not the same as invoking the diagnostic context
-action and observing its results. Automated product-specific GUI execution,
-zero-writes during a full analysis, reference BPM correctness, unknown-length
-audio and D12 holdout cases remain separate qualifications. Run the genuine
-test on disposable audio copies until those gates pass.
+The runtime test required an identifiable `DIAGNOSTIC / NO WRITE` result
+window, at least one WAV/two CUE result rows, disabled Update control, a
+blocked simulated Update invocation, and unchanged SHA256 / file size /
+LastWriteTimeUtc before and after. CI-only dispatcher code is excluded from
+the personal production component.
+
+Scope remains intentionally limited: no live-user audio was analyzed.
+Real-media metadata-writer safety, full keyboard/UI accessibility,
+unknown-length media, true reference BPM accuracy, private D12 holdout
+cases and owner acceptance are **NOT TESTED** by these synthetic checks.
 
 ## Private D12 comparison
 
