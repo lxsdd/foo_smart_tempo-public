@@ -18,28 +18,57 @@ logs, it requires exactly one unambiguous global
 `foo_smart_tempo prefs (MIR Engine)` settings line. The output explicitly
 marks the legacy per-track effective geometry **unverified**.
 
-## Safe collection in foobar2000
+## Safe collection in foobar2000 (current state: 20 October 2026)
 
-**Important: the ordinary Smart Tempo Analysis action may perform automatic
-tag writes if Auto-write is enabled.** Do not assume clicking Cancel in its
-results dialog reverses an automatic write. A future explicit multi-track
-no-write action is still a separate UI change; it is **not in the current
-plugin**.
+The latest owner-only private component `foo_smart_tempo-private-c0f4c7a8ce0d.fb2k-component`
+(sha256 `8AF63FC0F31A09336D353D27FF32A3340A3E2F0B4B9CEAEE1F5607BD587F8E93`,
+workflow run `39481279638`) now contains the independent context command
+**Smart Tempo > Analyze selected tracks (no tag writes)**.
+It analyzes selected tracks even if they already have a BPM tag; its
+auto-write, result Update, candidate changes and playlist mutation paths are
+disabled/guarded. Ordinary **Smart Tempo Analysis** is NOT this mode.
 
-For an immediately available read-only inspection, use
-`Smart Tempo > Measured BPM candidates` on **exactly one selected track**.
-The analysis phase opens a candidate-inspection window without submitting
-an automatic BPM-tag write. Do not click `Write selected BPM` in the
-standalone candidate dialog. Enable verbose logging in the plugin settings
-before testing. Close the candidate inspection window without writing.
+Synthetic Win32/x64 runtime qualification (PR #21, run `39444331276`)
+exercised the real menu GUID using disposable WAV and external CUE:
+1 WAV row / 2 CUE rows, disabled Update and a blocked simulated Update,
+with unchanged SHA256, length and LastWriteTime. This does **not** establish
+D12 reference BPM accuracy, real-audio tag safety or owner acceptance.
 
-An apples-to-apples *full D12 batch* comparison needs complete logs for
-the same twelve source tracks and the same sampling settings on both
-component versions. Until a verified batch no-write mode is available,
-do not put the original data at risk through automatic writing.
-A complete reference-independent local evaluation can be performed against
-disposable, privately kept **copies** of the audio, not the originals.
-Do not upload the copies or the console logs.
+### Local-only baseline and variant evidence
+
+1. Download the two **unpublished owner-only** components while logged
+   in to GitHub with repository write access. Baseline:
+   `foo_smart_tempo-private-b193b73c2409.fb2k-component` (draft
+   `407141776`). New/current variant:
+   `foo_smart_tempo-private-c0f4c7a8ce0d.fb2k-component` (draft
+   `418771710`). Verify each component against its own draft
+   `private-component-manifest.json` SHA256 before installing.
+2. Use **disposable private copies** of all 12 tracks and keep their full
+   paths identical for both runs. Make separate private backup copies of
+   the fixtures before either analysis. Never place original media, BPM
+   references or full logs in a public GitHub repository/Actions run.
+3. Use the same architecture and analysis settings for both runs:
+   window length, pass count and 20–80% sampling offset geometry.
+   Enable verbose MIR logging; keep the full console logs privately.
+   Do not load both component builds into a single foobar process.
+4. For the **older baseline**, the new multi-track no-write command does
+   not exist. For a read-only inspection use **Measured BPM candidates**
+   on exactly one selected file at a time and do not select its write
+   button. If a full baseline batch instead uses ordinary analysis,
+   run it only on disposable copies and be prepared to restore those
+   copies, since pre-result auto-write is possible.
+5. For the **current variant**, select the same twelve *copies* and
+   invoke **Analyze selected tracks (no tag writes)**. Do not substitute
+   the ordinary analysis action. Keep the console log as a private file.
+6. Preserve identical track identity, subsong, policy schema and
+   requested sampling geometry; do not silently label a partial or
+   mismatched comparison PASS. Restoring altered baseline fixtures must
+   preserve the same full paths for the current run.
+
+Local no-write behavior beyond the tested synthetic fixtures remains a
+separate owner acceptance gate. The actual held-out reference BPM values
+are required to evaluate accuracy; `compare-d12-builds.py` outputs only
+reference-independent aggregate transitions.
 
 ## Run the comparator offline
 
