@@ -27,7 +27,8 @@ public:
 
     bpm_auto_analysis_thread(
         metadb_handle_list_cref p_tracks,
-        bool p_measuredCandidateInspectionMode = false);
+        bool p_measuredCandidateInspectionMode = false,
+        bool p_batchDryRunMode = false);
     bool start();
 
     BEGIN_MSG_MAP_EX(bpm_auto_analysis_thread)
@@ -139,6 +140,7 @@ private:
     t_size m_processedTrackCount = 0;
     double m_analysisElapsedSeconds = 0.0;
     bool m_measuredCandidateInspectionMode = false;
+    bool m_batchDryRunMode = false;
     double m_etaDisplayedRemaining = 0.0;
     double m_smoothedTotalTimeSeconds = 0.0;
     bool m_etaUiInitialized = false;
