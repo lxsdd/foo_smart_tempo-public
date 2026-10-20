@@ -9,10 +9,10 @@ $ErrorActionPreference='Stop'
 if ($env:GITHUB_ACTIONS -ne 'true' -or -not $env:RUNNER_TEMP) { throw 'Disposable CI only' }
 if (Get-Process foobar2000 -ErrorAction SilentlyContinue) { throw 'Non-isolated foobar instance' }
 $component=(Resolve-Path -LiteralPath $ComponentDll).Path
-$spec=@{
+$spec=(@{
   Win32=@('https://www.foobar2000.org/files/foobar2000_v2.26.1.exe','849BC4424326DA81049746E9A2255A3A707E56B76CC69ED11714ED23C69ECE52',332)
   x64=@('https://www.foobar2000.org/files/foobar2000-x64_v2.26.1.exe','72FE15A88B085EE4E49D68114E2BB9655000C2E0FDF40DCC128BBEF8BCAF3600',34404)
-}[$Architecture]
+})[$Architecture]
 function Assert-PE([string]$p) {
   $b=[IO.File]::ReadAllBytes($p)
   if ($b.Length -lt 512 -or $b[0] -ne 77 -or $b[1] -ne 90) { throw "Not PE: $p" }
@@ -161,7 +161,7 @@ try {
       $audio[$p+1]=[byte](($j%2)*90)
     }
   }
-  $file=[IO.File]::CreateNew($wav)
+  $file=[IO.File]::Open($wav,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
   $writer=[IO.BinaryWriter]::new($file)
   try {
     $writer.Write([Text.Encoding]::ASCII.GetBytes('RIFF'))
