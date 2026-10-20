@@ -127,6 +127,47 @@ jobs:
         with:
           architecture: x64
           component-dll: build/x64/foo_smart_tempo.dll
+      - name: Build CI-only SDK diagnostic dispatcher (Win32 and x64)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # Dedicated output directories preserve ordinary validated binaries.
+          $root = (Get-Location).Path
+          $wtl = Join-Path $root 'wtl/Include'
+          $env:INCLUDE = $wtl + ';' + $env:INCLUDE
+          $env:CL = '/Zc:twoPhase- /I"' + $wtl + '" ' + $env:CL
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
+          $msbuild = @(& $vswhere -latest -products '*' -requires Microsoft.Component.MSBuild -find 'MSBuild\**\Bin\MSBuild.exe')[0]
+          if (-not $msbuild -or -not (Test-Path $msbuild)) { throw 'No MSBuild for CI probe' }
+          foreach ($arch in @('Win32', 'x64')) {
+            $out = Join-Path $root ('build/ci-probe/' + $arch)
+            $obj = Join-Path $root ('build/obj/ci-probe/' + $arch)
+            New-Item -ItemType Directory -Force -Path $out,$obj | Out-Null
+            & $msbuild 'src/foo_smart_tempo/foo_smart_tempo.vcxproj' `
+              '/t:Rebuild' '/p:Configuration=Release' "/p:Platform=$arch" `
+              '/p:PlatformToolset=v145' '/p:CppLanguageStandard=cpp23' `
+              '/p:SmartTempoCIRuntimeProbe=true' `
+              "/p:SolutionDir=$root\" "/p:OutDir=$out\" "/p:IntDir=$obj\"
+            if ($LASTEXITCODE -ne 0) { throw "CI host diagnostic build failed for $arch" }
+            if (-not (Test-Path (Join-Path $out 'foo_smart_tempo.dll'))) {
+              throw "CI host diagnostic DLL missing for $arch"
+            }
+            Write-Host "CI_PROBE_BUILD_$arch=PASS"
+          }
+
+      # Product-specific runtime qualification: unlike shared host-load smoke,
+      # exercise the real diagnostic context action on disposable WAV/CUE.
+      # The two checks must pass independently. No artifacts are uploaded.
+      - name: HARD GATE - Win32 diagnostic menu and media no-write
+        shell: pwsh
+        run: |
+          & ./tests/diagnostic_live_host_smoke.ps1 -Architecture Win32 -ComponentDll 'build/ci-probe/Win32/foo_smart_tempo.dll'
+
+      - name: HARD GATE - x64 diagnostic menu and media no-write
+        shell: pwsh
+        run: |
+          & ./tests/diagnostic_live_host_smoke.ps1 -Architecture x64 -ComponentDll 'build/ci-probe/x64/foo_smart_tempo.dll'
+
       - name: Package foobar2000 component
         shell: cmd
         run: call pack_component.bat
