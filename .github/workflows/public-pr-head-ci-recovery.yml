@@ -1,0 +1,20 @@
+name: Public Smart Tempo CI recovery
+
+# Public source CI only. No personal BPM data, component signing or release.
+on:
+  schedule:
+    - cron: '53 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+  actions: write
+
+jobs:
+  missing-public-ci:
+    uses: lxsdd/dev-infrastructure-public/.github/workflows/dispatch-pr-head-ci.yml@eed379ee8ed8a478285b437176ab61e12cfff0ce
+    with:
+      pr_numbers: '18'
+      workflow_files: 'source.yml'
+      base_branch: main
