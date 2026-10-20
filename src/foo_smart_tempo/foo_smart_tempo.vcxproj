@@ -187,6 +187,8 @@ if exist "$(OutDir)$(TargetName)$(TargetExt)" move /y "$(OutDir)$(TargetName)$(T
     <ClCompile Include="file_info_filter_bpm.cpp" />
     <ClCompile Include="file_info_filter_scale_bpm.cpp" />
     <ClCompile Include="foo_smart_tempo.cpp" />
+    <!-- Test probe is excluded from all ordinary/private component builds. -->
+    <ClCompile Include="..\..\tests\smart_tempo_ci_probe.cpp" Condition="'$(SmartTempoCIRuntimeProbe)'=='true'" />
     <ClCompile Include="analysis_decision_support.cpp" />
     <ClCompile Include="format_bpm.cpp" />
     <ClCompile Include="hodgkinson_full_mir.cpp" />
