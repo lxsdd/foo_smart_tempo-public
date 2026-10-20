@@ -94,7 +94,8 @@ public:
         const std::vector<std::vector<IBpmAnalyzer::MeasuredBpmCandidate>>&
             p_measured_bpm_candidate_results,
         t_size p_processedTrackCount,
-        double p_elapsedSeconds);
+        double p_elapsedSeconds,
+        bool p_batchDryRunMode);
 
 private:
     LRESULT OnInitDialog(CWindow wndFocus, LPARAM lInitParam);
@@ -177,6 +178,7 @@ private:
     std::vector<std::wstring> m_errorWide;
     t_size m_processedTrackCount = 0;
     double m_elapsedSeconds = 0.0;
+    bool m_batchDryRunMode = false;
     std::vector<int> m_columnWidths;
     std::vector<int> m_columnContentWidthCache;
     std::vector<int> m_visibleColumns;

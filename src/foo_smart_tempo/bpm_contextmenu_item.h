@@ -17,6 +17,7 @@ private:
 	enum menu_index
 	{
 		mnuAutoAnalysis,
+		mnuBatchDryRun,
 		mnuMeasuredCandidates,
 		mnuManualAnalysis,
 		mnuDoubleBPM,
@@ -25,6 +26,7 @@ private:
 	};
 
 	void run_auto_analysis(metadb_handle_list_cref p_data);
+	void run_batch_dry_run(metadb_handle_list_cref p_data);
 	void run_measured_candidate_analysis(metadb_handle_list_cref p_data);
 	void run_manual_analysis(metadb_handle_list_cref p_data);
 	void run_scale_bpm(metadb_handle_list_cref p_data, double p_factor);

@@ -1237,7 +1237,8 @@ bpm_result_dialog::bpm_result_dialog(
     const std::vector<std::vector<IBpmAnalyzer::MeasuredBpmCandidate>>&
         p_measured_bpm_candidate_results,
     t_size p_processedTrackCount,
-    double p_elapsedSeconds)
+    double p_elapsedSeconds,
+    bool p_batchDryRunMode)
     : m_tracks(p_tracks)
     , m_infos(p_infos)
     , m_bpm_results(p_bpm_results)
@@ -1250,6 +1251,7 @@ bpm_result_dialog::bpm_result_dialog(
     , m_measured_bpm_candidate_results(p_measured_bpm_candidate_results)
     , m_processedTrackCount(p_processedTrackCount)
     , m_elapsedSeconds((std::max)(0.0, p_elapsedSeconds))
+    , m_batchDryRunMode(p_batchDryRunMode)
 {
     const size_t total = m_tracks.get_count();
     if (m_confidence_results.size() != total) m_confidence_results.assign(total, 0.0);
@@ -1498,7 +1500,7 @@ LRESULT bpm_result_dialog::OnInitDialog(CWindow wndFocus, LPARAM lInitParam)
       m_suppress_write_results.begin(), m_suppress_write_results.end(),
       static_cast<uint8_t>(1)));
 
-  if (bpm_config_auto_write_tag)
+  if (bpm_config_auto_write_tag && !m_batchDryRunMode)
   {
         auto changedItemCounter = std::make_shared<std::atomic<uint64_t>>(0);
         if (smart_tempo::tag_write::safe_update_info_async(
@@ -1600,12 +1602,21 @@ LRESULT bpm_result_dialog::OnInitDialog(CWindow wndFocus, LPARAM lInitParam)
         ::SendMessage(cancelButton, BM_SETSTYLE, BS_DEFPUSHBUTTON, TRUE);
         ::SendMessage(m_hWnd, DM_SETDEFID, IDCANCEL, 0);
     }
+    if (m_batchDryRunMode) {
+        // The UI is additionally protected by OnOK and the auto-write guard.
+        // Do not rely on the controls alone for write safety.
+        if (updateButton != nullptr) ::EnableWindow(updateButton, FALSE);
+        GetDlgItem(ID_RESULT_MANUAL_BUTTON).EnableWindow(FALSE);
+        GetDlgItem(ID_RESULT_MEASURED_CANDIDATES_BUTTON).EnableWindow(FALSE);
+        SetWindowText(L"Smart Tempo Analysis Results - DIAGNOSTIC / NO WRITE");
+    }
 
     return 0;
 }
 
 LRESULT bpm_result_dialog::OnOK(UINT uNotifyCode, int nID, CWindow wndCtl)
 {
+    if (m_batchDryRunMode) return 0; // Secondary hard guard: no tag dispatch.
     (void)uNotifyCode;
     (void)nID;
     (void)wndCtl;
@@ -1687,6 +1698,7 @@ LRESULT bpm_result_dialog::OnHalveBPMClicked(UINT uNotifyCode, int nID, CWindow 
 
 LRESULT bpm_result_dialog::OnManualBpmClicked(UINT uNotifyCode, int nID, CWindow wndCtl)
 {
+    if (m_batchDryRunMode) return 0;
     (void)uNotifyCode;
     (void)nID;
     (void)wndCtl;
@@ -1697,6 +1709,7 @@ LRESULT bpm_result_dialog::OnManualBpmClicked(UINT uNotifyCode, int nID, CWindow
 LRESULT bpm_result_dialog::OnMeasuredCandidatesClicked(
     UINT uNotifyCode, int nID, CWindow wndCtl)
 {
+    if (m_batchDryRunMode) return 0;
     (void)uNotifyCode;
     (void)nID;
     (void)wndCtl;
@@ -2020,6 +2033,7 @@ LRESULT bpm_result_dialog::OnMeasuredCandidateFollowSelection(
 void bpm_result_dialog::ApplyMeasuredCandidateSelection(
     size_t modelIndex, size_t candidateIndex)
 {
+    if (m_batchDryRunMode) return;
     if (modelIndex >= m_measured_bpm_candidate_results.size()) return;
     if (candidateIndex >= m_measured_bpm_candidate_results[modelIndex].size()) {
         return;
@@ -2299,6 +2313,11 @@ void bpm_result_dialog::InitTooltips()
 
 void bpm_result_dialog::UpdateBpmTagLabel()
 {
+    if (m_batchDryRunMode) {
+        uSetDlgItemText(m_hWnd, ID_RESULT_BPM_TAG,
+                        "DIAGNOSTIC MODE: tag writes and playlist edits disabled.");
+        return;
+    }
     const size_t suppressWriteCount = static_cast<size_t>(std::count(
         m_suppress_write_results.begin(), m_suppress_write_results.end(),
         static_cast<uint8_t>(1)));
@@ -2315,6 +2334,11 @@ void bpm_result_dialog::UpdateBpmTagLabel()
 }
 void bpm_result_dialog::EnableScaleBPMButtons()
 {
+    if (m_batchDryRunMode) {
+        GetDlgItem(ID_DOUBLE_BPM_BUTTON).EnableWindow(FALSE);
+        GetDlgItem(ID_HALVE_BPM_BUTTON).EnableWindow(FALSE);
+        return;
+    }
     CListViewCtrl listView(GetDlgItem(ID_BPM_RESULT_LIST));
     bool hasScalableSelection = false;
     int item = -1;
@@ -2335,6 +2359,10 @@ void bpm_result_dialog::EnableScaleBPMButtons()
 
 void bpm_result_dialog::EnableMeasuredCandidatesButton()
 {
+    if (m_batchDryRunMode) {
+        GetDlgItem(ID_RESULT_MEASURED_CANDIDATES_BUTTON).EnableWindow(FALSE);
+        return;
+    }
     CListViewCtrl list(GetDlgItem(ID_BPM_RESULT_LIST));
     int selectedCount = 0;
     bool canInspect = false;
@@ -2361,6 +2389,7 @@ void bpm_result_dialog::EnableMeasuredCandidatesButton()
 
 void bpm_result_dialog::ScaleSelectionBPM(double p_factor)
 {
+    if (m_batchDryRunMode) return;
     CListViewCtrl result_list(GetDlgItem(ID_BPM_RESULT_LIST));
     const int bpmColumn = ModelToViewColumn(ColumnBpm);
     if (bpmColumn < 0) return;
