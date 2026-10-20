@@ -27,6 +27,8 @@ bool read_env(const wchar_t* key, std::wstring& out) {
 void CALLBACK run_ci_probe(HWND, UINT, UINT_PTR timer, DWORD) {
     // Complete foobar's one-time appearance wizard before invoking any menu.
     if (::FindWindowW(nullptr, L"Quick Appearance Setup") != nullptr) return;
+    const std::wstring readyMarker = g_ci_fixture + L".ready";
+    if (::GetFileAttributesW(readyMarker.c_str()) == INVALID_FILE_ATTRIBUTES) return;
     ::KillTimer(nullptr, timer);
     g_ci_timer = 0;
 
