@@ -22,7 +22,6 @@ function Assert-PE([string]$p) {
       [BitConverter]::ToUInt16($b,$n+4) -ne [UInt16]$spec[2]) { throw "Wrong PE architecture: $p" }
 }
 Assert-PE $component
-Add-Type -AssemblyName System.Windows.Forms
 Add-Type @'
 using System;
 using System.Text;
@@ -36,8 +35,6 @@ public static class STUI {
   [DllImport("user32.dll")] public static extern IntPtr SendMessage(IntPtr h,uint m,IntPtr w,IntPtr l);
   [DllImport("user32.dll")] public static extern bool IsWindow(IntPtr h);
   [DllImport("user32.dll")] public static extern bool IsWindowEnabled(IntPtr h);
-  [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h,int cmd);
-  [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
   public static IntPtr Find(int expected,string text) {
     IntPtr result=IntPtr.Zero;
     EnumWindows((h,p)=>{
@@ -76,15 +73,15 @@ function Launch([string]$exe,[string[]]$args) {
   return [Diagnostics.Process]::Start($i)
 }
 function Run-Case([string]$installer,[string]$root,[string]$inputFile,[string[]]$files,[int]$minimum,[string]$label) {
-  $home=Join-Path $root ('host-'+$label)
-  $install=Start-Process $installer -ArgumentList @('/S',"/D=$home") -Wait -PassThru
+  $hostDir=Join-Path $root ('host-'+$label)
+  $install=Start-Process $installer -ArgumentList @('/S',"/D=$hostDir") -Wait -PassThru
   if ($install.ExitCode -ne 0) { throw 'Official host installer failed' }
-  $exe=Join-Path $home 'foobar2000.exe'
+  $exe=Join-Path $hostDir 'foobar2000.exe'
   Assert-PE $exe
-  $folder=Join-Path $home 'components'
+  $folder=Join-Path $hostDir 'components'
   New-Item -ItemType Directory $folder -Force | Out-Null
   Copy-Item -LiteralPath $component -Destination (Join-Path $folder 'foo_smart_tempo.dll')
-  New-Item -ItemType File (Join-Path $home 'portable_mode_enabled') | Out-Null
+  New-Item -ItemType File (Join-Path $hostDir 'portable_mode_enabled') | Out-Null
   $baseline=@{}
   foreach ($file in $files) { $baseline[$file]=Stamp $file }
   $hostProcess=$null
@@ -103,18 +100,10 @@ function Run-Case([string]$installer,[string]$root,[string]$inputFile,[string[]]
       if ($loaded) { break }
     }
     if (-not $loaded) { throw 'Component did not load in product test' }
-    $add=Launch $exe @('/add','/immediate',$inputFile)
-    if (-not $add.WaitForExit(15000) -or $add.ExitCode -ne 0) { throw 'Fixture import failed' }
-    Start-Sleep -Seconds 3
-    $hostProcess.Refresh()
-    $mainWindow=$hostProcess.MainWindowHandle
-    if ($mainWindow -eq [IntPtr]::Zero) { throw 'No interactive host main window' }
-    [void][STUI]::ShowWindow($mainWindow,9)
-    if (-not [STUI]::SetForegroundWindow($mainWindow)) { throw 'Host selection cannot be focused' }
-    Start-Sleep -Milliseconds 500
-    [Windows.Forms.SendKeys]::SendWait('^a')
-    Start-Sleep -Milliseconds 500
-    $dispatch=Launch $exe @('/playlist_command:Smart Tempo/Analyze selected tracks (no tag writes)')
+    Start-Sleep -Seconds 2
+    # Built-in foobar context_command targets this *exact* disposable file.
+    # No keyboard focus, playlist selection, playback, or extra components.
+    $dispatch=Launch $exe @('/context_command:Smart Tempo/Analyze selected tracks (no tag writes)',$inputFile)
     if (-not $dispatch.WaitForExit(15000) -or $dispatch.ExitCode -ne 0) { throw 'Diagnostic command launcher failed' }
     $dialog=[IntPtr]::Zero
     $until=[DateTime]::UtcNow.AddSeconds(150)
