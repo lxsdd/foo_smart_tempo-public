@@ -30,6 +30,9 @@ void bpm_contextmenu_item::get_item_name(unsigned p_index, pfc::string_base & p_
 	    case mnuAutoAnalysis:
 		    p_out = "Smart Tempo Analysis";
 			break;
+		case mnuBatchDryRun:
+			p_out = "Analyze selected tracks (no tag writes)";
+			break;
 		case mnuMeasuredCandidates:
 			p_out = "Measured BPM candidates";
 			break;
@@ -54,6 +57,9 @@ void bpm_contextmenu_item::context_command(unsigned p_index, metadb_handle_list_
 	    case mnuAutoAnalysis:
 			run_auto_analysis(p_data);
 			break;
+		case mnuBatchDryRun:
+			run_batch_dry_run(p_data);
+			break;
 		case mnuMeasuredCandidates:
 			run_measured_candidate_analysis(p_data);
 			break;
@@ -77,6 +83,8 @@ GUID bpm_contextmenu_item::get_item_guid(unsigned p_index)
 	{
 	    case mnuAutoAnalysis:
 			return guid_auto_bpm;
+		case mnuBatchDryRun:
+			return guid_batch_dry_run_bpm;
 		case mnuMeasuredCandidates:
 			return guid_measured_bpm_candidates;
 		case mnuManualAnalysis:
@@ -98,6 +106,9 @@ bool bpm_contextmenu_item::get_item_description(unsigned p_index, pfc::string_ba
 	{
 	    case mnuAutoAnalysis:
 	        p_out = "Run Smart Tempo analysis for the selected tracks.";
+			break;
+		case mnuBatchDryRun:
+			p_out = "Analyze multiple tracks without tag writes, playlist edits or candidate selection updates.";
 			break;
 		case mnuMeasuredCandidates:
 			p_out = "Analyze one selected track and open its measured BPM candidates for inspection.";
@@ -124,6 +135,15 @@ void bpm_contextmenu_item::run_auto_analysis(metadb_handle_list_cref p_data)
 	auto thread = std::make_unique<bpm_auto_analysis_thread>(p_data);
 	if (thread->start()) {
 		// Ownership is transferred to the modeless dialog lifecycle.
+		thread.release();
+	}
+}
+
+void bpm_contextmenu_item::run_batch_dry_run(
+	metadb_handle_list_cref p_data)
+{
+	auto thread = std::make_unique<bpm_auto_analysis_thread>(p_data, false, true);
+	if (thread->start()) {
 		thread.release();
 	}
 }
