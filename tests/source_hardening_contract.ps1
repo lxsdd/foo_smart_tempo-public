@@ -103,4 +103,5 @@ if ($privateWorkflow -match '(?m)^\s*pull_request\s*:') {
     throw 'Private personal component workflow must never run on pull_request.'
 }
 
+& ./tests/dry_run_no_write_contract.ps1
 Write-Host 'SOURCE_HARDENING_CONTRACT=PASS'
