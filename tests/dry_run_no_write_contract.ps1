@@ -42,4 +42,28 @@ if ($onOk -lt 0 -or $guard -lt 0 -or $update -lt 0 -or
     throw 'Diagnostic guard not before results writer dispatch'
 }
 
+
+# Verify guards at the beginning of all result mutation entrypoints.
+function Require-EarlyDiagnosticGuard([string]$source, [string]$method, [string]$guard) {
+    $signature = [regex]::Escape('bpm_result_dialog::' + $method)
+    $pattern = '(?s)\b' + $signature + '\s*\([^)]*\)\s*\{\s*' + [regex]::Escape($guard)
+    if (-not [regex]::IsMatch($source, $pattern)) {
+        throw "Diagnostic guard missing or late in $method"
+    }
+}
+foreach ($handler in @('OnOK', 'OnManualBpmClicked', 'OnMeasuredCandidatesClicked')) {
+    Require-EarlyDiagnosticGuard $results $handler 'if (m_batchDryRunMode) return 0;'
+}
+foreach ($handler in @('ApplyMeasuredCandidateSelection', 'ScaleSelectionBPM')) {
+    Require-EarlyDiagnosticGuard $results $handler 'if (m_batchDryRunMode) return;'
+}
+foreach ($method in @('EnableScaleBPMButtons', 'EnableMeasuredCandidatesButton')) {
+    $signature = [regex]::Escape('bpm_result_dialog::' + $method)
+    $pattern = '(?s)\b' + $signature + '\s*\([^)]*\)\s*\{\s*if \(m_batchDryRunMode\)\s*\{'
+    if (-not [regex]::IsMatch($results, $pattern)) {
+        throw "Diagnostic control re-enable guard missing in $method"
+    }
+}
+Write-Host 'DRY_RUN_NO_WRITE_ENTRYPOINT_CONTRACT=PASS'
+
 Write-Host 'DRY_RUN_NO_WRITE_SOURCE_CONTRACT=PASS'
