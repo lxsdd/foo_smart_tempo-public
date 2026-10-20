@@ -243,9 +243,10 @@ private:
 
 bpm_auto_analysis_thread::bpm_auto_analysis_thread(
     metadb_handle_list_cref p_tracks,
-    bool p_measuredCandidateInspectionMode)
-    : m_measuredCandidateInspectionMode(
-          p_measuredCandidateInspectionMode) {
+    bool p_measuredCandidateInspectionMode,
+    bool p_batchDryRunMode)
+    : m_measuredCandidateInspectionMode(p_measuredCandidateInspectionMode),
+      m_batchDryRunMode(p_batchDryRunMode) {
   m_tracks.add_items(p_tracks);
   m_infos.set_size(m_tracks.get_count());
 }
@@ -276,7 +277,8 @@ bool bpm_auto_analysis_thread::start() {
     m_infos.remove_mask(mask);
   }
 
-  if (anyBpmExisting && !m_measuredCandidateInspectionMode) {
+  if (anyBpmExisting && !m_measuredCandidateInspectionMode &&
+      !m_batchDryRunMode) {
     pfc::string_formatter prompt;
     if (anyBpmMissing) {
       prompt << "Some selected tracks already contain %" << bpmTag.get_ptr()
@@ -308,7 +310,7 @@ bool bpm_auto_analysis_thread::start() {
   }
 
   if (anyBpmExisting && !rescanExisting &&
-      !m_measuredCandidateInspectionMode) {
+      !m_measuredCandidateInspectionMode && !m_batchDryRunMode) {
     // User chose to skip re-scanning files that already have BPM data.
     bit_array_bittable mask(m_tracks.get_size());
     for (t_size index = 0; index < m_tracks.get_size(); ++index) {
@@ -1658,7 +1660,7 @@ LRESULT bpm_auto_analysis_thread::OnWorkerDone(UINT, WPARAM wp, LPARAM) {
     m_workerThread.join();
 
   if (!m_wasAborted && core_api::assert_main_thread()) {
-    if (!m_measuredCandidateInspectionMode &&
+    if (!m_measuredCandidateInspectionMode && !m_batchDryRunMode &&
         cfg_smart_tempo_create_unmatched_playlist &&
         m_unmatched_tracks.get_count() > 0) {
       static_api_ptr_t<playlist_manager> playlistMan;
@@ -1674,7 +1676,7 @@ LRESULT bpm_auto_analysis_thread::OnWorkerDone(UINT, WPARAM wp, LPARAM) {
     }
 
     metadb_handle_list reviewHoldTracks;
-    if (!m_measuredCandidateInspectionMode &&
+    if (!m_measuredCandidateInspectionMode && !m_batchDryRunMode &&
         cfg_smart_tempo_create_review_playlist) {
       for (t_size index = 0;
            index < m_tracks.get_count() && index < m_suppress_write_results.size();
@@ -1685,7 +1687,7 @@ LRESULT bpm_auto_analysis_thread::OnWorkerDone(UINT, WPARAM wp, LPARAM) {
       }
     }
 
-    if (!m_measuredCandidateInspectionMode &&
+    if (!m_measuredCandidateInspectionMode && !m_batchDryRunMode &&
         cfg_smart_tempo_create_review_playlist) {
       static_api_ptr_t<playlist_manager> playlistMan;
       pfc::string8 playlistName = smart_tempo::helpers::trim_copy(
@@ -1733,7 +1735,8 @@ LRESULT bpm_auto_analysis_thread::OnWorkerDone(UINT, WPARAM wp, LPARAM) {
           m_suppress_write_results, m_routing_context_results,
           m_measured_bpm_candidate_results,
           m_processedTrackCount,
-          m_analysisElapsedSeconds);
+          m_analysisElapsedSeconds,
+          m_batchDryRunMode);
       dlg->Create(core_api::get_main_window(), NULL);
       if (dlg->IsWindow()) {
         dlg->ShowWindow(SW_SHOW);
