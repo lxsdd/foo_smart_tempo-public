@@ -103,5 +103,17 @@ if ($privateWorkflow -match '(?m)^\s*pull_request\s*:') {
     throw 'Private personal component workflow must never run on pull_request.'
 }
 
+
+# Single source owner: lxsdd/foobar2000_component_template, qualified by
+# PR #9 / Windows migration CI #39858103647. Verify exact GIT BLOB hash:
+# this intentionally does NOT claim that a raw SHA1 file digest equals Git SHA.
+$sharedVerifierBlob = '26fe194bdc429337a8ddc06e2e14ff6a9f03840d'
+$sharedVerifierPath = 'tools/verify-fb2k-component.ps1'
+$observedVerifierBlob = (& git hash-object -- $sharedVerifierPath).Trim()
+if ($LASTEXITCODE -ne 0 -or $observedVerifierBlob -cne $sharedVerifierBlob) {
+    throw "Canonical foobar component verifier drift: $sharedVerifierPath"
+}
+Write-Host 'SHARED_FOOBAR_COMPONENT_VERIFIER_SOURCE_PIN=PASS'
+
 & ./tests/dry_run_no_write_contract.ps1
 Write-Host 'SOURCE_HARDENING_CONTRACT=PASS'
