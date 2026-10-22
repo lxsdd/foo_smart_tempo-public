@@ -1,0 +1,10 @@
+{
+  "source_repository": "lxsdd/foobar2000_component_template",
+  "source_commit": "dc623b26feda0f78b7d41a6922d216af4943db01",
+  "source_path": "ci/verify-fb2k-component.ps1",
+  "git_blob_sha1": "26fe194bdc429337a8ddc06e2e14ff6a9f03840d",
+  "qualification_run": "https://github.com/lxsdd/foobar2000_component_template/actions/runs/39858103647",
+  "integration": "local exact source copy; no mutable main fetch, no runtime GitHub dependency",
+  "consumer_path": "tools/verify-fb2k-component.ps1",
+  "scope": "structural zip/PE/hash verifier only; product-specific package & host/release gates remain"
+}
