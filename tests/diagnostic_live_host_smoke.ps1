@@ -146,7 +146,8 @@ function Run-Case([string]$installer,[string]$root,[string]$inputFile,[string[]]
     New-Item -ItemType File -Path $ready -ErrorAction Stop | Out-Null
     Write-Host ("HOST_SDK_PROBE_ARMED_{0}=TRUE" -f $label)
     $dialog=[IntPtr]::Zero
-    $until=[DateTime]::UtcNow.AddSeconds(150)
+    $maxSeconds= if ($label -eq 'SYNTHETIC') { 360 } else { 150 }
+    $until=[DateTime]::UtcNow.AddSeconds($maxSeconds)
     while ([DateTime]::UtcNow -lt $until) {
       $hostProcess.Refresh()
       if ($hostProcess.HasExited) { throw 'foobar crashed during analysis' }
@@ -161,6 +162,17 @@ function Run-Case([string]$installer,[string]$root,[string]$inputFile,[string[]]
     $rows=[STUI]::Rows($dialog)
     if ($rows -lt $minimum) { throw "Only $rows result rows for $label; expected $minimum" }
     if (-not [STUI]::ButtonDisabled($dialog)) { throw 'Diagnostic Update control enabled' }
+    # Instrumentation is built ONLY into the temporary CI-probe DLL,
+    # never the ordinary/personal component. No user media in this run.
+    $numeric=$inputFile+'.tempo.tsv'
+    $numericUntil=[DateTime]::UtcNow.AddSeconds(10)
+    while (-not (Test-Path -LiteralPath $numeric -PathType Leaf) -and [DateTime]::UtcNow -lt $numericUntil) {
+      Start-Sleep -Milliseconds 200
+    }
+    if (-not (Test-Path -LiteralPath $numeric -PathType Leaf)) {
+      throw 'CI probe produced no numeric BPM evidence'
+    }
+    Write-Host ("CI_NUMERIC_REPORT_{0}_{1}=PASS" -f $Architecture,$label)
     foreach ($file in $files) { if ((Stamp $file) -cne $baseline[$file]) { throw 'File changed during analysis' } }
     [STUI]::ProbeBlockedUpdate($dialog)
     Start-Sleep -Seconds 2
@@ -213,5 +225,19 @@ try {
   [IO.File]::WriteAllLines($cue,@('FILE "rhythm.wav" WAVE','  TRACK 01 AUDIO','    INDEX 01 00:00:00','  TRACK 02 AUDIO','    INDEX 01 00:20:00'),[Text.Encoding]::ASCII)
   Run-Case $installer $root $wav @($wav) 1 'WAV'
   Run-Case $installer $root $cue @($wav,$cue) 2 'CUE'
+  # Public synthetics are generated transiently on the Actions runner.
+  # Real binary execution -> numeric report -> reference tempo comparison.
+  $corpus=Join-Path $root 'synthetic-corpus'
+  & python ./tests/generate_synthetic_tempo_corpus.py --output $corpus
+  if ($LASTEXITCODE -ne 0) { throw 'Synthetic audio generator failed' }
+  $manifest=Join-Path $corpus 'manifest.json'
+  $specification=Get-Content -LiteralPath $manifest -Raw | ConvertFrom-Json
+  $files=@($specification.cases | ForEach-Object { Join-Path $corpus $_.filename })
+  if ($files.Count -ne 6) { throw 'Synthetic case cardinality mismatch' }
+  $playlist=Join-Path $root 'synthetic-run.m3u8'
+  [IO.File]::WriteAllLines($playlist,[string[]](@('#EXTM3U')+$files),[Text.UTF8Encoding]::new($false))
+  Run-Case $installer $root $playlist $files 6 'SYNTHETIC'
+  & python ./tests/assess_synthetic_tempo.py --manifest $manifest --report ($playlist+'.tempo.tsv')
+  if ($LASTEXITCODE -ne 0) { throw 'Synthetic numeric BPM comparator failed' }
   Write-Host ("SMART_TEMPO_DIAGNOSTIC_RUNTIME_{0}=PASS" -f $Architecture)
 } finally { if (Test-Path $root) { Remove-Item $root -Recurse -Force -ErrorAction SilentlyContinue } }

@@ -2,6 +2,9 @@
 #include "foo_smart_tempo.h"
 
 #include "bpm_auto_analysis_thread.h"
+#if defined(SMART_TEMPO_CI_RUNTIME_PROBE)
+#include "../../tests/smart_tempo_ci_numeric_report.h"
+#endif
 
 #include <algorithm>
 #include <atomic>
@@ -1658,6 +1661,20 @@ LRESULT bpm_auto_analysis_thread::OnWorkerDone(UINT, WPARAM wp, LPARAM) {
 
   if (m_workerThread.joinable())
     m_workerThread.join();
+
+#if defined(SMART_TEMPO_CI_RUNTIME_PROBE)
+  // This instrumentation is stripped from all ordinary/owner binaries.
+  // Only the synthetic GitHub Actions host probe may emit an anonymous
+  // row-index/BPM/hold report. Never expose source paths or tags.
+  if (!m_wasAborted && m_batchDryRunMode) {
+    const bool reported = smart_tempo_ci::write_report(
+        m_bpm_results, m_confidence_results,
+        m_suppress_write_results, m_analysisElapsedSeconds);
+    FB2K_console_formatter() <<
+        (reported ? "SMART_TEMPO_CI_NUMERIC_REPORT=PASS"
+                  : "SMART_TEMPO_CI_NUMERIC_REPORT=FAIL");
+  }
+#endif
 
   if (!m_wasAborted && core_api::assert_main_thread()) {
     if (!m_measuredCandidateInspectionMode && !m_batchDryRunMode &&
