@@ -87,7 +87,7 @@ function Launch([string]$exe,[string[]]$args) {
   foreach ($a in $args) { [void]$i.ArgumentList.Add($a) }
   return [Diagnostics.Process]::Start($i)
 }
-function Run-Case([string]$installer,[string]$root,[string]$inputFile,[string[]]$files,[int]$minimum,[string]$label) {
+function Run-Case([string]$installer,[string]$root,[string]$inputFile,[string[]]$files,[int]$minimum,[string]$label,[int]$windowSeconds=0,[int]$windowPasses=0,[int]$offsetPct=0) {
   $hostDir=Join-Path $root ('host-'+$label)
   $install=Start-Process $installer -ArgumentList @('/S',"/D=$hostDir") -Wait -PassThru
   if ($install.ExitCode -ne 0) { throw 'Official host installer failed' }
@@ -103,9 +103,29 @@ function Run-Case([string]$installer,[string]$root,[string]$inputFile,[string[]]
   try {
     # Only the CI-probe DLL knows this disposable media path. It invokes
     # menu_helpers::run_command_context() by GUID on the host's main thread.
+    if (($windowSeconds -eq 0) -ne ($windowPasses -eq 0)) {
+      throw 'Window and pass overrides must be supplied together'
+    }
+    if ($offsetPct -ne 0 -and
+        ($windowSeconds -ne 20 -or $windowPasses -ne 1 -or
+         $offsetPct -notin @(20,80))) {
+      throw 'Only public 20s/1-pass early/late phase probes are supported'
+    }
     $env:SMART_TEMPO_CI_FIXTURE=$inputFile
+    if ($windowSeconds -gt 0) {
+      $env:SMART_TEMPO_CI_WINDOW_SECONDS=[string]$windowSeconds
+      $env:SMART_TEMPO_CI_SAMPLE_PASSES=[string]$windowPasses
+    }
+    if ($offsetPct -gt 0) {
+      $env:SMART_TEMPO_CI_OFFSET_PCT=[string]$offsetPct
+    }
     try { $hostProcess=Launch $exe @() }
-    finally { Remove-Item Env:SMART_TEMPO_CI_FIXTURE -ErrorAction SilentlyContinue }
+    finally {
+      Remove-Item Env:SMART_TEMPO_CI_FIXTURE -ErrorAction SilentlyContinue
+      Remove-Item Env:SMART_TEMPO_CI_WINDOW_SECONDS -ErrorAction SilentlyContinue
+      Remove-Item Env:SMART_TEMPO_CI_SAMPLE_PASSES -ErrorAction SilentlyContinue
+      Remove-Item Env:SMART_TEMPO_CI_OFFSET_PCT -ErrorAction SilentlyContinue
+    }
     $until=[DateTime]::UtcNow.AddSeconds(40)
     $loaded=$false
     while ([DateTime]::UtcNow -lt $until) {
@@ -145,6 +165,7 @@ function Run-Case([string]$installer,[string]$root,[string]$inputFile,[string[]]
     if (Test-Path -LiteralPath $ready) { throw 'Unexpected stale probe marker' }
     New-Item -ItemType File -Path $ready -ErrorAction Stop | Out-Null
     Write-Host ("HOST_SDK_PROBE_ARMED_{0}=TRUE" -f $label)
+    $analysisStopwatch=[Diagnostics.Stopwatch]::StartNew()
     $dialog=[IntPtr]::Zero
     $until=[DateTime]::UtcNow.AddSeconds(150)
     while ([DateTime]::UtcNow -lt $until) {
@@ -158,6 +179,8 @@ function Run-Case([string]$installer,[string]$root,[string]$inputFile,[string[]]
       Write-Host ("HOST_WINDOWS_AT_TIMEOUT_{0}: {1}" -f $label,[STUI]::Titles($hostProcess.Id))
       throw "CI SDK probe did not reach diagnostic results for $label"
     }
+    $analysisStopwatch.Stop()
+    $script:LastSyntheticAnalysisMs=$analysisStopwatch.ElapsedMilliseconds
     $rows=[STUI]::Rows($dialog)
     if ($rows -lt $minimum) { throw "Only $rows result rows for $label; expected $minimum" }
     if (-not [STUI]::ButtonDisabled($dialog)) { throw 'Diagnostic Update control enabled' }
@@ -166,16 +189,60 @@ function Run-Case([string]$installer,[string]$root,[string]$inputFile,[string[]]
     Start-Sleep -Seconds 2
     if (-not [STUI]::IsWindow($dialog)) { throw 'Secondary no-write guard failed' }
     foreach ($file in $files) { if ((Stamp $file) -cne $baseline[$file]) { throw 'File changed after blocked Update handler' } }
-    if ($label -eq 'SYNTHETIC') {
-      # Compiled only in CI probe binaries; the engine values are captured
-      # after worker join, not scraped through unreliable headless UIA.
+    if ($label.StartsWith('SYNTHETIC_', [StringComparison]::Ordinal)) {
+      # The oracle output is aggregate-scored after every public test case.
+      # No fixture-specific reference is used by the analyzer or selector.
       $observed=$inputFile+'.results.csv'
-      $reference=Join-Path (Split-Path -Parent $inputFile) 'reference.json'
       if (-not (Test-Path -LiteralPath $observed -PathType Leaf)) {
         throw 'Real foobar numeric BPM oracle observer is not available'
       }
-      python ./tools/score_synthetic_bpm_reference.py --manifest $reference --observed $observed
-      if ($LASTEXITCODE -ne 0) { throw 'Real foobar synthetic BPM evaluation failed' }
+      $evidenceFile=$inputFile+'.candidates.csv'
+      if (-not (Test-Path -LiteralPath $evidenceFile -PathType Leaf)) {
+        throw 'Synthetic-only measured candidate evidence is missing'
+      }
+      $evidenceRows=@(Import-Csv -LiteralPath $evidenceFile)
+      if ($evidenceRows.Count -gt 32) { throw 'Synthetic candidate evidence cap exceeded' }
+      if ($windowSeconds -eq 0) {
+        foreach ($candidate in $evidenceRows) {
+          Write-Host ("SYNTHETIC_BPM_CANDIDATE id={0} rank={1} bpm={2} evidence={3} support={4} winner={5} local_exact={6}" -f
+            $label.Substring(10),$candidate.rank,$candidate.bpm,$candidate.evidence,
+            $candidate.support,$candidate.winner,$candidate.local_exact)
+        }
+      } elseif ($offsetPct -gt 0) {
+        foreach ($candidate in $evidenceRows) {
+          Write-Host ("TEMPORAL_CANDIDATE id={0} offset={1} rank={2} bpm={3} local_exact={4} support={5}" -f
+            $label.Substring(19),$offsetPct,$candidate.rank,$candidate.bpm,
+            $candidate.local_exact,$candidate.support)
+        }
+      }
+      Write-Host ("SYNTHETIC_BPM_CANDIDATE_COUNT id={0} n={1}" -f
+        $label.Substring(10),$evidenceRows.Count)
+    }
+    if ($windowSeconds -gt 0) {
+      $planFile=$inputFile+'.plan.csv'
+      if (-not (Test-Path -LiteralPath $planFile -PathType Leaf)) {
+        throw "Missing actual host window geometry for $label"
+      }
+      $plan=@(Import-Csv -LiteralPath $planFile)
+      if ($plan.Count -ne 1 -or
+          [int]$plan[0].requested_seconds -ne $windowSeconds -or
+          [int]$plan[0].requested_passes -ne $windowPasses -or
+          [double]$plan[0].effective_seconds -le 0 -or
+          [double]$plan[0].effective_seconds -gt $windowSeconds -or
+          [int]$plan[0].effective_passes -le 0 -or
+          [int]$plan[0].effective_passes -gt $windowPasses -or
+          (($offsetPct -ne 0) -and
+           ([int]$plan[0].offset_min_pct -ne $offsetPct -or
+            [int]$plan[0].offset_max_pct -ne $offsetPct)) -or
+          (($offsetPct -eq 0) -and
+           ([int]$plan[0].offset_min_pct -ne 20 -or
+            [int]$plan[0].offset_max_pct -ne 80))) {
+        throw "Requested/effective window mismatch for $label"
+      }
+      Write-Host ("WINDOW_HOST_GEOMETRY id={0} requested={1}s/{2} actual={3}s/{4} analysis_ms={5}" -f
+        $label,$windowSeconds,$windowPasses,
+        $plan[0].effective_seconds,$plan[0].effective_passes,
+        $script:LastSyntheticAnalysisMs)
     }
     Write-Host ("DIAGNOSTIC_MENU_{0}_{1}=PASS" -f $Architecture,$label)
     Write-Host ("DIAGNOSTIC_ROWS_{0}_{1}={2}" -f $Architecture,$label,$rows)
@@ -225,20 +292,360 @@ try {
   Run-Case $installer $root $wav @($wav) 1 'WAV'
   Run-Case $installer $root $cue @($wav,$cue) 2 'CUE'
   if ($Architecture -eq 'x64') {
-    # Run the real engine only on fully generated public synthetic PCM,
-    # with deterministic reference truth fixed before observing any results.
-    $syntheticRoot=Join-Path $root 'synthetic-oracle'
-    # Qualify one WAV using the same proven direct-file host dispatch as WAV smoke.
-    # The eleven-track case is deferred to the slower, separate matrix.
-    python ./tools/generate_synthetic_bpm_reference.py --output $syntheticRoot --case pulse_128
-    if ($LASTEXITCODE -ne 0) { throw 'Synthetic oracle WAV creation failed' }
-    $reference=Join-Path $syntheticRoot 'reference.json'
-    $cases=@((Get-Content -LiteralPath $reference -Raw | ConvertFrom-Json).cases)
-    if ($cases.Count -ne 1 -or $cases[0].id -ne 'pulse_128') {
-      throw 'Unexpected one-track oracle identity'
+    # One public matrix in one CI run. Each individual WAV gets a fresh
+    # portable foobar instance because multi-track MIR exceeds the UI timeout.
+    # Only after ALL cases finish do we score the full fixed synthetic corpus.
+    $oracleCases=@(python ./tools/generate_synthetic_bpm_reference.py --list-cases)
+    if ($LASTEXITCODE -ne 0 -or $oracleCases.Count -ne 80 -or
+        @($oracleCases | Sort-Object -Unique).Count -ne $oracleCases.Count) {
+      throw 'Public synthetic matrix inventory mismatch'
     }
-    $wavFile=Join-Path $syntheticRoot 'pulse_128.wav'
-    Run-Case $installer $root $wavFile @($wavFile,$reference) 1 'SYNTHETIC'
+    $referenceCases=[System.Collections.Generic.List[object]]::new()
+    $observedRows=[System.Collections.Generic.List[object]]::new()
+    $candidateRows=[System.Collections.Generic.List[object]]::new()
+    foreach ($caseId in $oracleCases) {
+      if ($caseId -cnotmatch '^[a-z0-9_]+$') {
+        throw 'Unexpected non-public synthetic case identifier'
+      }
+      $syntheticRoot=Join-Path $root ('synthetic-oracle-'+$caseId)
+      python ./tools/generate_synthetic_bpm_reference.py --output $syntheticRoot --case $caseId
+      if ($LASTEXITCODE -ne 0) { throw "Synthetic oracle WAV creation failed for $caseId" }
+      $reference=Join-Path $syntheticRoot 'reference.json'
+      $cases=@((Get-Content -LiteralPath $reference -Raw | ConvertFrom-Json).cases)
+      if ($cases.Count -ne 1 -or $cases[0].id -cne $caseId) {
+        throw "Unexpected single-track oracle identity for $caseId"
+      }
+      $wavFile=Join-Path $syntheticRoot ($caseId+'.wav')
+      Run-Case $installer $root $wavFile @($wavFile,$reference) 1 ('SYNTHETIC_'+$caseId)
+      $numbers=@(Import-Csv -LiteralPath ($wavFile+'.results.csv'))
+      if ($numbers.Count -ne 1 -or $numbers[0].index -cne '0') {
+        throw 'Missing or misaligned synthetic oracle observation'
+      }
+      $referenceCases.Add($cases[0])
+      $observedRows.Add([pscustomobject][ordered]@{
+        index=($observedRows.Count)
+        bpm=$numbers[0].bpm
+        held=$numbers[0].held
+      })
+      # Strictly numeric measured candidates from this *public synthetic*
+      # fixture only. The same bounded observer already prints these rows.
+      foreach ($candidate in @(Import-Csv -LiteralPath ($wavFile+'.candidates.csv'))) {
+        $candidateRows.Add([pscustomobject][ordered]@{
+          id=$caseId
+          rank=$candidate.rank
+          bpm=$candidate.bpm
+          evidence=$candidate.evidence
+          support=$candidate.support
+          winner=$candidate.winner
+          local_exact=$candidate.local_exact
+        })
+      }
+    }
+    $aggregateReference=Join-Path $root 'synthetic-reference-matrix.json'
+    $aggregateObserved=Join-Path $root 'synthetic-observed-matrix.csv'
+    [ordered]@{
+      schema='synthetic_bpm_reference_v1'
+      cases=@($referenceCases.ToArray())
+    } | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $aggregateReference -Encoding utf8
+    $observedRows | Export-Csv -LiteralPath $aggregateObserved -NoTypeInformation -Encoding utf8
+    $aggregateCandidates=Join-Path $root 'synthetic-candidates-matrix.csv'
+    $candidateRows | Export-Csv -LiteralPath $aggregateCandidates -NoTypeInformation -Encoding utf8
+    python ./tools/score_synthetic_bpm_reference.py --manifest $aggregateReference --observed $aggregateObserved --candidates $aggregateCandidates --precision-details
+    if ($LASTEXITCODE -ne 0) { throw 'Complete synthetic BPM matrix scoring failed' }
+    Write-Host ("SYNTHETIC_REAL_CASE_COUNT_x64={0}" -f $oracleCases.Count)
+    Write-Host 'SYNTHETIC_REAL_MATRIX_COMPLETED_x64=PASS'
+
+    # Independent, actual-foobar sweep (not a simulated sampling scheduler):
+    # 8 window lengths at 5 passes, 6 pass counts at 20s, excluding the
+    # duplicate 20s/5pass cell. Every case uses 120s public generated audio.
+    $windowCases=@(python ./tools/generate_synthetic_bpm_reference.py --list-window-cases)
+    if ($LASTEXITCODE -ne 0 -or $windowCases.Count -ne 6 -or
+        @($windowCases | Sort-Object -Unique).Count -ne 6) {
+      throw 'Public long-window corpus inventory mismatch'
+    }
+    $windowAxes=[System.Collections.Generic.List[object]]::new()
+    foreach ($seconds in @(5,10,15,20,30,45,60,90)) {
+      $windowAxes.Add([pscustomobject]@{seconds=$seconds;passes=5})
+    }
+    foreach ($passes in @(1,3,10,20,50)) {
+      $windowAxes.Add([pscustomobject]@{seconds=20;passes=$passes})
+    }
+    if ($windowAxes.Count -ne 13) { throw 'Window/pass experiment is not paired' }
+    $windowObserved=[System.Collections.Generic.List[object]]::new()
+    foreach ($caseId in $windowCases) {
+      if ($caseId -cnotmatch '^window_[a-z0-9_]+$') {
+        throw 'Unexpected window-sweep fixture identity'
+      }
+      $seedRoot=Join-Path $root ('sweep-seed-'+$caseId)
+      python ./tools/generate_synthetic_bpm_reference.py --output $seedRoot --window-case $caseId
+      if ($LASTEXITCODE -ne 0) { throw "Long synthetic generation failed for $caseId" }
+      $seedManifest=Join-Path $seedRoot 'reference.json'
+      $seedWave=Join-Path $seedRoot ($caseId+'.wav')
+      $seedCases=@((Get-Content -LiteralPath $seedManifest -Raw | ConvertFrom-Json).cases)
+      if ($seedCases.Count -ne 1 -or $seedCases[0].id -cne $caseId -or
+          [int]$seedCases[0].duration_sec -ne 120 -or
+          $seedCases[0].wav_sha256 -cne (Get-FileHash $seedWave -Algorithm SHA256).Hash.ToLowerInvariant()) {
+        throw "Long synthetic reference invalid for $caseId"
+      }
+      $truth=$seedCases[0]
+      $refBpm=if ($null -eq $truth.reference_bpm) { '' } else { [string]$truth.reference_bpm }
+      foreach ($axis in $windowAxes) {
+        $seconds=[int]$axis.seconds
+        $passes=[int]$axis.passes
+        # Unique parent directories guarantee fresh observer sidecars and
+        # isolated host profiles; fixture suffix remains strictly allowlisted.
+        $variantRoot=Join-Path $root ("sweep-$caseId-w$seconds-p$passes")
+        $fixtureRoot=Join-Path $variantRoot ('synthetic-oracle-'+$caseId)
+        New-Item -ItemType Directory -Path $fixtureRoot -Force | Out-Null
+        $wavFile=Join-Path $fixtureRoot ($caseId+'.wav')
+        $manifest=Join-Path $fixtureRoot 'reference.json'
+        Copy-Item -LiteralPath $seedWave -Destination $wavFile
+        Copy-Item -LiteralPath $seedManifest -Destination $manifest
+        $label="SYNTHETIC_WINDOW_${caseId}_w${seconds}_p${passes}"
+        Run-Case $installer $root $wavFile @($wavFile,$manifest) 1 $label $seconds $passes
+        $observed=@(Import-Csv -LiteralPath ($wavFile+'.results.csv'))
+        $plan=@(Import-Csv -LiteralPath ($wavFile+'.plan.csv'))
+        if ($observed.Count -ne 1 -or $observed[0].index -cne '0' -or $plan.Count -ne 1) {
+          throw "Missing numeric window-sweep observation: $label"
+        }
+        $windowObserved.Add([pscustomobject][ordered]@{
+          id=$caseId
+          style=$truth.style
+          reference_bpm=$refBpm
+          ambiguity=$truth.ambiguity
+          seconds=$seconds
+          passes=$passes
+          effective_seconds=$plan[0].effective_seconds
+          effective_passes=$plan[0].effective_passes
+          bpm=$observed[0].bpm
+          held=$observed[0].held
+          analysis_ms=$script:LastSyntheticAnalysisMs
+        })
+      }
+    }
+    if ($windowObserved.Count -ne 78) { throw 'Incomplete 6-by-13 host sweep' }
+    $windowCsv=Join-Path $root 'window-sweep-observed.csv'
+    $windowObserved | Export-Csv -LiteralPath $windowCsv -NoTypeInformation -Encoding utf8
+    python ./tools/score_synthetic_window_sweep.py --observed $windowCsv
+    if ($LASTEXITCODE -ne 0) { throw 'Measured host window-sweep scoring failed' }
+    Write-Host ("SYNTHETIC_REAL_WINDOW_SWEEP_CASE_COUNT_x64={0}" -f $windowObserved.Count)
+    Write-Host 'SYNTHETIC_REAL_WINDOW_SWEEP_COMPLETED_x64=PASS'
+
+    # Independent temporal stationarity probe: same 120s public WAV, one
+    # 20-second read at 20% (early) vs 80% (late). This is diagnostic
+    # evidence for tempo changes; it cannot affect normal MIR selection.
+    $temporalRows=[System.Collections.Generic.List[object]]::new()
+    $temporalCandidates=[System.Collections.Generic.List[object]]::new()
+    foreach ($caseId in $windowCases) {
+      $seedRoot=Join-Path $root ('sweep-seed-'+$caseId)
+      $seedWave=Join-Path $seedRoot ($caseId+'.wav')
+      $seedManifest=Join-Path $seedRoot 'reference.json'
+      $truth=@((Get-Content -LiteralPath $seedManifest -Raw | ConvertFrom-Json).cases)[0]
+      $referenceBpm=if ($null -eq $truth.reference_bpm) { '' } else { [string]$truth.reference_bpm }
+      foreach ($offsetPct in @(20,80)) {
+        $phase=if ($offsetPct -eq 20) { 'early' } else { 'late' }
+        $variantRoot=Join-Path $root ("phase-$caseId-$phase")
+        $fixtureRoot=Join-Path $variantRoot ('synthetic-oracle-'+$caseId)
+        New-Item -ItemType Directory -Path $fixtureRoot -Force | Out-Null
+        $wavFile=Join-Path $fixtureRoot ($caseId+'.wav')
+        $manifest=Join-Path $fixtureRoot 'reference.json'
+        Copy-Item -LiteralPath $seedWave -Destination $wavFile
+        Copy-Item -LiteralPath $seedManifest -Destination $manifest
+        $label="SYNTHETIC_TEMPORAL_${caseId}_${phase}"
+        Run-Case $installer $root $wavFile @($wavFile,$manifest) 1 $label 20 1 $offsetPct
+        $observed=@(Import-Csv -LiteralPath ($wavFile+'.results.csv'))
+        $plan=@(Import-Csv -LiteralPath ($wavFile+'.plan.csv'))
+        if ($observed.Count -ne 1 -or $plan.Count -ne 1) {
+          throw "Missing independent real-host temporal observation: $label"
+        }
+        # Preserve the already-emitted, bounded numeric candidate inventory
+        # for each independent host phase. No verbose foobar logging, personal
+        # media metadata, or reference-guided decision path is involved.
+        $phaseEvidence=@(Import-Csv -LiteralPath ($wavFile+'.candidates.csv'))
+        if ($phaseEvidence.Count -gt 32) {
+          throw "Unbounded phase candidate inventory: $label"
+        }
+        foreach ($candidate in $phaseEvidence) {
+          $temporalCandidates.Add([pscustomobject][ordered]@{
+            id=$caseId
+            phase=$phase
+            rank=$candidate.rank
+            bpm=$candidate.bpm
+            evidence=$candidate.evidence
+            support=$candidate.support
+            winner=$candidate.winner
+            local_exact=$candidate.local_exact
+          })
+        }
+        $temporalRows.Add([pscustomobject][ordered]@{
+          id=$caseId
+          style=$truth.style
+          reference_bpm=$referenceBpm
+          ambiguity=$truth.ambiguity
+          phase=$phase
+          offset_pct=$offsetPct
+          seconds=20
+          passes=1
+          effective_seconds=$plan[0].effective_seconds
+          effective_passes=$plan[0].effective_passes
+          bpm=$observed[0].bpm
+          held=$observed[0].held
+          analysis_ms=$script:LastSyntheticAnalysisMs
+        })
+      }
+    }
+    if ($temporalRows.Count -ne 12) { throw 'Incomplete temporal phase-pair grid' }
+    $temporalCsv=Join-Path $root 'temporal-sweep-observed.csv'
+    $temporalRows | Export-Csv -LiteralPath $temporalCsv -NoTypeInformation -Encoding utf8
+    if ($temporalCandidates.Count -eq 0) { throw 'Phase candidate inventory is empty' }
+    $temporalCandidateCsv=Join-Path $root 'temporal-sweep-candidates.csv'
+    $temporalCandidates | Export-Csv -LiteralPath $temporalCandidateCsv -NoTypeInformation -Encoding utf8
+    python ./tools/score_synthetic_temporal_sweep.py --observed $temporalCsv --candidates $temporalCandidateCsv
+    if ($LASTEXITCODE -ne 0) { throw 'Temporal phase comparison scoring failed' }
+    Write-Host ("SYNTHETIC_REAL_TEMPORAL_CASE_COUNT_x64={0}" -f $temporalRows.Count)
+    Write-Host 'SYNTHETIC_REAL_TEMPORAL_COMPLETED_x64=PASS'
+    # Prospective synthetic parameter holdout, declared before this run.
+    # It is not owner audio or an independent recording-domain validation.
+    # The fixed shadow reads only measured candidates after the real host
+    # completes; no hypothetical choice reaches production or tag writes.
+    $prospectiveIds=@(python ./tools/generate_synthetic_bpm_reference.py --list-prospective-cases)
+    if ($LASTEXITCODE -ne 0 -or $prospectiveIds.Count -ne 20 -or
+        @($prospectiveIds | Sort-Object -Unique).Count -ne 20) {
+      throw 'Prospective synthetic fixture inventory mismatch'
+    }
+    $prospectiveReference=[System.Collections.Generic.List[object]]::new()
+    $prospectiveObserved=[System.Collections.Generic.List[object]]::new()
+    $prospectiveCandidates=[System.Collections.Generic.List[object]]::new()
+    foreach ($caseId in $prospectiveIds) {
+      if ($caseId -cnotmatch '^prospective_[a-z0-9_]+$') {
+        throw 'Unexpected prospective synthetic fixture identity'
+      }
+      $fixtureRoot=Join-Path $root ('synthetic-oracle-'+$caseId)
+      python ./tools/generate_synthetic_bpm_reference.py --output $fixtureRoot --prospective-case $caseId
+      if ($LASTEXITCODE -ne 0) { throw "Prospective WAV generation failed for $caseId" }
+      $wavFile=Join-Path $fixtureRoot ($caseId+'.wav')
+      $manifest=Join-Path $fixtureRoot 'reference.json'
+      $cases=@((Get-Content -LiteralPath $manifest -Raw | ConvertFrom-Json).cases)
+      if ($cases.Count -ne 1 -or $cases[0].id -cne $caseId -or
+          $cases[0].wav_sha256 -cne (Get-FileHash $wavFile -Algorithm SHA256).Hash.ToLowerInvariant()) {
+        throw "Prospective fixture reference invalid for $caseId"
+      }
+      Run-Case $installer $root $wavFile @($wavFile,$manifest) 1 ('SYNTHETIC_'+$caseId)
+      $result=@(Import-Csv -LiteralPath ($wavFile+'.results.csv'))
+      if ($result.Count -ne 1 -or $result[0].index -cne '0') {
+        throw "Missing prospective real-host BPM result for $caseId"
+      }
+      $prospectiveReference.Add($cases[0])
+      $prospectiveObserved.Add([pscustomobject][ordered]@{
+        index=$prospectiveObserved.Count
+        bpm=$result[0].bpm
+        held=$result[0].held
+      })
+      $evidence=@(Import-Csv -LiteralPath ($wavFile+'.candidates.csv'))
+      if ($evidence.Count -gt 32) { throw 'Prospective candidate cap exceeded' }
+      foreach ($candidate in $evidence) {
+        $prospectiveCandidates.Add([pscustomobject][ordered]@{
+          id=$caseId
+          rank=$candidate.rank
+          bpm=$candidate.bpm
+          evidence=$candidate.evidence
+          support=$candidate.support
+          winner=$candidate.winner
+          local_exact=$candidate.local_exact
+        })
+      }
+    }
+    if ($prospectiveObserved.Count -ne 20 -or $prospectiveCandidates.Count -eq 0) {
+      throw 'Incomplete prospective real-host matrix'
+    }
+    $prospectiveManifest=Join-Path $root 'prospective-reference-matrix.json'
+    [ordered]@{
+      schema='synthetic_bpm_reference_v1'
+      cases=@($prospectiveReference.ToArray())
+    } | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $prospectiveManifest -Encoding utf8
+    $prospectiveCsv=Join-Path $root 'prospective-observed-matrix.csv'
+    $prospectiveObserved | Export-Csv -LiteralPath $prospectiveCsv -NoTypeInformation -Encoding utf8
+    $prospectiveCandidateCsv=Join-Path $root 'prospective-candidates-matrix.csv'
+    $prospectiveCandidates | Export-Csv -LiteralPath $prospectiveCandidateCsv -NoTypeInformation -Encoding utf8
+    python ./tools/score_prospective_bpm_reference.py --manifest $prospectiveManifest --observed $prospectiveCsv --candidates $prospectiveCandidateCsv
+    if ($LASTEXITCODE -ne 0) { throw 'Prospective real-host BPM scoring failed' }
+    Write-Host 'SYNTHETIC_REAL_PROSPECTIVE_CASE_COUNT_x64=20'
+    Write-Host 'SYNTHETIC_REAL_PROSPECTIVE_COMPLETED_x64=PASS'
+
+    # Paired, exploratory pass-count sensitivity on the same 11 public WAVs.
+    # One x64 runner already paid for SDK/build/host initialization; reuse it.
+    # References and shadow choices are applied only after every host result.
+    $passTargets=@(python ./tools/score_prospective_pass_sweep.py --list-targets)
+    if ($LASTEXITCODE -ne 0 -or $passTargets.Count -ne 11 -or
+        @($passTargets | Sort-Object -Unique).Count -ne 11) {
+      throw 'Public prospective pass-sweep target inventory mismatch'
+    }
+    foreach ($target in $passTargets) {
+      if ($target -cnotin $prospectiveIds) { throw 'Pass-sweep target outside prospective corpus' }
+    }
+    $passObserved=[System.Collections.Generic.List[object]]::new()
+    $passCandidates=[System.Collections.Generic.List[object]]::new()
+    foreach ($caseId in $passTargets) {
+      $seedRoot=Join-Path $root ('synthetic-oracle-'+$caseId)
+      $seedWave=Join-Path $seedRoot ($caseId+'.wav')
+      $seedManifest=Join-Path $seedRoot 'reference.json'
+      foreach ($passes in @(1,5,20)) {
+        $variantRoot=Join-Path $root ("pass-$caseId-$passes")
+        $fixtureRoot=Join-Path $variantRoot ('synthetic-oracle-'+$caseId)
+        New-Item -ItemType Directory -Path $fixtureRoot -Force | Out-Null
+        $wavFile=Join-Path $fixtureRoot ($caseId+'.wav')
+        $manifest=Join-Path $fixtureRoot 'reference.json'
+        Copy-Item -LiteralPath $seedWave -Destination $wavFile
+        Copy-Item -LiteralPath $seedManifest -Destination $manifest
+        if ((Get-FileHash $wavFile -Algorithm SHA256).Hash -ine
+            (Get-FileHash $seedWave -Algorithm SHA256).Hash) {
+          throw 'Pass-sweep media copy mismatch'
+        }
+        $label=('SYNTHETIC_PASS_'+$caseId+'_P'+$passes)
+        Run-Case $installer $root $wavFile @($wavFile,$manifest) 1 $label 20 $passes
+        $result=@(Import-Csv -LiteralPath ($wavFile+'.results.csv'))
+        $plan=@(Import-Csv -LiteralPath ($wavFile+'.plan.csv'))
+        if ($result.Count -ne 1 -or $result[0].index -cne '0' -or $plan.Count -ne 1) {
+          throw "Missing pass-sweep host observation for $label"
+        }
+        $passObserved.Add([pscustomobject][ordered]@{
+          id=$caseId
+          passes=$passes
+          bpm=$result[0].bpm
+          held=$result[0].held
+          effective_seconds=$plan[0].effective_seconds
+          effective_passes=$plan[0].effective_passes
+        })
+        $evidence=@(Import-Csv -LiteralPath ($wavFile+'.candidates.csv'))
+        if ($evidence.Count -gt 32) { throw 'Public pass-sweep candidate cap exceeded' }
+        foreach ($candidate in $evidence) {
+          $passCandidates.Add([pscustomobject][ordered]@{
+            id=$caseId
+            passes=$passes
+            rank=$candidate.rank
+            bpm=$candidate.bpm
+            evidence=$candidate.evidence
+            support=$candidate.support
+            winner=$candidate.winner
+            local_exact=$candidate.local_exact
+          })
+        }
+      }
+    }
+    if ($passObserved.Count -ne 33) { throw 'Incomplete 11-by-3 public pass-sweep grid' }
+    $passObservedCsv=Join-Path $root 'prospective-pass-sweep-observed.csv'
+    $passObserved | Export-Csv -LiteralPath $passObservedCsv -NoTypeInformation -Encoding utf8
+    $passCandidateCsv=Join-Path $root 'prospective-pass-sweep-candidates.csv'
+    if ($passCandidates.Count -eq 0) {
+      'id,passes,rank,bpm,evidence,support,winner,local_exact' |
+        Set-Content -LiteralPath $passCandidateCsv -Encoding utf8
+    } else {
+      $passCandidates | Export-Csv -LiteralPath $passCandidateCsv -NoTypeInformation -Encoding utf8
+    }
+    python ./tools/score_prospective_pass_sweep.py --manifest $prospectiveManifest --baseline-observed $prospectiveCsv --baseline-candidates $prospectiveCandidateCsv --observed $passObservedCsv --candidates $passCandidateCsv
+    if ($LASTEXITCODE -ne 0) { throw 'Public prospective pass-sweep scoring failed' }
+    Write-Host 'SYNTHETIC_REAL_PROSPECTIVE_PASS_SWEEP_COUNT_x64=33'
+    Write-Host 'SYNTHETIC_REAL_PROSPECTIVE_PASS_SWEEP_COMPLETED_x64=PASS'
   }
   Write-Host ("SMART_TEMPO_DIAGNOSTIC_RUNTIME_{0}=PASS" -f $Architecture)
 } finally { if (Test-Path $root) { Remove-Item $root -Recurse -Force -ErrorAction SilentlyContinue } }
