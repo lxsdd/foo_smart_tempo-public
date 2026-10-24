@@ -60,6 +60,10 @@ class ProspectivePassSweepTests(unittest.TestCase):
             self.write(candidate_path, CANDIDATE_FIELDS, [candidate])
             self.assertEqual(len(read_observed(observed_path)), 33)
             self.assertEqual(len(read_candidates(candidate_path)), 33)
+            self.write(candidate_path, CANDIDATE_FIELDS,
+                       [candidate, {**candidate, "bpm": "98.0"}])
+            self.assertEqual(len(read_candidates(candidate_path)[
+                (TARGETS[0], 1)]), 2)
             self.write(observed_path, OBSERVED_FIELDS, observations[:-1])
             with self.assertRaises(ValueError):
                 read_observed(observed_path)

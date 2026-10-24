@@ -90,9 +90,12 @@ def read_candidates(path: Path) -> dict[tuple[str, int], list[dict]]:
                        ("bpm", "evidence", "support", "winner", "local_exact")]
             if (not 1 <= rank <= 256 or
                     not all(map(math.isfinite, numbers)) or
-                    numbers[0] <= 0 or numbers[2] < 0 or numbers[3] < 0 or
-                    any(int(existing["rank"]) == rank for existing in out[key])):
-                raise ValueError("Invalid public pass-sweep numeric candidate")
+                    numbers[0] <= 0 or numbers[2] < 0 or numbers[3] < 0):
+                raise ValueError(
+                    f"Invalid public pass-sweep numeric candidate id={key[0]} "
+                    f"passes={key[1]} rank={rank}")
+            # Evidence ranks may repeat after nearby hypotheses coalesce and
+            # supplemental probes are appended. The row cap bounds the board.
             out[key].append(row)
     return out
 
