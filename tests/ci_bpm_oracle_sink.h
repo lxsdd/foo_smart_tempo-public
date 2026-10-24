@@ -20,10 +20,13 @@ inline std::wstring read_env(const wchar_t* key) {
   return n > 0 && n < 32768 ? std::wstring(data, n) : L"";
 }
 
+template <typename CandidateGroups>
 inline bool record(const std::vector<double>& bpm,
-                   const std::vector<uint8_t>& withheld) {
+                   const std::vector<uint8_t>& withheld,
+                   const CandidateGroups& candidates) {
   if (read_env(L"GITHUB_ACTIONS") != L"true" ||
-      bpm.size() != 1 || withheld.size() != 1) return false;
+      bpm.size() != 1 || withheld.size() != 1 ||
+      candidates.size() != 1) return false;
 
   std::wstring root = read_env(L"RUNNER_TEMP");
   const std::wstring fixture = read_env(L"SMART_TEMPO_CI_FIXTURE");
@@ -71,6 +74,43 @@ inline bool record(const std::vector<double>& bpm,
   CloseHandle(handle);
   if (!wrote || count != csv.size()) {
     DeleteFileW(report.c_str());
+    return false;
+  }
+
+  // Only numeric, bounded evidence from the already-computed MIR candidate
+  // board. No filenames, genre, artist, source strings or reference BPM are
+  // serialized. This sidecar never affects a production analysis decision.
+  std::string evidence = "rank,bpm,evidence,support,winner,local_exact\n";
+  const auto& rows = candidates.front();
+  const std::size_t maxRows = rows.size() < 32 ? rows.size() : 32;
+  for (std::size_t index = 0; index < maxRows; ++index) {
+    const auto& candidate = rows[index];
+    if (!std::isfinite(candidate.bpm) || candidate.bpm <= 0.0 ||
+        !std::isfinite(candidate.evidence_score) ||
+        !std::isfinite(candidate.support) ||
+        !std::isfinite(candidate.winner_support) ||
+        !std::isfinite(candidate.local_exact_score)) {
+      continue;
+    }
+    evidence += std::to_string(candidate.evidence_rank);
+    evidence += "," + std::to_string(candidate.bpm);
+    evidence += "," + std::to_string(candidate.evidence_score);
+    evidence += "," + std::to_string(candidate.support);
+    evidence += "," + std::to_string(candidate.winner_support);
+    evidence += "," + std::to_string(candidate.local_exact_score) + "\n";
+  }
+  const std::wstring evidencePath = fixture + L".candidates.csv";
+  HANDLE evidenceHandle = CreateFileW(
+      evidencePath.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_NEW,
+      FILE_ATTRIBUTE_NORMAL, nullptr);
+  if (evidenceHandle == INVALID_HANDLE_VALUE) return false;
+  DWORD evidenceCount = 0;
+  const BOOL evidenceWritten = WriteFile(
+      evidenceHandle, evidence.data(), static_cast<DWORD>(evidence.size()),
+      &evidenceCount, nullptr);
+  CloseHandle(evidenceHandle);
+  if (!evidenceWritten || evidenceCount != evidence.size()) {
+    DeleteFileW(evidencePath.c_str());
     return false;
   }
   return true;
