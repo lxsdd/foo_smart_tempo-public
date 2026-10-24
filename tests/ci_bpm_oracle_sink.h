@@ -3,7 +3,7 @@
 #error "Only the ephemeral CI host probe may include this result observer"
 #endif
 
-// Diagnostic values ONLY; no change to MIR selection and NO media/tag writes.
+// Diagnostic values and public-fixture-only window overrides; NO media/tag writes.
 // The observer is compiled out of every personal/distributable component.
 #include <Windows.h>
 #include <cmath>
@@ -20,20 +20,20 @@ inline std::wstring read_env(const wchar_t* key) {
   return n > 0 && n < 32768 ? std::wstring(data, n) : L"";
 }
 
-template <typename CandidateGroups>
-inline bool record(const std::vector<double>& bpm,
-                   const std::vector<uint8_t>& withheld,
-                   const CandidateGroups& candidates) {
-  if (read_env(L"GITHUB_ACTIONS") != L"true" ||
-      bpm.size() != 1 || withheld.size() != 1 ||
-      candidates.size() != 1) return false;
 
+// All CI control surfaces share the exact same disposable, synthetic WAV
+// allowlist. An arbitrary CI environment variable is never enough to activate
+// an override against non-public media or ordinary component builds.
+inline std::wstring approved_fixture() {
+  if (read_env(L"GITHUB_ACTIONS") != L"true") return L"";
   std::wstring root = read_env(L"RUNNER_TEMP");
   const std::wstring fixture = read_env(L"SMART_TEMPO_CI_FIXTURE");
-  if (root.empty() || fixture.empty()) return false;
+  if (root.empty() || fixture.empty()) return L"";
+  if (fixture.find(L"..") != std::wstring::npos ||
+      fixture.find(L'/') != std::wstring::npos) return L"";
   if (root.back() != L'\\') root.push_back(L'\\');
   if (fixture.size() <= root.size() ||
-      _wcsnicmp(root.c_str(), fixture.c_str(), root.size()) != 0) return false;
+      _wcsnicmp(root.c_str(), fixture.c_str(), root.size()) != 0) return L"";
 
   // Explicit synthetic-only allowlist. Never accept arbitrary fixture names,
   // parent traversal, private media, or production component configurations.
@@ -51,7 +51,10 @@ inline bool record(const std::vector<double>& bpm,
       L"pulse_128_40s", L"pulse_128_44100_mono", L"pulse_128_48000_stereo", L"pulse_123_45_44100_stereo",
       L"single_click", L"steady_tone", L"noise",
       L"drum_60_four_floor", L"drum_90_four_floor", L"drum_110_four_floor", L"drum_120_four_floor", L"drum_128_four_floor", L"drum_140_four_floor", L"drum_175_four_floor", L"drum_123_45_four_floor", L"drum_90_breakbeat", L"drum_128_breakbeat", L"drum_175_breakbeat", L"drum_128_8s", L"drum_128_44100_stereo",
-      L"drum_75_shuffle", L"drum_110_shuffle", L"drum_160_shuffle", L"drum_95_triplet", L"drum_125_triplet", L"drum_185_triplet", L"drum_90_half_time", L"drum_150_half_time", L"drum_100_odd_five", L"drum_142_odd_five", L"drum_105_dropouts", L"drum_170_dropouts", L"drum_124_dense_hats", L"drum_174_dense_hats", L"drum_112_poly_three", L"drum_176_poly_three", L"drum_88_ghost_notes", L"drum_137_ghost_notes", L"nonperiodic_percussion", L"tempo_90_128_switch"};
+      L"drum_75_shuffle", L"drum_110_shuffle", L"drum_160_shuffle", L"drum_95_triplet", L"drum_125_triplet", L"drum_185_triplet", L"drum_90_half_time", L"drum_150_half_time", L"drum_100_odd_five", L"drum_142_odd_five", L"drum_105_dropouts", L"drum_170_dropouts", L"drum_124_dense_hats", L"drum_174_dense_hats", L"drum_112_poly_three", L"drum_176_poly_three", L"drum_88_ghost_notes", L"drum_137_ghost_notes", L"nonperiodic_percussion", L"tempo_90_128_switch",
+      L"window_128_four_floor", L"window_175_breakbeat", L"window_110_shuffle",
+      L"window_100_odd_five", L"window_90_128_switch",
+      L"window_nonperiodic_percussion"};
   bool approved = false;
   for (const wchar_t* id : kCases) {
     std::wstring suffix = L"\\synthetic-oracle-";
@@ -66,7 +69,71 @@ inline bool record(const std::vector<double>& bpm,
       break;
     }
   }
-  if (!approved) return false;
+  if (!approved) return L"";
+  return fixture;
+}
+
+inline bool override_window_geometry(int& seconds, int& passes) {
+  if (approved_fixture().empty()) return false;
+  const std::wstring window = read_env(L"SMART_TEMPO_CI_WINDOW_SECONDS");
+  const std::wstring pass = read_env(L"SMART_TEMPO_CI_SAMPLE_PASSES");
+  struct Choice { const wchar_t* text; int value; };
+  constexpr Choice windows[] = {
+      {L"5", 5}, {L"10", 10}, {L"15", 15}, {L"20", 20},
+      {L"30", 30}, {L"45", 45}, {L"60", 60}, {L"90", 90}};
+  constexpr Choice passesAllowed[] = {
+      {L"1", 1}, {L"3", 3}, {L"5", 5}, {L"10", 10},
+      {L"20", 20}, {L"50", 50}};
+  int desiredSeconds = 0, desiredPasses = 0;
+  for (const Choice& c : windows)
+    if (window == c.text) desiredSeconds = c.value;
+  for (const Choice& c : passesAllowed)
+    if (pass == c.text) desiredPasses = c.value;
+  if (desiredSeconds == 0 || desiredPasses == 0) return false;
+  seconds = desiredSeconds;
+  passes = desiredPasses;
+  return true;
+}
+
+// The observer emits actual host geometry, not merely the requested values.
+// Only public disposable fixtures get this output, and only in probe builds.
+inline bool record_window_plan(int requestedSeconds, int requestedPasses,
+                               double effectiveSeconds, int effectivePasses) {
+  if (read_env(L"SMART_TEMPO_CI_WINDOW_SECONDS").empty()) return false;
+  const std::wstring fixture = approved_fixture();
+  if (fixture.empty() || !std::isfinite(effectiveSeconds) ||
+      effectiveSeconds <= 0.0 || effectivePasses <= 0) return false;
+  std::string csv =
+      "requested_seconds,requested_passes,effective_seconds,effective_passes\n";
+  csv += std::to_string(requestedSeconds) + "," +
+         std::to_string(requestedPasses) + "," +
+         std::to_string(effectiveSeconds) + "," +
+         std::to_string(effectivePasses) + "\n";
+  const std::wstring output = fixture + L".plan.csv";
+  HANDLE h = CreateFileW(output.c_str(), GENERIC_WRITE, 0, nullptr,
+                         CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
+  if (h == INVALID_HANDLE_VALUE) return false;
+  DWORD written = 0;
+  const BOOL ok = WriteFile(h, csv.data(), static_cast<DWORD>(csv.size()),
+                            &written, nullptr);
+  CloseHandle(h);
+  if (!ok || written != csv.size()) {
+    DeleteFileW(output.c_str());
+    return false;
+  }
+  return true;
+}
+
+template <typename CandidateGroups>
+inline bool record(const std::vector<double>& bpm,
+                   const std::vector<uint8_t>& withheld,
+                   const CandidateGroups& candidates) {
+  if (read_env(L"GITHUB_ACTIONS") != L"true" ||
+      bpm.size() != 1 || withheld.size() != 1 ||
+      candidates.size() != 1) return false;
+
+  const std::wstring fixture = approved_fixture();
+  if (fixture.empty()) return false;
   const std::wstring report = fixture + L".results.csv";
   const double numeric = std::isfinite(bpm[0]) && bpm[0] > 0.0
                              ? bpm[0] : 0.0;

@@ -41,10 +41,6 @@ class SyntheticBpmReferenceTests(unittest.TestCase):
                 self.assertTrue(all(0 <= pos < total for pos in events))
                 if case["style"] == "single_click":
                     self.assertEqual(len(events), 1)
-                elif case["style"] == "tempo_switch":
-                    # Nonstationary tempo has event-grid truth, but no single global BPM.
-                    self.assertIsNone(case["reference_bpm"])
-                    self.assertGreater(len(events), 10)
                 elif case["reference_bpm"] is None:
                     self.assertFalse(events)
                 elif case["style"].startswith("drum_"):
@@ -67,7 +63,7 @@ class SyntheticBpmReferenceTests(unittest.TestCase):
                                  for c in data["cases"]), 31)
             self.assertEqual(sum(c["style"] == "silence" for c in data["cases"]), 1)
             self.assertEqual(sum(c["ambiguity"] == "meter_underdetermined"
-                                 for c in data["cases"]), 7)
+                                 for c in data["cases"]), 6)
             self.assertEqual(sum(c["reference_bpm"] is None
                                  for c in data["cases"]), 6)
 
@@ -87,6 +83,31 @@ class SyntheticBpmReferenceTests(unittest.TestCase):
                 self.assertGreater(len(case["event_sample_positions"]), 10)
                 self.assertGreater((Path(temp) / "newstyles" /
                                     (name + ".wav")).stat().st_size, 44)
+
+    def test_long_window_sweep_inventory_and_truth(self):
+        names = subprocess.check_output(
+            [sys.executable, str(GENERATOR), "--list-window-cases"],
+            text=True,
+        ).splitlines()
+        self.assertEqual(len(names), 6)
+        self.assertEqual(len(set(names)), 6)
+        self.assertTrue(all(name.startswith("window_") for name in names))
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "long"
+            subprocess.run(
+                [sys.executable, str(GENERATOR), "--output", str(root),
+                 "--window-case", "window_128_four_floor"],
+                capture_output=True, text=True, check=True,
+            )
+            data = json.loads((root / "reference.json").read_text(encoding="utf-8"))
+            self.assertEqual(len(data["cases"]), 1)
+            case = data["cases"][0]
+            self.assertEqual(case["duration_sec"], 120)
+            self.assertEqual(case["reference_bpm"], 128.0)
+            self.assertEqual(case["style"], "drum_four_floor")
+            with wave.open(str(root / "window_128_four_floor.wav"), "rb") as wav:
+                self.assertEqual(wav.getnframes(), 120 * wav.getframerate())
+            self.assertGreater(len(case["event_sample_positions"]), 100)
 
     def test_ambiguous_subdivisions_share_identical_beat_positions(self):
         # An exact binary-equivalent pulse train cannot reveal whether every

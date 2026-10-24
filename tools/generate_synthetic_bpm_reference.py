@@ -100,6 +100,17 @@ CASES = (
     ("tempo_90_128_switch", None, "tempo_switch"),
 )
 
+# Separate 120-second, non-owner public fixtures for real foobar host
+# window/pass sweeps. Deliberately excluded from the fixed 80-case baseline.
+WINDOW_CASES = (
+    ("window_128_four_floor", 128.0, "drum_four_floor"),
+    ("window_175_breakbeat", 175.0, "drum_breakbeat"),
+    ("window_110_shuffle", 110.0, "drum_shuffle"),
+    ("window_100_odd_five", 100.0, "drum_odd_five"),
+    ("window_90_128_switch", None, "tempo_switch"),
+    ("window_nonperiodic_percussion", None, "nonperiodic_percussion"),
+)
+
 # Public-only fixture geometry. All remaining cases are 20s/16kHz/mono.
 CASE_VARIANTS = {
     "pulse_128_8s": (8, 16000, 1),
@@ -110,6 +121,7 @@ CASE_VARIANTS = {
     "pulse_123_45_44100_stereo": (20, 44100, 2),
     "drum_128_8s": (8, 16000, 1),
     "drum_128_44100_stereo": (20, 44100, 2),
+    **{name: (120, SAMPLE_RATE, 1) for name, _, _ in WINDOW_CASES},
 }
 
 
@@ -344,13 +356,21 @@ def main() -> None:
                         help="Generate one public fixture for real-host smoke")
     parser.add_argument("--list-cases", action="store_true",
                         help="Emit only the fixed public fixture IDs")
+    parser.add_argument("--window-case", choices=[c[0] for c in WINDOW_CASES],
+                        help="Generate one 120s public window-sweep fixture")
+    parser.add_argument("--list-window-cases", action="store_true",
+                        help="List the six 120s public window-sweep fixture IDs")
     args = parser.parse_args()
-    if args.list_cases:
-        if args.output is not None or args.case is not None:
-            parser.error("--list-cases cannot generate files")
-        for name, _, _ in CASES:
+    if args.list_cases or args.list_window_cases:
+        if args.output is not None or args.case is not None or args.window_case is not None:
+            parser.error("list modes cannot generate files")
+        if args.list_cases and args.list_window_cases:
+            parser.error("list exactly one fixture family")
+        for name, _, _ in (WINDOW_CASES if args.list_window_cases else CASES):
             print(name)
         return
+    if args.case is not None and args.window_case is not None:
+        parser.error("--case and --window-case are mutually exclusive")
     if args.output is None:
         parser.error("--output is required for generation")
     dest = args.output.resolve()
@@ -358,7 +378,9 @@ def main() -> None:
     if any(dest.iterdir()):
         parser.error("output directory must be empty (fail closed)")
     manifest = []
-    cases = [c for c in CASES if args.case is None or c[0] == args.case]
+    cases = ([c for c in WINDOW_CASES if c[0] == args.window_case]
+             if args.window_case is not None else
+             [c for c in CASES if args.case is None or c[0] == args.case])
     for name, bpm, style in cases:
         manifest.append(render(name, bpm, style, dest / (name + ".wav")))
     (dest / "reference.json").write_text(

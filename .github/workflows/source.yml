@@ -105,6 +105,12 @@ jobs:
           python -m unittest discover -s tests -p 'test_synthetic_bpm_scorer.py' -v
           if ($LASTEXITCODE -ne 0) { throw 'Synthetic BPM scorer unit tests failed' }
 
+      - name: Verify public 120-second window sweep scoring and provenance
+        shell: pwsh
+        run: |
+          python -m unittest discover -s tests -p 'test_synthetic_window_sweep.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'Window-sweep scorer regressions failed' }
+
       - name: Verify local-only BPM holdout scorer using synthetic telemetry
         shell: pwsh
         run: |
@@ -184,7 +190,7 @@ jobs:
         run: |
           & ./tests/diagnostic_live_host_smoke.ps1 -Architecture Win32 -ComponentDll 'build/ci-probe/Win32/foo_smart_tempo.dll'
 
-      - name: HARD GATE - x64 80-case synthetic BPM matrix and media no-write
+      - name: HARD GATE - x64 80-case BPM and 78-case window/pass host matrix
         shell: pwsh
         run: |
           & ./tests/diagnostic_live_host_smoke.ps1 -Architecture x64 -ComponentDll 'build/ci-probe/x64/foo_smart_tempo.dll'
