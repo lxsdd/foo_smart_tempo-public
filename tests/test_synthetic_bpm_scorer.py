@@ -53,6 +53,33 @@ class ScorerTests(unittest.TestCase):
         self.assertEqual(result["counts"]["within_two_percent"], 0)
         self.assertEqual(result["counts"]["half_double_alias"], 0)
 
+    def test_absolute_precision_tiers_and_public_detail_guard(self):
+        refs = {"cases": [
+            {"id": "pulse_90", "style": "regular", "reference_bpm": 90.0},
+            {"id": "pulse_128", "style": "regular", "reference_bpm": 128.0},
+            {"id": "pulse_175", "style": "regular", "reference_bpm": 175.0},
+        ]}
+        observed = [
+            {"bpm": "90.049", "held": "0"},
+            {"bpm": "128.199", "held": "0"},
+            {"bpm": "175.201", "held": "0"},
+        ]
+        result = score.evaluate(refs, observed)
+        self.assertEqual(result["precision"]["accepted_reference_n"], 3)
+        self.assertEqual(result["precision"]["within_0_05_bpm"], 1)
+        self.assertEqual(result["precision"]["within_0_20_bpm"], 2)
+        self.assertAlmostEqual(result["results"][0]["absolute_error_bpm"], 0.049)
+        lines = list(score.precision_detail_lines(result))
+        self.assertEqual(len(lines), 3)
+        self.assertIn("abs_error_bpm=0.049000", lines[0])
+
+        private_label = {"cases": [
+            {"id": "private-track", "style": "regular", "reference_bpm": 120},
+        ]}
+        scored = score.evaluate(private_label, [{"bpm": "120", "held": "0"}])
+        with self.assertRaises(ValueError):
+            list(score.precision_detail_lines(scored))
+
     def test_observation_ordinals_rejected(self):
         with tempfile.TemporaryDirectory() as temp:
             observed = Path(temp) / "numbers.csv"
