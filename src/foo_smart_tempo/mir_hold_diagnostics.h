@@ -24,7 +24,7 @@ namespace smart_tempo {
     return "MIR: measured candidate board empty; BPM write blocked";
   }
   if (safety_review_hold) {
-    return "MIR: ambiguous candidates; safety review hold";
+    return "MIR: measured candidates withheld by safety policy";
   }
   return "MIR: no admissible primary candidate; BPM write blocked";
 }
