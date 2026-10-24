@@ -176,7 +176,10 @@ if exist "$(OutDir)$(TargetName)$(TargetExt)" move /y "$(OutDir)$(TargetName)$(T
   <ItemGroup>
     <ClCompile Include="analysis_telemetry.cpp" />
     <ClCompile Include="analysis_math_utils.cpp" />
-    <ClCompile Include="bpm_auto_analysis_thread.cpp" />
+    <ClCompile Include="bpm_auto_analysis_thread.cpp">
+      <!-- Numeric report implementation exists only in CI-probe builds. -->
+      <PreprocessorDefinitions Condition="'$(SmartTempoCIRuntimeProbe)'=='true'">SMART_TEMPO_CI_RUNTIME_PROBE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
     <ClCompile Include="bpm_analyzer_factory.cpp" />
     <ClCompile Include="bpm_manual_dialog.cpp" />
     <ClCompile Include="manual_metronome.cpp" />
