@@ -50,7 +50,8 @@ inline bool record(const std::vector<double>& bpm,
       L"pulse_128_sparse", L"pulse_175_sparse", L"pulse_128_8s", L"pulse_128_12s",
       L"pulse_128_40s", L"pulse_128_44100_mono", L"pulse_128_48000_stereo", L"pulse_123_45_44100_stereo",
       L"single_click", L"steady_tone", L"noise",
-      L"drum_60_four_floor", L"drum_90_four_floor", L"drum_110_four_floor", L"drum_120_four_floor", L"drum_128_four_floor", L"drum_140_four_floor", L"drum_175_four_floor", L"drum_123_45_four_floor", L"drum_90_breakbeat", L"drum_128_breakbeat", L"drum_175_breakbeat", L"drum_128_8s", L"drum_128_44100_stereo"};
+      L"drum_60_four_floor", L"drum_90_four_floor", L"drum_110_four_floor", L"drum_120_four_floor", L"drum_128_four_floor", L"drum_140_four_floor", L"drum_175_four_floor", L"drum_123_45_four_floor", L"drum_90_breakbeat", L"drum_128_breakbeat", L"drum_175_breakbeat", L"drum_128_8s", L"drum_128_44100_stereo",
+      L"drum_75_shuffle", L"drum_110_shuffle", L"drum_160_shuffle", L"drum_95_triplet", L"drum_125_triplet", L"drum_185_triplet", L"drum_90_half_time", L"drum_150_half_time", L"drum_100_odd_five", L"drum_142_odd_five", L"drum_105_dropouts", L"drum_170_dropouts", L"drum_124_dense_hats", L"drum_174_dense_hats", L"drum_112_poly_three", L"drum_176_poly_three", L"drum_88_ghost_notes", L"drum_137_ghost_notes", L"nonperiodic_percussion", L"tempo_90_128_switch"};
   bool approved = false;
   for (const wchar_t* id : kCases) {
     std::wstring suffix = L"\\synthetic-oracle-";

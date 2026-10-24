@@ -233,6 +233,48 @@ class ScorerTests(unittest.TestCase):
             score.summarize_shadow_candidates(scored,
                 [{**evidence[0], "id": "private-owner-audio"}])
 
+
+    def test_predeclared_shadow_profiles_are_reference_blind_and_split(self):
+        refs = {"cases": [
+            {"id": "pulse_60", "reference_bpm": 60.0,
+             "style": "regular"},
+            {"id": "drum_75_shuffle", "reference_bpm": 75.0,
+             "style": "drum_shuffle"},
+            {"id": "tempo_90_128_switch", "reference_bpm": None,
+             "ambiguity": "tempo_nonstationary", "style": "tempo_switch"},
+            {"id": "nonperiodic_percussion", "reference_bpm": None,
+             "style": "nonperiodic_percussion"},
+        ]}
+        observed = [
+            {"bpm": "120", "held": "0"},
+            {"bpm": "150", "held": "0"},
+            {"bpm": "90", "held": "0"},
+            {"bpm": "100", "held": "0"},
+        ]
+        def record(name, rank, bpm, exact):
+            return {"id": name, "rank": str(rank), "bpm": str(bpm),
+                    "local_exact": str(exact)}
+        entries = [
+            record("pulse_60", 1, 120, .5),
+            record("pulse_60", 2, 60, .95),
+            record("drum_75_shuffle", 1, 150, .2),
+            record("drum_75_shuffle", 2, 75, .81),
+            record("tempo_90_128_switch", 1, 90, .91),
+            record("tempo_90_128_switch", 2, 180, .89),
+            record("nonperiodic_percussion", 1, 100, .1),
+        ]
+        report = score.evaluate_shadow_profiles(
+            score.evaluate(refs, observed), entries)
+        self.assertEqual(report[("calibration", "production")]["clear_wrong_n"], 1)
+        self.assertEqual(report[("calibration", "exact_top")]["clear_accurate_n"], 1)
+        self.assertEqual(report[("challenge", "production")]["ambiguous_accepted_n"], 1)
+        self.assertEqual(report[("challenge", "production")]["no_tempo_accepted_n"], 1)
+        self.assertEqual(report[("challenge", "exact_top")]["clear_accurate_n"], 1)
+        self.assertEqual(report[("challenge", "exact_alias_margin_005")]["ambiguous_accepted_n"], 0)
+        self.assertEqual(report[("challenge", "exact_floor_075")]["no_tempo_accepted_n"], 0)
+        self.assertEqual(score.shadow_candidate_choice(entries[4:6], .5, .05), None)
+        self.assertEqual(score.shadow_candidate_choice(entries[4:6], .5, -.1), 90)
+
     def test_observation_ordinals_rejected(self):
         with tempfile.TemporaryDirectory() as temp:
             observed = Path(temp) / "numbers.csv"

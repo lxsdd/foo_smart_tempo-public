@@ -77,6 +77,27 @@ CASES = (
     ("drum_175_breakbeat", 175.0, "drum_breakbeat"),
     ("drum_128_8s", 128.0, "drum_four_floor"),
     ("drum_128_44100_stereo", 128.0, "drum_four_floor"),
+    # Independent rhythm-family challenge cohort; no imported audio samples.
+    ("drum_75_shuffle", 75.0, "drum_shuffle"),
+    ("drum_110_shuffle", 110.0, "drum_shuffle"),
+    ("drum_160_shuffle", 160.0, "drum_shuffle"),
+    ("drum_95_triplet", 95.0, "drum_triplet"),
+    ("drum_125_triplet", 125.0, "drum_triplet"),
+    ("drum_185_triplet", 185.0, "drum_triplet"),
+    ("drum_90_half_time", 90.0, "drum_half_time"),
+    ("drum_150_half_time", 150.0, "drum_half_time"),
+    ("drum_100_odd_five", 100.0, "drum_odd_five"),
+    ("drum_142_odd_five", 142.0, "drum_odd_five"),
+    ("drum_105_dropouts", 105.0, "drum_dropouts"),
+    ("drum_170_dropouts", 170.0, "drum_dropouts"),
+    ("drum_124_dense_hats", 124.0, "drum_dense_hats"),
+    ("drum_174_dense_hats", 174.0, "drum_dense_hats"),
+    ("drum_112_poly_three", 112.0, "drum_poly_three"),
+    ("drum_176_poly_three", 176.0, "drum_poly_three"),
+    ("drum_88_ghost_notes", 88.0, "drum_ghost_notes"),
+    ("drum_137_ghost_notes", 137.0, "drum_ghost_notes"),
+    ("nonperiodic_percussion", None, "nonperiodic_percussion"),
+    ("tempo_90_128_switch", None, "tempo_switch"),
 )
 
 # Public-only fixture geometry. All remaining cases are 20s/16kHz/mono.
@@ -172,27 +193,89 @@ def render_drum_beat_grid(samples: bytearray, bpm: float, style: str,
         if tick >= duration - 0.025:
             break
         events.append(round(tick * sample_rate))
-        beat_in_bar = beat % 4
+        beats_per_bar = 5 if style == "drum_odd_five" else 4
+        beat_in_bar = beat % beats_per_bar
         downbeat = beat_in_bar == 0
-        if style == "drum_four_floor" or beat_in_bar in (0, 2):
+        # Fixed musical tempo; accents, instrumentation and phrasing vary.
+        drop_bar = style == "drum_dropouts" and (beat // 4) % 4 == 2
+        kick = style != "drum_breakbeat" or beat_in_bar in (0, 2)
+        if not drop_bar and kick:
             mix_drum_voice(samples, sample_rate, channels, tick, "kick",
-                           1.17 if downbeat else 0.90, beat * 101 + 7)
-        if beat_in_bar in (1, 3):
+                           1.17 if downbeat else (0.38 if style == "drum_ghost_notes" else 0.90),
+                           beat * 101 + 7)
+        snare_beat = (beat_in_bar == 2 if style == "drum_half_time"
+                      else beat_in_bar in (1, 3))
+        if not drop_bar and snare_beat:
             mix_drum_voice(samples, sample_rate, channels, tick, "snare",
                            1.0, beat * 103 + 11)
-        if style == "drum_breakbeat" and beat_in_bar == 2:
+        if style in ("drum_breakbeat", "drum_ghost_notes") and beat_in_bar == 2:
             ghost = tick + period / 2.0
             if ghost < duration - 0.025:
                 mix_drum_voice(samples, sample_rate, channels, ghost, "kick",
-                               0.48, beat * 107 + 13)
-        mix_drum_voice(samples, sample_rate, channels, tick, "hat",
-                       0.45 if downbeat else 0.32, beat * 109 + 17)
-        offbeat = tick + period / 2.0
-        if offbeat < duration - 0.025:
-            mix_drum_voice(samples, sample_rate, channels, offbeat, "hat",
-                           0.62, beat * 113 + 19)
+                               0.35 if style == "drum_ghost_notes" else 0.48,
+                               beat * 107 + 13)
+        if not drop_bar:
+            mix_drum_voice(samples, sample_rate, channels, tick, "hat",
+                           0.45 if downbeat else 0.32, beat * 109 + 17)
+            offsets = (
+                (1.0 / 3, 2.0 / 3) if style in ("drum_triplet", "drum_poly_three") else
+                (0.25, 0.5, 0.75) if style == "drum_dense_hats" else
+                (2.0 / 3,) if style == "drum_shuffle" else (0.5,)
+            )
+            for offset_index, fraction in enumerate(offsets):
+                offbeat = tick + period * fraction
+                if offbeat < duration - 0.025:
+                    gain = 0.35 if style == "drum_dense_hats" else 0.62
+                    mix_drum_voice(samples, sample_rate, channels, offbeat,
+                                   "hat", gain, beat * 113 + 19 + offset_index)
+            if style == "drum_poly_three" and beat % 3 == 0:
+                poly_time = tick + period * 1.5
+                if poly_time < duration - 0.025:
+                    mix_drum_voice(samples, sample_rate, channels, poly_time,
+                                   "snare", 0.24, beat * 127 + 31)
         beat += 1
     return events
+
+
+
+def render_nonperiodic_percussion(samples: bytearray, duration: float,
+                                   sample_rate: int, channels: int) -> None:
+    """Nonstationary, seeded impacts with no stable event inter-onset period."""
+    state = 0x64136F23
+    t = 0.19
+    count = 0
+    while t < duration - 0.15:
+        state ^= (state << 13) & 0xffffffff
+        state ^= state >> 17
+        state ^= (state << 5) & 0xffffffff
+        fraction = (state & 0xffff) / 65535.0
+        t += 0.13 + 1.54 * fraction
+        if t < duration - 0.15:
+            mix_drum_voice(samples, sample_rate, channels, t,
+                           "kick" if count % 3 == 0 else "snare",
+                           0.65, count * 157 + 41)
+        count += 1
+
+
+def render_tempo_switch(samples: bytearray, duration: float,
+                        sample_rate: int, channels: int) -> list[int]:
+    """90 BPM first half, 128 BPM second: no single whole-track tempo."""
+    positions = []
+    for start, end, bpm in ((0.25, duration / 2, 90.0),
+                            (duration / 2 + 0.25, duration, 128.0)):
+        index = 0
+        while True:
+            t = start + index * 60.0 / bpm
+            if t >= end - 0.025:
+                break
+            positions.append(round(t * sample_rate))
+            mix_drum_voice(samples, sample_rate, channels, t, "kick",
+                           0.98, index * 103 + int(bpm))
+            if index % 2:
+                mix_drum_voice(samples, sample_rate, channels, t, "snare",
+                               0.76, index * 107 + int(bpm))
+            index += 1
+    return positions
 
 
 def render(name: str, bpm: float | None, style: str, target: Path) -> dict:
@@ -218,7 +301,11 @@ def render(name: str, bpm: float | None, style: str, target: Path) -> dict:
             sample = int(state % 12001) - 6000
             for ch in range(channels):
                 struct.pack_into("<h", samples, 2 * (frame * channels + ch), sample)
-    elif style in ("drum_four_floor", "drum_breakbeat"):
+    elif style == "nonperiodic_percussion":
+        render_nonperiodic_percussion(samples, duration, sample_rate, channels)
+    elif style == "tempo_switch":
+        positions = render_tempo_switch(samples, duration, sample_rate, channels)
+    elif style.startswith("drum_"):
         positions = render_drum_beat_grid(
             samples, bpm, style, duration, sample_rate, channels)
     else:
@@ -241,8 +328,9 @@ def render(name: str, bpm: float | None, style: str, target: Path) -> dict:
         out.writeframes(samples)
     return {
         "id": name, "reference_bpm": bpm, "style": style,
-        "ambiguity": "meter_underdetermined"
-                     if style in ("half_pulse", "sparse") else "none",
+        "ambiguity": ("meter_underdetermined"
+                      if style in ("half_pulse", "sparse") else
+                      "tempo_nonstationary" if style == "tempo_switch" else "none"),
         "duration_sec": duration, "sample_rate": sample_rate,
         "channels": channels, "event_sample_positions": positions,
         "wav_sha256": hashlib.sha256(target.read_bytes()).hexdigest(),

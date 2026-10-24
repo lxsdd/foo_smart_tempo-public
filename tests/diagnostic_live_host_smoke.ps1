@@ -240,7 +240,7 @@ try {
     # portable foobar instance because multi-track MIR exceeds the UI timeout.
     # Only after ALL cases finish do we score the full fixed synthetic corpus.
     $oracleCases=@(python ./tools/generate_synthetic_bpm_reference.py --list-cases)
-    if ($LASTEXITCODE -ne 0 -or $oracleCases.Count -ne 60 -or
+    if ($LASTEXITCODE -ne 0 -or $oracleCases.Count -ne 80 -or
         @($oracleCases | Sort-Object -Unique).Count -ne $oracleCases.Count) {
       throw 'Public synthetic matrix inventory mismatch'
     }

@@ -25,7 +25,7 @@ def evaluate(reference, observed):
         if not math.isfinite(value) or value < 0:
             raise ValueError("non-finite/negative BPM")
         bpm = expected["reference_bpm"]
-        ambiguous = expected.get("ambiguity") == "meter_underdetermined"
+        ambiguous = expected.get("ambiguity") in ("meter_underdetermined", "tempo_nonstationary")
         absolute_error_bpm = None
         if held and value > 0:
             # A held candidate is not an accepted BPM even if it is measured.
@@ -130,6 +130,7 @@ PUBLIC_CASE_IDS = frozenset({
     "pulse_128_40s", "pulse_128_44100_mono", "pulse_128_48000_stereo", "pulse_123_45_44100_stereo",
     "single_click", "steady_tone", "noise",
     "drum_60_four_floor", "drum_90_four_floor", "drum_110_four_floor", "drum_120_four_floor", "drum_128_four_floor", "drum_140_four_floor", "drum_175_four_floor", "drum_123_45_four_floor", "drum_90_breakbeat", "drum_128_breakbeat", "drum_175_breakbeat", "drum_128_8s", "drum_128_44100_stereo",
+    "drum_75_shuffle", "drum_110_shuffle", "drum_160_shuffle", "drum_95_triplet", "drum_125_triplet", "drum_185_triplet", "drum_90_half_time", "drum_150_half_time", "drum_100_odd_five", "drum_142_odd_five", "drum_105_dropouts", "drum_170_dropouts", "drum_124_dense_hats", "drum_174_dense_hats", "drum_112_poly_three", "drum_176_poly_three", "drum_88_ghost_notes", "drum_137_ghost_notes", "nonperiodic_percussion", "tempo_90_128_switch",
 })
 
 
@@ -298,6 +299,95 @@ def summarize_shadow_candidates(scored, entries):
     return counts
 
 
+
+# Predeclared novel synthetic challenges; no imported audio or learned labels.
+NOVEL_RHYTHM_CASE_IDS = frozenset({
+    "drum_75_shuffle", "drum_110_shuffle", "drum_160_shuffle", "drum_95_triplet", "drum_125_triplet", "drum_185_triplet", "drum_90_half_time", "drum_150_half_time", "drum_100_odd_five", "drum_142_odd_five", "drum_105_dropouts", "drum_170_dropouts", "drum_124_dense_hats", "drum_174_dense_hats", "drum_112_poly_three", "drum_176_poly_three", "drum_88_ghost_notes", "drum_137_ghost_notes", "nonperiodic_percussion", "tempo_90_128_switch"
+})
+SHADOW_PROFILES = (
+    ("exact_top", 0.0, -1.0),
+    ("exact_floor_075", 0.75, -1.0),
+    ("exact_floor_090", 0.90, -1.0),
+    ("exact_alias_margin_005", 0.50, 0.05),
+    ("exact_alias_margin_015", 0.65, 0.15),
+)
+
+
+def shadow_candidate_choice(candidates, min_exact: float,
+                            alias_margin: float) -> float | None:
+    """Read-only hypothetical BPM or abstention; not production output."""
+    if not candidates:
+        return None
+    ranked = sorted(candidates, key=lambda x: (
+        -float(x["local_exact"]), int(x["rank"])))
+    top = ranked[0]
+    best_score = float(top["local_exact"])
+    best_bpm = float(top["bpm"])
+    if best_score < min_exact:
+        return None
+    if alias_margin >= 0:
+        for other in ranked[1:]:
+            ratio = float(other["bpm"]) / best_bpm
+            metrical_alias = (abs(ratio - .5) <= .01 or
+                              abs(ratio - 2.) <= .02)
+            if metrical_alias and (
+                best_score - float(other["local_exact"]) <= alias_margin):
+                return None
+    return best_bpm
+
+
+def evaluate_shadow_profiles(scored, entries):
+    """Predeclared counterfactuals evaluated on old vs novel rhythm cohorts.
+
+    References are used ONLY for offline scoring after proposals exist.
+    """
+    grouped = {}
+    for item in entries:
+        grouped.setdefault(item["id"], []).append(item)
+    out = {}
+    for cohort, novel in (("calibration", False), ("challenge", True)):
+        rows = [row for row in scored["results"]
+                if (row["id"] in NOVEL_RHYTHM_CASE_IDS) == novel]
+        if not rows:
+            continue
+        baseline = dict(total=len(rows), clear_n=0, clear_accurate_n=0,
+                        clear_wrong_n=0, clear_held_n=0,
+                        ambiguous_accepted_n=0, no_tempo_accepted_n=0)
+        for row in rows:
+            accepted = not row["held"] and row["reported_bpm"] > 0
+            if row["ambiguous"]:
+                baseline["ambiguous_accepted_n"] += bool(accepted)
+            elif row["reference_bpm"] is None:
+                baseline["no_tempo_accepted_n"] += bool(accepted)
+            else:
+                baseline["clear_n"] += 1
+                if not accepted:
+                    baseline["clear_held_n"] += 1
+                elif abs(row["reported_bpm"] - row["reference_bpm"]) <= .20 + 1e-9:
+                    baseline["clear_accurate_n"] += 1
+                else:
+                    baseline["clear_wrong_n"] += 1
+        out[(cohort, "production")] = baseline
+        for profile, minimum, margin in SHADOW_PROFILES:
+            result = {key: (value if key in ("total", "clear_n") else 0)
+                      for key, value in baseline.items()}
+            for row in rows:
+                proposed = shadow_candidate_choice(
+                    grouped.get(row["id"], ()), minimum, margin)
+                if row["ambiguous"]:
+                    result["ambiguous_accepted_n"] += proposed is not None
+                elif row["reference_bpm"] is None:
+                    result["no_tempo_accepted_n"] += proposed is not None
+                elif proposed is None:
+                    result["clear_held_n"] += 1
+                elif abs(proposed - row["reference_bpm"]) <= .20 + 1e-9:
+                    result["clear_accurate_n"] += 1
+                else:
+                    result["clear_wrong_n"] += 1
+            out[(cohort, profile)] = result
+    return out
+
+
 def precision_detail_lines(scored):
     for row in scored["results"]:
         if row["id"] not in PUBLIC_CASE_IDS:
@@ -344,6 +434,11 @@ def main():
         candidate_entries = load_candidate_inventory(args.candidates)
         diagnostics = inspect_candidate_inventory(scored, candidate_entries)
         shadows = summarize_shadow_candidates(scored, candidate_entries)
+        # Only fixed test-only profiles; never feed any score to the engine.
+        for (cohort, profile), values in evaluate_shadow_profiles(
+                scored, candidate_entries).items():
+            for key, value in values.items():
+                print(f"SYNTHETIC_PROFILE_{cohort.upper()}_{profile.upper()}_{key.upper()}={value}")
         for key, value in shadows.items():
             print(f"SYNTHETIC_SHADOW_{key.upper()}={value}")
         for key in ("incorrect_clear_reference_n",
