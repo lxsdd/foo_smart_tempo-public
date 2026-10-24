@@ -17,6 +17,7 @@
 
 #include "analysis_telemetry.h"
 #include "analysis_progress_projection.h"
+#include "analysis_window_work_estimate.h"
 #include "bpm_analyzer_factory.h"
 #include "bpm_result_dialog.h"
 #include "experimental_feature_flags.h"
@@ -430,7 +431,6 @@ void bpm_auto_analysis_thread::WorkerMain() {
   ModernBpmAnalyzer::reset_runtime_stats();
   m_doneAudioMillis.store(0, std::memory_order_relaxed);
   m_completedAudioMillis.store(0, std::memory_order_relaxed);
-  constexpr double kProgressDecodeSafetyMarginSeconds = 0.5;
   const int progressSecondsToRead = clamp_analysis_seconds_to_read(
       (int)bpm_config_analysis_seconds_to_read);
   const int progressSamplePasses = clamp_analysis_sample_passes(
@@ -438,30 +438,25 @@ void bpm_auto_analysis_thread::WorkerMain() {
   uint64_t totalAudioMillis = 0;
   for (t_size i = 0; i < total; ++i) {
     const double lengthSec = m_tracks[i]->get_length();
-    double estimatedAnalysisSeconds =
-        static_cast<double>(progressSecondsToRead);
-    int estimatedPasses = progressSamplePasses;
-    if (std::isfinite(lengthSec) && lengthSec > 0.0) {
-      estimatedAnalysisSeconds =
-          (std::min)(estimatedAnalysisSeconds, lengthSec);
-      if (lengthSec > kProgressDecodeSafetyMarginSeconds) {
-        estimatedAnalysisSeconds =
-            (std::min)(estimatedAnalysisSeconds,
-                       lengthSec - kProgressDecodeSafetyMarginSeconds);
-      }
-    } else {
-      estimatedPasses = 1;
+    const bool knownLength = std::isfinite(lengthSec) && lengthSec > 0.0;
+    // Mirror the real analyzer's early short-track rejection. Neither
+    // metadata nor any expected BPM is used in this UI-only work estimate.
+    if (knownLength && lengthSec < smart_tempo::kMinimumTrackLengthSeconds)
+      continue;
+    // Match the real MIR window plan and its 1.0s decode safety margin.
+    // Previously the progress meter used a separate 0.5s margin and could
+    // accumulate phantom decoder work on short tracks.
+    const auto estimate = smart_tempo::estimate_analysis_window_work(
+        progressSecondsToRead, progressSamplePasses, knownLength, lengthSec);
+    if (!estimate.valid) continue;
+    const double ms = estimate.requestedDecodeSeconds * 1000.0;
+    if (!std::isfinite(ms) || ms <= 0.0) continue;
+    if (ms >= static_cast<double>(
+                  (std::numeric_limits<uint64_t>::max)() - totalAudioMillis)) {
+      totalAudioMillis = (std::numeric_limits<uint64_t>::max)();
+      break;
     }
-    if (estimatedAnalysisSeconds > 0.0 && estimatedPasses > 0) {
-      const double ms =
-          estimatedAnalysisSeconds * static_cast<double>(estimatedPasses) *
-          1000.0;
-      if (ms >= static_cast<double>((std::numeric_limits<uint64_t>::max)() - totalAudioMillis)) {
-        totalAudioMillis = (std::numeric_limits<uint64_t>::max)();
-        break;
-      }
-      totalAudioMillis += static_cast<uint64_t>(ms + 0.5);
-    }
+    totalAudioMillis += static_cast<uint64_t>(ms + 0.5);
   }
   if (totalAudioMillis == 0) totalAudioMillis = 1000;
   m_totalAudioMillis.store(totalAudioMillis, std::memory_order_relaxed);
