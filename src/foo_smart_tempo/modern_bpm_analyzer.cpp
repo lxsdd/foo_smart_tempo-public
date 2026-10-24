@@ -2779,7 +2779,8 @@ double ModernBpmAnalyzer::analyze(metadb_handle_ptr track, threaded_process_stat
                     hodgkinsonFullMirSegmentResults.size(),
                     mirMeasuredCandidateBoard.raw_candidates.size(),
                     mirPrimarySelection.review_hold ||
-                        mirPolicyDecision.output_would_review_hold);
+                        mirPolicyDecision.output_would_review_hold ||
+                        mirPolicyDecision.family_conflict_review_hold_candidate);
               }
             }
             if (smart_tempo::experimental::
