@@ -166,6 +166,16 @@ function Run-Case([string]$installer,[string]$root,[string]$inputFile,[string[]]
     Start-Sleep -Seconds 2
     if (-not [STUI]::IsWindow($dialog)) { throw 'Secondary no-write guard failed' }
     foreach ($file in $files) { if ((Stamp $file) -cne $baseline[$file]) { throw 'File changed after blocked Update handler' } }
+    if ($label -eq 'SYNTHETIC') {
+      $observed=Join-Path $root 'synthetic-observed.csv'
+      $reference=Join-Path (Split-Path -Parent $inputFile) 'reference.json'
+      & ./tests/capture_synthetic_bpm_ui.ps1 -DialogHandle ([long]$dialog) -Manifest $reference -OutputCsv $observed
+      if (-not (Test-Path -LiteralPath $observed)) {
+        throw 'Real foobar BPM observation is not available'
+      }
+      python ./tools/score_synthetic_bpm_reference.py --manifest $reference --observed $observed
+      if ($LASTEXITCODE -ne 0) { throw 'Real foobar synthetic BPM evaluation failed' }
+    }
     Write-Host ("DIAGNOSTIC_MENU_{0}_{1}=PASS" -f $Architecture,$label)
     Write-Host ("DIAGNOSTIC_ROWS_{0}_{1}={2}" -f $Architecture,$label,$rows)
     Write-Host ("MEDIA_WRITE_SAFETY_{0}_{1}=PASS" -f $Architecture,$label)
@@ -213,5 +223,21 @@ try {
   [IO.File]::WriteAllLines($cue,@('FILE "rhythm.wav" WAVE','  TRACK 01 AUDIO','    INDEX 01 00:00:00','  TRACK 02 AUDIO','    INDEX 01 00:20:00'),[Text.Encoding]::ASCII)
   Run-Case $installer $root $wav @($wav) 1 'WAV'
   Run-Case $installer $root $cue @($wav,$cue) 2 'CUE'
+  if ($Architecture -eq 'x64') {
+    # Run the real engine only on fully generated public synthetic PCM,
+    # with deterministic reference truth fixed before observing any results.
+    $syntheticRoot=Join-Path $root 'synthetic-oracle'
+    python ./tools/generate_synthetic_bpm_reference.py --output $syntheticRoot
+    if ($LASTEXITCODE -ne 0) { throw 'Synthetic oracle WAV creation failed' }
+    $reference=Join-Path $syntheticRoot 'reference.json'
+    $cases=@((Get-Content -LiteralPath $reference -Raw | ConvertFrom-Json).cases)
+    if ($cases.Count -ne 11) { throw 'Unexpected synthetic oracle case count' }
+    $wavFiles=@($cases | ForEach-Object { Join-Path $syntheticRoot ($_.id+'.wav') })
+    $playlist=Join-Path $syntheticRoot 'synthetic-oracle.m3u8'
+    [IO.File]::WriteAllLines($playlist, [string[]](@('#EXTM3U') + $wavFiles),
+                             [Text.UTF8Encoding]::new($false))
+    $all=@($playlist,$reference) + $wavFiles
+    Run-Case $installer $root $playlist $all 11 'SYNTHETIC'
+  }
   Write-Host ("SMART_TEMPO_DIAGNOSTIC_RUNTIME_{0}=PASS" -f $Architecture)
 } finally { if (Test-Path $root) { Remove-Item $root -Recurse -Force -ErrorAction SilentlyContinue } }
