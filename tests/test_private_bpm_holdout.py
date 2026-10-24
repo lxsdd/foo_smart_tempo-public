@@ -102,6 +102,14 @@ class PrivateBpmHoldoutTests(unittest.TestCase):
         with self.assertRaises(SCORE.HoldoutError):
             SCORE.evaluate_holdout(tracks, refs)
 
+
+    def test_no_clear_references_cannot_be_qualified(self):
+        tracks = {("99", 0): fake_track("Synthetic Empty", "HOLD", None)}
+        refs = {("99", 0): {"class": "no_tempo", "bpm": None}}
+        result = SCORE.evaluate_holdout(tracks, refs)
+        self.assertEqual(result["unsafe_accepted_n"], 0)
+        self.assertEqual(result["quality_verdict"], "REVIEW_NO_CLEAR_REFERENCES")
+
     def test_prepare_rejects_git_repository_and_existing_file(self):
         outside = self.root / "safe.json"
         SCORE.assert_private_destination(outside)

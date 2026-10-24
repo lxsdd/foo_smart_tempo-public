@@ -170,8 +170,9 @@ def evaluate_holdout(tracks: dict, references: dict) -> dict:
         counts["no_tempo_false_accept_n"])
     counts["quality_verdict"] = (
         "NO_GO" if counts["unsafe_accepted_n"] else
+        "REVIEW_NO_CLEAR_REFERENCES" if not counts["clear_n"] else
         "REVIEW_HOLDS" if counts["clear_held_n"] else
-        "PRIVATE_HOLDOUT_ONLY_PASS" if
+        "PRIVATE_SAMPLE_MEETS_PRECISION" if
         counts["clear_within_0_05_n"] == counts["clear_n"] else
         "REVIEW_PRECISION")
     return counts
