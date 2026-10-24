@@ -105,6 +105,35 @@ def aggregate(rows: list[dict], candidates: dict[str, list[dict]]) -> tuple[dict
     return reference, shadow
 
 
+def format_case_diagnostics(rows: list[dict], candidates: dict[str, list[dict]]) -> list[str]:
+    """Public-only, bounded per-case outcomes; no arbitrary media identity."""
+    expected = [name for name, _, _ in PROSPECTIVE_CASES]
+    if [row["id"] for row in rows] != expected:
+        raise ValueError("Prospective diagnostic identity mismatch")
+
+    def printable(value: float | None) -> str:
+        return "held" if value is None or value <= 0 else f"{value:.6f}"
+
+    lines = []
+    for row in rows:
+        fixture_id = row["id"]
+        selected = shadow_candidate_choice(
+            candidates[fixture_id], PROFILE_MIN_LOCAL, PROFILE_HARMONIC_MARGIN)
+        observed_bpm = None if row["held"] else row["reported_bpm"]
+        reference_bpm = row["reference_bpm"]
+        cohort = ("ambiguous" if row["ambiguous"] else
+                  "no_global_tempo" if reference_bpm is None else "clear")
+        near = ("na" if cohort != "clear" else
+                "1" if any(abs(float(item["bpm"]) - reference_bpm) <= .20 + 1e-9
+                           for item in candidates[fixture_id]) else "0")
+        truth = "none" if reference_bpm is None else f"{reference_bpm:.6f}"
+        lines.append(
+            f"PROSPECTIVE_CASE id={fixture_id} cohort={cohort} "
+            f"reference={truth} production={printable(observed_bpm)} "
+            f"shadow={printable(selected)} near_candidate={near}")
+    return lines
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--manifest", type=Path, required=True)
@@ -131,6 +160,8 @@ def main() -> int:
     print("PROSPECTIVE_SHADOW_QUALITY_VERDICT=" +
           ("NO_GO" if unsafe else
            "REVIEW_HOLDS" if shadow["held"] else "SYNTHETIC_ONLY_PASS"))
+    for line in format_case_diagnostics(scored["results"], grouped):
+        print(line)
     print("PROSPECTIVE_SHADOW_NEVER_APPLIED_TO_AUDIO_OR_TAGS=TRUE")
     return 0
 

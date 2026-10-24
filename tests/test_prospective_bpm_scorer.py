@@ -12,7 +12,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 from generate_synthetic_bpm_reference import CASES, PROSPECTIVE_CASES  # noqa: E402
 from score_prospective_bpm_reference import (  # noqa: E402
-    CANDIDATE_FIELDS, aggregate, load_candidates, load_manifest,
+    CANDIDATE_FIELDS, aggregate, format_case_diagnostics,
+    load_candidates, load_manifest,
 )
 from score_synthetic_bpm_reference import evaluate  # noqa: E402
 
@@ -64,6 +65,22 @@ class ProspectiveScorerTests(unittest.TestCase):
         self.assertEqual(shadow["wrong"], 0)
         self.assertEqual(shadow["ambiguous_accepted"], 0)
         self.assertEqual(shadow["no_tempo_accepted"], 0)
+
+    def test_public_case_diagnostics_are_bounded_and_identity_checked(self):
+        manifest, observed, candidates = self.fixture()
+        scored = evaluate(manifest, observed)["results"]
+        lines = format_case_diagnostics(scored, candidates)
+        self.assertEqual(len(lines), 20)
+        self.assertIn(
+            "id=prospective_four_floor_97_25 cohort=clear "
+            "reference=97.250000 production=97.250000 "
+            "shadow=97.250000 near_candidate=1", lines[0])
+        self.assertTrue(all(line.startswith("PROSPECTIVE_CASE id=prospective_")
+                            for line in lines))
+        forged = [dict(row) for row in scored]
+        forged[0]["id"] = "owner_private_track"
+        with self.assertRaises(ValueError):
+            format_case_diagnostics(forged, candidates)
 
     def test_reference_tampering_is_rejected(self):
         manifest, _, _ = self.fixture()
