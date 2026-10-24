@@ -142,6 +142,13 @@ def report(manifest: dict, baseline: list[dict],
             near = (row["reference_bpm"] is not None and not row["ambiguous"] and
                     any(abs(float(c["bpm"]) - row["reference_bpm"]) <= .20 + 1e-9
                         for c in board))
+            top = (sorted(board, key=lambda item: (
+                -float(item["local_exact"]), int(item["rank"])))[0]
+                   if board else None)
+            closest_error = (min(abs(float(item["bpm"]) - row["reference_bpm"])
+                                 for item in board)
+                             if board and row["reference_bpm"] is not None and
+                             not row["ambiguous"] else None)
             state = status(row, prod)
             if state == "accurate":
                 counts["clear_accurate"] += 1
@@ -153,11 +160,17 @@ def report(manifest: dict, baseline: list[dict],
                 counts[state] += 1
             counts["clear_near"] += bool(near)
             shown = lambda x: "held" if x is None or x <= 0 else f"{x:.6f}"
+            top_bpm = f"{float(top['bpm']):.6f}" if top else "none"
+            top_score = f"{float(top['local_exact']):.6f}" if top else "na"
+            closest_text = (f"{closest_error:.6f}"
+                            if closest_error is not None else "na")
             lines.append(
                 f"PASS_SWEEP_CASE id={name} passes={axis if axis else 'default'} "
                 f"geometry={geometry} production={shown(prod)} "
                 f"shadow={shown(shadow)} near_candidate={int(bool(near))} "
-                f"state={state}")
+                f"board_rows={len(board)} top_local_bpm={top_bpm} "
+                f"top_local_score={top_score} "
+                f"closest_error_bpm={closest_text} state={state}")
         lines.append(
             "PASS_SWEEP_SUMMARY passes=" + (str(axis) if axis else "default") +
             " " + " ".join(f"{k}={v}" for k, v in counts.items()))

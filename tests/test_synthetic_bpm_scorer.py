@@ -272,6 +272,11 @@ class ScorerTests(unittest.TestCase):
         self.assertEqual(report[("challenge", "exact_top")]["clear_accurate_n"], 1)
         self.assertEqual(report[("challenge", "exact_alias_margin_005")]["ambiguous_accepted_n"], 0)
         self.assertEqual(report[("challenge", "exact_floor_075")]["no_tempo_accepted_n"], 0)
+        frozen = report[("challenge", "frozen_prospective_095_010")]
+        self.assertEqual(frozen["clear_held_n"], 1)
+        self.assertEqual(frozen["ambiguous_accepted_n"], 0)
+        self.assertEqual(frozen["no_tempo_accepted_n"], 0)
+        self.assertEqual(report[("calibration", "frozen_prospective_095_010")]["clear_accurate_n"], 1)
         self.assertEqual(score.shadow_candidate_choice(entries[4:6], .5, .05), None)
         self.assertEqual(score.shadow_candidate_choice(entries[4:6], .5, -.1), 90)
 

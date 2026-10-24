@@ -114,6 +114,10 @@ class ProspectivePassSweepTests(unittest.TestCase):
                          44)
         self.assertEqual(sum(line.startswith("PASS_SWEEP_SUMMARY ") for line in lines),
                          4)
+        detailed = next(line for line in lines if
+                        f"id={TARGETS[0]} passes=1 " in line)
+        self.assertIn("board_rows=1 top_local_bpm=97.250000", detailed)
+        self.assertIn("closest_error_bpm=0.000000", detailed)
         self.assertTrue(all("owner_private_track" not in line for line in lines))
         forged = [dict(row) for row in baseline]
         forged[0]["id"] = "owner_private_track"

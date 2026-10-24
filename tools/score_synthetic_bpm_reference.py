@@ -310,6 +310,8 @@ SHADOW_PROFILES = (
     ("exact_floor_090", 0.90, -1.0),
     ("exact_alias_margin_005", 0.50, 0.05),
     ("exact_alias_margin_015", 0.65, 0.15),
+    # Calibrated on this 80-case corpus, then frozen before the prospective 20.
+    ("frozen_prospective_095_010", 0.95, 0.10),
 )
 
 
@@ -337,7 +339,7 @@ def shadow_candidate_choice(candidates, min_exact: float,
 
 
 def evaluate_shadow_profiles(scored, entries):
-    """Predeclared counterfactuals evaluated on old vs novel rhythm cohorts.
+    """Fixed counterfactuals evaluated on old vs novel rhythm cohorts.
 
     References are used ONLY for offline scoring after proposals exist.
     """
