@@ -19,7 +19,7 @@ class SyntheticBpmReferenceTests(unittest.TestCase):
             [sys.executable, str(GENERATOR), "--output", str(folder)],
             text=True, capture_output=True, check=True,
         )
-        self.assertIn("SYNTHETIC_REFERENCE_GENERATED=47", result.stdout)
+        self.assertIn("SYNTHETIC_REFERENCE_GENERATED=60", result.stdout)
         return json.loads((folder / "reference.json").read_text(encoding="utf-8"))
 
     def test_wave_structure_and_reference_oracle(self):
@@ -27,7 +27,7 @@ class SyntheticBpmReferenceTests(unittest.TestCase):
             root = Path(temp) / "fixtures"
             data = self.generate(root)
             self.assertEqual(data["schema"], "synthetic_bpm_reference_v1")
-            self.assertEqual(len(data["cases"]), 47)
+            self.assertEqual(len(data["cases"]), 60)
             for case in data["cases"]:
                 wav = root / (case["id"] + ".wav")
                 with wave.open(str(wav), "rb") as reader:
@@ -43,6 +43,15 @@ class SyntheticBpmReferenceTests(unittest.TestCase):
                     self.assertEqual(len(events), 1)
                 elif case["reference_bpm"] is None:
                     self.assertFalse(events)
+                elif case["style"] in ("drum_four_floor", "drum_breakbeat"):
+                    # Declared musical beat grid, plus synthesized drum/hat
+                    # timbres and alternating accents; no third-party samples.
+                    delta = case["sample_rate"] * 60 / case["reference_bpm"]
+                    self.assertGreater(len(events), 5)
+                    self.assertTrue(
+                        all(abs((b - a) - delta) <= 1 for a, b in zip(events, events[1:]))
+                    )
+                    self.assertGreater(wav.stat().st_size, 44)
                 elif case["style"] == "regular":
                     # Oracle: exact beat spacing within one PCM sample.
                     delta = case["sample_rate"] * 60 / case["reference_bpm"]
@@ -50,6 +59,8 @@ class SyntheticBpmReferenceTests(unittest.TestCase):
                     self.assertTrue(
                         all(abs((b - a) - delta) <= 1 for a, b in zip(events, events[1:]))
                     )
+            self.assertEqual(sum(c["style"].startswith("drum_")
+                                 for c in data["cases"]), 13)
             self.assertEqual(sum(c["style"] == "silence" for c in data["cases"]), 1)
             self.assertEqual(sum(c["ambiguity"] == "meter_underdetermined"
                                  for c in data["cases"]), 6)

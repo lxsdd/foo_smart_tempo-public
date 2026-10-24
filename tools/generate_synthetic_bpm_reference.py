@@ -64,6 +64,19 @@ CASES = (
     ("single_click", None, "single_click"),
     ("steady_tone", None, "tone"),
     ("noise", None, "noise"),
+    ("drum_60_four_floor", 60.0, "drum_four_floor"),
+    ("drum_90_four_floor", 90.0, "drum_four_floor"),
+    ("drum_110_four_floor", 110.0, "drum_four_floor"),
+    ("drum_120_four_floor", 120.0, "drum_four_floor"),
+    ("drum_128_four_floor", 128.0, "drum_four_floor"),
+    ("drum_140_four_floor", 140.0, "drum_four_floor"),
+    ("drum_175_four_floor", 175.0, "drum_four_floor"),
+    ("drum_123_45_four_floor", 123.45, "drum_four_floor"),
+    ("drum_90_breakbeat", 90.0, "drum_breakbeat"),
+    ("drum_128_breakbeat", 128.0, "drum_breakbeat"),
+    ("drum_175_breakbeat", 175.0, "drum_breakbeat"),
+    ("drum_128_8s", 128.0, "drum_four_floor"),
+    ("drum_128_44100_stereo", 128.0, "drum_four_floor"),
 )
 
 # Public-only fixture geometry. All remaining cases are 20s/16kHz/mono.
@@ -74,6 +87,8 @@ CASE_VARIANTS = {
     "pulse_128_44100_mono": (20, 44100, 1),
     "pulse_128_48000_stereo": (20, 48000, 2),
     "pulse_123_45_44100_stereo": (20, 44100, 2),
+    "drum_128_8s": (8, 16000, 1),
+    "drum_128_44100_stereo": (20, 44100, 2),
 }
 
 
@@ -106,6 +121,80 @@ def event_times(bpm: float | None, style: str, duration: float) -> list[float]:
     return sorted(times)
 
 
+
+def mix_drum_voice(samples: bytearray, sample_rate: int, channels: int,
+                   at_seconds: float, voice: str, gain: float, seed: int) -> None:
+    """Add a deterministic synthesized percussion voice; no audio samples."""
+    total_frames = len(samples) // (channels * 2)
+    start = round(at_seconds * sample_rate)
+    if start < 0 or start >= total_frames:
+        return
+    duration = (0.075 if voice == "kick" else
+                0.055 if voice == "snare" else 0.020)
+    count = min(round(sample_rate * duration), total_frames - start)
+    state = (seed | 1) & 0xffffffff
+    phase = 0.0
+    for j in range(count):
+        seconds = j / sample_rate
+        if voice == "kick":
+            # Smooth falling synthesized bass oscillator with a transient.
+            freq = 48.0 + 120.0 * math.exp(-26.0 * seconds)
+            phase += 2.0 * math.pi * freq / sample_rate
+            sample = int(17000 * gain * math.exp(-42.0 * seconds)
+                         * math.sin(phase))
+        else:
+            # Original deterministic noise, independently reseeded per hit.
+            state ^= (state << 13) & 0xffffffff
+            state ^= state >> 17
+            state ^= (state << 5) & 0xffffffff
+            whitened = (state & 0xffff) / 32767.5 - 1.0
+            decay = 60.0 if voice == "snare" else 150.0
+            amplitude = 8500 if voice == "snare" else 3200
+            sample = int(amplitude * gain * math.exp(-decay * seconds)
+                         * whitened)
+        for ch in range(channels):
+            offset = 2 * ((start + j) * channels + ch)
+            earlier = struct.unpack_from("<h", samples, offset)[0]
+            incoming = sample if ch == 0 else int(sample * 0.83)
+            struct.pack_into("<h", samples, offset,
+                             max(-32768, min(32767, earlier + incoming)))
+
+
+def render_drum_beat_grid(samples: bytearray, bpm: float, style: str,
+                          duration: float, sample_rate: int,
+                          channels: int) -> list[int]:
+    """Four-bar hierarchy: bass downbeat, backbeat snare, offbeat hi-hat."""
+    period = 60.0 / bpm
+    events = []
+    beat = 0
+    while True:
+        tick = 0.25 + beat * period
+        if tick >= duration - 0.025:
+            break
+        events.append(round(tick * sample_rate))
+        beat_in_bar = beat % 4
+        downbeat = beat_in_bar == 0
+        if style == "drum_four_floor" or beat_in_bar in (0, 2):
+            mix_drum_voice(samples, sample_rate, channels, tick, "kick",
+                           1.17 if downbeat else 0.90, beat * 101 + 7)
+        if beat_in_bar in (1, 3):
+            mix_drum_voice(samples, sample_rate, channels, tick, "snare",
+                           1.0, beat * 103 + 11)
+        if style == "drum_breakbeat" and beat_in_bar == 2:
+            ghost = tick + period / 2.0
+            if ghost < duration - 0.025:
+                mix_drum_voice(samples, sample_rate, channels, ghost, "kick",
+                               0.48, beat * 107 + 13)
+        mix_drum_voice(samples, sample_rate, channels, tick, "hat",
+                       0.45 if downbeat else 0.32, beat * 109 + 17)
+        offbeat = tick + period / 2.0
+        if offbeat < duration - 0.025:
+            mix_drum_voice(samples, sample_rate, channels, offbeat, "hat",
+                           0.62, beat * 113 + 19)
+        beat += 1
+    return events
+
+
 def render(name: str, bpm: float | None, style: str, target: Path) -> dict:
     duration, sample_rate, channels = CASE_VARIANTS.get(
         name, (DURATION_SECONDS, SAMPLE_RATE, 1))
@@ -129,6 +218,9 @@ def render(name: str, bpm: float | None, style: str, target: Path) -> dict:
             sample = int(state % 12001) - 6000
             for ch in range(channels):
                 struct.pack_into("<h", samples, 2 * (frame * channels + ch), sample)
+    elif style in ("drum_four_floor", "drum_breakbeat"):
+        positions = render_drum_beat_grid(
+            samples, bpm, style, duration, sample_rate, channels)
     else:
         click_samples = round(sample_rate * 0.0075)
         for t in event_times(bpm, style, duration):

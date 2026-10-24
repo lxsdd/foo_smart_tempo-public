@@ -178,7 +178,7 @@ jobs:
         run: |
           & ./tests/diagnostic_live_host_smoke.ps1 -Architecture Win32 -ComponentDll 'build/ci-probe/Win32/foo_smart_tempo.dll'
 
-      - name: HARD GATE - x64 47-case synthetic BPM matrix and media no-write
+      - name: HARD GATE - x64 60-case synthetic BPM matrix and media no-write
         shell: pwsh
         run: |
           & ./tests/diagnostic_live_host_smoke.ps1 -Architecture x64 -ComponentDll 'build/ci-probe/x64/foo_smart_tempo.dll'

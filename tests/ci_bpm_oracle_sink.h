@@ -49,7 +49,8 @@ inline bool record(const std::vector<double>& bpm,
       L"pulse_90_swing", L"pulse_175_swing", L"pulse_90_half_pulse", L"pulse_175_half_pulse",
       L"pulse_128_sparse", L"pulse_175_sparse", L"pulse_128_8s", L"pulse_128_12s",
       L"pulse_128_40s", L"pulse_128_44100_mono", L"pulse_128_48000_stereo", L"pulse_123_45_44100_stereo",
-      L"single_click", L"steady_tone", L"noise"};
+      L"single_click", L"steady_tone", L"noise",
+      L"drum_60_four_floor", L"drum_90_four_floor", L"drum_110_four_floor", L"drum_120_four_floor", L"drum_128_four_floor", L"drum_140_four_floor", L"drum_175_four_floor", L"drum_123_45_four_floor", L"drum_90_breakbeat", L"drum_128_breakbeat", L"drum_175_breakbeat", L"drum_128_8s", L"drum_128_44100_stereo"};
   bool approved = false;
   for (const wchar_t* id : kCases) {
     std::wstring suffix = L"\\synthetic-oracle-";

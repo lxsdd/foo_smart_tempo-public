@@ -129,6 +129,7 @@ PUBLIC_CASE_IDS = frozenset({
     "pulse_128_sparse", "pulse_175_sparse", "pulse_128_8s", "pulse_128_12s",
     "pulse_128_40s", "pulse_128_44100_mono", "pulse_128_48000_stereo", "pulse_123_45_44100_stereo",
     "single_click", "steady_tone", "noise",
+    "drum_60_four_floor", "drum_90_four_floor", "drum_110_four_floor", "drum_120_four_floor", "drum_128_four_floor", "drum_140_four_floor", "drum_175_four_floor", "drum_123_45_four_floor", "drum_90_breakbeat", "drum_128_breakbeat", "drum_175_breakbeat", "drum_128_8s", "drum_128_44100_stereo",
 })
 
 
