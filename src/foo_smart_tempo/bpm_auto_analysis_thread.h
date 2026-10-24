@@ -141,6 +141,7 @@ private:
     double m_analysisElapsedSeconds = 0.0;
     bool m_measuredCandidateInspectionMode = false;
     bool m_batchDryRunMode = false;
+    int m_lastDisplayedProgressPermille = 0;
     double m_etaDisplayedRemaining = 0.0;
     double m_smoothedTotalTimeSeconds = 0.0;
     bool m_etaUiInitialized = false;
