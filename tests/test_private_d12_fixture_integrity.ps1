@@ -74,3 +74,7 @@ try {
 } finally {
     Remove-Item -LiteralPath $working -Recurse -Force -ErrorAction SilentlyContinue
 }
+
+# Expected negative child-process tests leave LASTEXITCODE=1: reset for GitHub pwsh.
+$global:LASTEXITCODE = 0
+exit 0
