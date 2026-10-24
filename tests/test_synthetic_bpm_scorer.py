@@ -173,6 +173,66 @@ class ScorerTests(unittest.TestCase):
                 writer.writerow(base)
             self.assertEqual(len(score.load_candidate_inventory(path)), 1)
 
+
+    def test_prespecified_drum_pulse_comparison_classifies_fix_and_regression(self):
+        refs = {"cases": [
+            {"id": "pulse_60", "style": "regular", "reference_bpm": 60},
+            {"id": "drum_60_four_floor", "style": "drum_four_floor", "reference_bpm": 60},
+            {"id": "pulse_175_syncopated", "style": "syncopated", "reference_bpm": 175},
+            {"id": "drum_175_breakbeat", "style": "drum_breakbeat", "reference_bpm": 175},
+            {"id": "pulse_128_8s", "style": "regular", "reference_bpm": 128},
+            {"id": "drum_128_8s", "style": "drum_four_floor", "reference_bpm": 128},
+        ]}
+        observed = [
+            {"bpm": "60", "held": "0"},
+            {"bpm": "120", "held": "0"},
+            {"bpm": "87.5", "held": "0"},
+            {"bpm": "175", "held": "0"},
+            {"bpm": "63.97", "held": "0"},
+            {"bpm": "127.99", "held": "0"},
+        ]
+        report = score.compare_drum_pulse_pairs(score.evaluate(refs, observed))
+        self.assertEqual(report["counts"]["n"], 3)
+        self.assertEqual(report["counts"]["drum_fixed_n"], 2)
+        self.assertEqual(report["counts"]["drum_regressed_n"], 1)
+        self.assertEqual(report["counts"]["both_wrong_n"], 0)
+        self.assertEqual(len(report["details"]), 3)
+
+    def test_shadow_summary_reports_counterfactuals_and_ambiguity(self):
+        refs = {"cases": [
+            {"id": "pulse_60", "style": "regular", "reference_bpm": 60},
+            {"id": "pulse_128_half_pulse", "style": "half_pulse",
+             "reference_bpm": 128, "ambiguity": "meter_underdetermined"},
+            {"id": "steady_tone", "style": "tone", "reference_bpm": None},
+        ]}
+        observed = [
+            {"bpm": "90", "held": "0"},
+            {"bpm": "64", "held": "0"},
+            {"bpm": "133.5", "held": "0"},
+        ]
+        evidence = [
+            {"id": "pulse_60", "rank": "1", "bpm": "90", "evidence": "9",
+             "support": "1", "winner": "1", "local_exact": "0.3"},
+            {"id": "pulse_60", "rank": "2", "bpm": "60.01", "evidence": "1",
+             "support": "1", "winner": "0", "local_exact": "0.98"},
+            {"id": "pulse_128_half_pulse", "rank": "1", "bpm": "64",
+             "evidence": "4", "support": "1", "winner": "1", "local_exact": "0.9"},
+            {"id": "steady_tone", "rank": "1", "bpm": "133.5",
+             "evidence": "1", "support": "1", "winner": "1", "local_exact": "0.15"},
+        ]
+        scored = score.evaluate(refs, observed)
+        shadow = score.summarize_shadow_candidates(scored, evidence)
+        self.assertEqual(shadow["clear_n"], 1)
+        self.assertEqual(shadow["local_exact_within_0_20_n"], 1)
+        self.assertEqual(shadow["raw_evidence_within_0_20_n"], 0)
+        self.assertEqual(shadow["rank1_within_0_20_n"], 0)
+        self.assertEqual(shadow["local_exact_ambiguous_proposals_n"], 1)
+        self.assertEqual(shadow["local_exact_nonrhythmic_proposals_n"], 1)
+        self.assertEqual(scored["results"][0]["reported_bpm"], 90)
+        with self.assertRaises(ValueError):
+            score.summarize_shadow_candidates(scored,
+                [{**evidence[0], "id": "private-owner-audio"}])
+
     def test_observation_ordinals_rejected(self):
         with tempfile.TemporaryDirectory() as temp:
             observed = Path(temp) / "numbers.csv"

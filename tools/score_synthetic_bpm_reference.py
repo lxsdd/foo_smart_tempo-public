@@ -196,6 +196,108 @@ def inspect_candidate_inventory(scored, entries):
     }
 
 
+
+# Diagnostic-only comparisons: no reference or shadow candidate ever flows back
+# into the C++ analyzer, production selection or tag writer.
+DRUM_PULSE_PAIRS = (
+    ("drum_60_four_floor", "pulse_60"),
+    ("drum_90_four_floor", "pulse_90"),
+    ("drum_110_four_floor", "pulse_110"),
+    ("drum_120_four_floor", "pulse_120"),
+    ("drum_128_four_floor", "pulse_128"),
+    ("drum_140_four_floor", "pulse_140"),
+    ("drum_175_four_floor", "pulse_175"),
+    ("drum_123_45_four_floor", "pulse_123_45"),
+    ("drum_90_breakbeat", "pulse_90_syncopated"),
+    ("drum_128_breakbeat", "pulse_128_syncopated"),
+    ("drum_175_breakbeat", "pulse_175_syncopated"),
+    ("drum_128_8s", "pulse_128_8s"),
+    ("drum_128_44100_stereo", "pulse_128_44100_mono"),
+)
+
+
+def compare_drum_pulse_pairs(scored):
+    """Predeclared, equal-reference synthetic A/B classification only."""
+    lookup = {row["id"]: row for row in scored["results"]}
+    counts = dict(n=0, both_within_0_20_n=0, drum_fixed_n=0,
+                  drum_regressed_n=0, both_wrong_n=0)
+    details = []
+    for drum_id, pulse_id in DRUM_PULSE_PAIRS:
+        if drum_id not in lookup and pulse_id not in lookup:
+            continue
+        if drum_id not in lookup or pulse_id not in lookup:
+            if len(lookup) == len(PUBLIC_CASE_IDS):
+                raise ValueError("incomplete public synthetic paired comparison")
+            continue
+        drum, pulse = lookup[drum_id], lookup[pulse_id]
+        if (drum["reference_bpm"] is None or
+                drum["reference_bpm"] != pulse["reference_bpm"] or
+                drum["ambiguous"] or pulse["ambiguous"]):
+            raise ValueError("invalid synthetic paired tempo reference")
+        pulse_ok = (pulse["absolute_error_bpm"] is not None and
+                    pulse["absolute_error_bpm"] <= 0.20 + 1e-9)
+        drum_ok = (drum["absolute_error_bpm"] is not None and
+                   drum["absolute_error_bpm"] <= 0.20 + 1e-9)
+        counts["n"] += 1
+        counts["both_within_0_20_n"] += bool(pulse_ok and drum_ok)
+        counts["drum_fixed_n"] += bool(not pulse_ok and drum_ok)
+        counts["drum_regressed_n"] += bool(pulse_ok and not drum_ok)
+        counts["both_wrong_n"] += bool(not pulse_ok and not drum_ok)
+        details.append((drum_id, pulse_id, drum["reported_bpm"],
+                        pulse["reported_bpm"], drum["reference_bpm"],
+                        int(drum["held"]), int(pulse["held"])))
+    return {"counts": counts, "details": details}
+
+
+def summarize_shadow_candidates(scored, entries):
+    """Counterfactual public-only candidate rankings, NEVER production writes.
+
+    Diagnostic scores are heterogeneous and do not establish music validity,
+    meter uniqueness, confidence calibration or release admission.
+    """
+    lookup = {row["id"]: row for row in scored["results"]}
+    grouped = {}
+    for entry in entries:
+        case_id = entry["id"]
+        if case_id not in PUBLIC_CASE_IDS or case_id not in lookup:
+            raise ValueError("shadow inventory must contain public manifest IDs")
+        grouped.setdefault(case_id, []).append(entry)
+    counts = dict(clear_n=0, local_exact_within_0_20_n=0,
+                  raw_evidence_within_0_20_n=0,
+                  rank1_within_0_20_n=0,
+                  local_exact_ambiguous_proposals_n=0,
+                  local_exact_nonrhythmic_proposals_n=0)
+    for row in scored["results"]:
+        candidates = grouped.get(row["id"], [])
+        highest_local = (max(candidates,
+                             key=lambda item: (float(item["local_exact"]),
+                                               -int(item["rank"])))
+                         if candidates else None)
+        if row["ambiguous"]:
+            counts["local_exact_ambiguous_proposals_n"] += bool(highest_local)
+            continue
+        if row["reference_bpm"] is None:
+            counts["local_exact_nonrhythmic_proposals_n"] += bool(highest_local)
+            continue
+        counts["clear_n"] += 1
+        highest_evidence = (max(candidates,
+                                key=lambda item: (float(item["evidence"]),
+                                                  -int(item["rank"])))
+                            if candidates else None)
+        rank_one = next((item for item in candidates
+                         if int(item["rank"]) == 1), None)
+        for key, proposed in (
+            ("local_exact_within_0_20_n", highest_local),
+            ("raw_evidence_within_0_20_n", highest_evidence),
+            ("rank1_within_0_20_n", rank_one),
+        ):
+            if (proposed is not None and
+                    abs(float(proposed["bpm"]) -
+                        row["reference_bpm"]) <= 0.20 + 1e-9):
+                counts[key] += 1
+    return counts
+
+
 def precision_detail_lines(scored):
     for row in scored["results"]:
         if row["id"] not in PUBLIC_CASE_IDS:
@@ -239,8 +341,11 @@ def main():
         for line in precision_detail_lines(scored):
             print(line)
     if args.candidates:
-        diagnostics = inspect_candidate_inventory(
-            scored, load_candidate_inventory(args.candidates))
+        candidate_entries = load_candidate_inventory(args.candidates)
+        diagnostics = inspect_candidate_inventory(scored, candidate_entries)
+        shadows = summarize_shadow_candidates(scored, candidate_entries)
+        for key, value in shadows.items():
+            print(f"SYNTHETIC_SHADOW_{key.upper()}={value}")
         for key in ("incorrect_clear_reference_n",
                     "correct_measured_candidate_present_n",
                     "chosen_measured_candidate_present_n",
@@ -251,6 +356,15 @@ def main():
                 print(f"SYNTHETIC_CANDIDATE_RESCUE id={case_id} "
                       f"reference_present={reference_found} "
                       f"output_present={output_found}")
+    paired = compare_drum_pulse_pairs(scored)
+    for key, value in paired["counts"].items():
+        print(f"SYNTHETIC_PAIR_{key.upper()}={value}")
+    if args.precision_details:
+        for drum_id, pulse_id, drum_bpm, pulse_bpm, reference, drum_held, pulse_held in paired["details"]:
+            print(f"SYNTHETIC_PAIR_DETAIL id={drum_id} baseline={pulse_id} "
+                  f"reference={reference:.6f} baseline_bpm={pulse_bpm:.6f} "
+                  f"drum_bpm={drum_bpm:.6f} baseline_held={pulse_held} "
+                  f"drum_held={drum_held}")
     print(f"SYNTHETIC_BPM_EVALUATED={scored['n']}")
 
 
