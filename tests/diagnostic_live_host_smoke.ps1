@@ -435,6 +435,7 @@ try {
     # 20-second read at 20% (early) vs 80% (late). This is diagnostic
     # evidence for tempo changes; it cannot affect normal MIR selection.
     $temporalRows=[System.Collections.Generic.List[object]]::new()
+    $temporalCandidates=[System.Collections.Generic.List[object]]::new()
     foreach ($caseId in $windowCases) {
       $seedRoot=Join-Path $root ('sweep-seed-'+$caseId)
       $seedWave=Join-Path $seedRoot ($caseId+'.wav')
@@ -457,6 +458,25 @@ try {
         if ($observed.Count -ne 1 -or $plan.Count -ne 1) {
           throw "Missing independent real-host temporal observation: $label"
         }
+        # Preserve the already-emitted, bounded numeric candidate inventory
+        # for each independent host phase. No verbose foobar logging, personal
+        # media metadata, or reference-guided decision path is involved.
+        $phaseEvidence=@(Import-Csv -LiteralPath ($wavFile+'.candidates.csv'))
+        if ($phaseEvidence.Count -gt 32) {
+          throw "Unbounded phase candidate inventory: $label"
+        }
+        foreach ($candidate in $phaseEvidence) {
+          $temporalCandidates.Add([pscustomobject][ordered]@{
+            id=$caseId
+            phase=$phase
+            rank=$candidate.rank
+            bpm=$candidate.bpm
+            evidence=$candidate.evidence
+            support=$candidate.support
+            winner=$candidate.winner
+            local_exact=$candidate.local_exact
+          })
+        }
         $temporalRows.Add([pscustomobject][ordered]@{
           id=$caseId
           style=$truth.style
@@ -477,7 +497,10 @@ try {
     if ($temporalRows.Count -ne 12) { throw 'Incomplete temporal phase-pair grid' }
     $temporalCsv=Join-Path $root 'temporal-sweep-observed.csv'
     $temporalRows | Export-Csv -LiteralPath $temporalCsv -NoTypeInformation -Encoding utf8
-    python ./tools/score_synthetic_temporal_sweep.py --observed $temporalCsv
+    if ($temporalCandidates.Count -eq 0) { throw 'Phase candidate inventory is empty' }
+    $temporalCandidateCsv=Join-Path $root 'temporal-sweep-candidates.csv'
+    $temporalCandidates | Export-Csv -LiteralPath $temporalCandidateCsv -NoTypeInformation -Encoding utf8
+    python ./tools/score_synthetic_temporal_sweep.py --observed $temporalCsv --candidates $temporalCandidateCsv
     if ($LASTEXITCODE -ne 0) { throw 'Temporal phase comparison scoring failed' }
     Write-Host ("SYNTHETIC_REAL_TEMPORAL_CASE_COUNT_x64={0}" -f $temporalRows.Count)
     Write-Host 'SYNTHETIC_REAL_TEMPORAL_COMPLETED_x64=PASS'

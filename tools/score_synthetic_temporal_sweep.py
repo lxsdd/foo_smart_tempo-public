@@ -71,6 +71,42 @@ def parse(path: Path) -> dict[tuple[str, str], dict]:
     return out
 
 
+CANDIDATE_FIELDS = (
+    "id", "phase", "rank", "bpm", "evidence", "support", "winner",
+    "local_exact",
+)
+
+
+def parse_candidates(path: Path) -> dict[tuple[str, str], list[dict]]:
+    """Load bounded actual-host candidates; never consult expected BPM."""
+    keys = {(name, phase) for name in PHASE_REFERENCES
+            for phase in ("early", "late")}
+    out: dict[tuple[str, str], list[dict]] = {key: [] for key in keys}
+    with path.open("r", encoding="utf-8-sig", newline="") as f:
+        reader = csv.DictReader(f)
+        if tuple(reader.fieldnames or ()) != CANDIDATE_FIELDS:
+            raise ValueError("Invalid exact temporal candidate schema")
+        for raw in reader:
+            if set(raw) != set(CANDIDATE_FIELDS):
+                raise ValueError("Unexpected temporal candidate field")
+            key = (raw["id"], raw["phase"])
+            if key not in keys:
+                raise ValueError("Candidate references an unknown phase/fixture")
+            rank = int(raw["rank"])
+            bpm, evidence, support, winner, local = (
+                float(raw[k]) for k in
+                ("bpm", "evidence", "support", "winner", "local_exact")
+            )
+            if (not 1 <= rank <= 32 or
+                    not all(math.isfinite(x) for x in
+                            (bpm, evidence, support, winner, local)) or
+                    bpm <= 0 or support < 0 or winner < 0 or
+                    len(out[key]) >= 32):
+                raise ValueError("Invalid or unbounded real-host candidate")
+            out[key].append({"rank": rank, "bpm": bpm, "local": local})
+    return out
+
+
 def status(row: dict) -> str:
     if row["held"] == 1 or row["bpm"] == 0:
         return "safe_hold" if row["expected"] is None else "held"
@@ -84,9 +120,11 @@ def status(row: dict) -> str:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--observed", type=Path, required=True)
+    parser.add_argument("--candidates", type=Path, required=True)
     args = parser.parse_args()
     try:
         rows = parse(args.observed)
+        candidates = parse_candidates(args.candidates)
     except (OSError, ValueError, OverflowError, TypeError) as exc:
         parser.error(str(exc))
     print("TEMPORAL_REAL_HOST_OBSERVATIONS=12")
@@ -106,6 +144,35 @@ def main() -> int:
         print(f"TEMPORAL_PAIR id={name} consistent_exact={int(matching)} "
               f"alias_conflict={int(alias)} different_phases={int(both and not matching)} "
               f"global_reference={'none' if e != l else e}")
+    # References only appear in this offline scorer; the analyzer and
+    # candidate inventory were already measured without them.
+    correct_measured = 0
+    wrong_with_measured = 0
+    accepted_with_witness = 0
+    for name, (early_ref, late_ref, _, _) in PHASE_REFERENCES.items():
+        for phase, expected in (("early", early_ref), ("late", late_ref)):
+            actual = rows[name, phase]
+            inventory = candidates[name, phase]
+            exact = [c for c in inventory if expected is not None and
+                     abs(c["bpm"] - expected) <= 0.20]
+            witness = (actual["bpm"] > 0 and not actual["held"] and
+                       any(abs(c["bpm"] - actual["bpm"]) <= 0.20
+                           for c in inventory))
+            correct_measured += int(bool(exact))
+            accepted_with_witness += int(bool(witness))
+            wrong_with_measured += int(bool(exact) and
+                                       status(actual) == "wrong_or_alias")
+            best_rank = min((c["rank"] for c in exact), default=0)
+            print(f"TEMPORAL_CANDIDATE_EVIDENCE id={name} phase={phase} "
+                  f"candidates={len(inventory)} "
+                  f"reference_candidate={int(bool(exact))} "
+                  f"best_reference_rank={best_rank} "
+                  f"output_witness={int(bool(witness))} "
+                  f"status={status(actual)}")
+    print(f"TEMPORAL_PHASE_CORRECT_CANDIDATE_PRESENT={correct_measured}/10")
+    print(f"TEMPORAL_PHASE_WRONG_OUTPUT_WITH_CORRECT_CANDIDATE={wrong_with_measured}")
+    print(f"TEMPORAL_PHASE_OUTPUT_WITNESSED={accepted_with_witness}/12")
+    print("TEMPORAL_CANDIDATE_EVIDENCE_DIAGNOSTIC_ONLY=TRUE")
     print("TEMPORAL_STATIONARITY_DIAGNOSTIC_ONLY=TRUE")
     return 0
 
