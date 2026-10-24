@@ -10,11 +10,13 @@ param(
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
-$manifest = Get-Content -LiteralPath $Manifest -Raw | ConvertFrom-Json
-if ($manifest.schema -ne 'synthetic_bpm_reference_v1') {
+# Parameter $Manifest is [string]. PowerShell variables are case-insensitive,
+# so assigning parsed JSON to $manifest would coerce it back into a string.
+$manifestDocument = Get-Content -LiteralPath $Manifest -Raw | ConvertFrom-Json
+if ($manifestDocument.schema -ne 'synthetic_bpm_reference_v1') {
   throw 'Unknown synthetic corpus'
 }
-$cases = @($manifest.cases)
+$cases = @($manifestDocument.cases)
 if ($cases.Count -lt 1 -or $cases.Count -gt 11) { throw 'Unexpected synthetic case count' }
 if (Test-Path -LiteralPath $OutputCsv) { throw 'Oracle CSV already exists' }
 $dialog = [System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]::new($DialogHandle))
