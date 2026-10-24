@@ -39,6 +39,20 @@ class ScorerTests(unittest.TestCase):
             with self.subTest(bpm=bad), self.assertRaises(ValueError):
                 score.evaluate(reference, [{"bpm": bad, "held": "0"}])
 
+    def test_false_positive_silence_and_held_alias_are_not_accuracy_passes(self):
+        reference = {"cases": [
+            {"id": "silence", "style": "silence", "reference_bpm": None},
+            {"id": "half", "style": "half_pulse", "reference_bpm": 128},
+        ]}
+        result = score.evaluate(reference, [
+            {"bpm": "120", "held": "0"},
+            {"bpm": "64", "held": "1"},
+        ])
+        self.assertEqual(result["counts"]["false_positive_silence"], 1)
+        self.assertEqual(result["counts"]["abstained"], 1)
+        self.assertEqual(result["counts"]["within_two_percent"], 0)
+        self.assertEqual(result["counts"]["half_double_alias"], 0)
+
     def test_observation_ordinals_rejected(self):
         with tempfile.TemporaryDirectory() as temp:
             observed = Path(temp) / "numbers.csv"
