@@ -1069,8 +1069,8 @@ void bpm_auto_analysis_thread::InitTooltips() {
   m_tooltip.SetDelayTime(TTDT_INITIAL, 350);
   m_tooltip.Activate(TRUE);
 
-  AddTooltip(ID_BPM_PROGRESS_FILE, _T("Live list of currently analyzed files ")
-                                   _T("(one line per active worker)."));
+  AddTooltip(ID_BPM_PROGRESS_FILE, _T("Exact completed tracks and worker assignments. ")
+                                   _T("Track names are hidden by default."));
   AddTooltip(ID_BPM_PROGRESS_TOTAL,
              _T("Estimated analysis work; always moves forward and reaches "
                 "100% only when every track has finished."));
@@ -1282,7 +1282,22 @@ void bpm_auto_analysis_thread::UpdateStatusLine() {
     if (activeCount == 0)
       activeCount = 1;
   } else {
-    fileText = "Analyzing...";
+    // Use the full-width first row for factual counts; leave the narrow
+    // lower row for elapsed time and tentative ETA only.
+    const size_t configuredWorkers =
+        m_workerCount.load(std::memory_order_relaxed);
+    pfc::string_formatter status;
+    if (done >= total) {
+      status << "Completed " << static_cast<uint64_t>(done) << "/"
+             << static_cast<uint64_t>(total) << " tracks";
+    } else {
+      status << (m_pauseRequested.load() ? "Paused: " : "Analyzing: ")
+             << static_cast<uint64_t>(done) << "/"
+             << static_cast<uint64_t>(total) << " tracks | "
+             << activeWorkerCount << "/" << configuredWorkers
+             << " workers assigned";
+    }
+    fileText = status;
     activeCount = 1;
   }
 
@@ -1328,21 +1343,18 @@ void bpm_auto_analysis_thread::UpdateStatusLine() {
   if (total <= 10) {
     pfc::string_formatter info;
     pfc::string_formatter infoTooltip;
-    info << static_cast<uint64_t>(done) << "/" << static_cast<uint64_t>(total)
-         << " tracks | " << activeWorkerCount << " workers | "
-         << "Time elapsed: " << FormatClock(elapsed) << " | ";
+    info << "Elapsed: " << FormatClock(elapsed) << " | ";
     infoTooltip << "Completed tracks and active workers are exact. "
                 << "The progress bar estimates work, not remaining seconds. "
                 << "Time elapsed: " << FormatClock(elapsed) << ". ";
     if (done == 0) {
-      info << "Analyzing " << static_cast<uint64_t>(total) << " tracks...";
+      info << "ETA unavailable (small batch)";
       infoTooltip << "Analyzing a small batch of "
                   << static_cast<uint64_t>(total)
                   << " tracks. A numeric ETA is intentionally omitted because "
                      "too few completion samples are available.";
     } else if (done < total) {
-      info << "Processing... (" << static_cast<uint64_t>(done) << "/"
-           << static_cast<uint64_t>(total) << " completed)";
+      info << "ETA unavailable (small batch)";
       infoTooltip << static_cast<uint64_t>(done) << " of "
                   << static_cast<uint64_t>(total)
                   << " tracks are complete. A numeric ETA is intentionally "
@@ -1434,9 +1446,7 @@ void bpm_auto_analysis_thread::UpdateStatusLine() {
 
   pfc::string_formatter info;
   pfc::string_formatter infoTooltip;
-  info << static_cast<uint64_t>(done) << "/" << static_cast<uint64_t>(total)
-       << " tracks | " << activeWorkerCount << "/" << workerCount
-       << " workers | Time elapsed: " << FormatClock(elapsed) << " | ";
+  info << "Elapsed: " << FormatClock(elapsed) << " | ";
   infoTooltip << "Track completion and active worker counts are measured. "
               << "The progress bar is an approximate workload indicator. "
               << "Time elapsed: " << FormatClock(elapsed) << ". ";
