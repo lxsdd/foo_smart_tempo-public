@@ -41,6 +41,10 @@ class SyntheticBpmReferenceTests(unittest.TestCase):
                 self.assertTrue(all(0 <= pos < total for pos in events))
                 if case["style"] == "single_click":
                     self.assertEqual(len(events), 1)
+                elif case["style"] == "tempo_switch":
+                    # Nonstationary tempo has event-grid truth, but no single global BPM.
+                    self.assertIsNone(case["reference_bpm"])
+                    self.assertGreater(len(events), 10)
                 elif case["reference_bpm"] is None:
                     self.assertFalse(events)
                 elif case["style"].startswith("drum_"):
