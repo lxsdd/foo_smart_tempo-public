@@ -1682,7 +1682,8 @@ LRESULT bpm_auto_analysis_thread::OnWorkerDone(UINT, WPARAM wp, LPARAM) {
   // BEFORE displaying it. Never available in private/production builds.
   if (!m_wasAborted && m_batchDryRunMode) {
     const bool recorded = smart_tempo::ci_oracle::record(
-        m_bpm_results, m_suppress_write_results);
+        m_bpm_results, m_suppress_write_results,
+        m_measured_bpm_candidate_results);
     FB2K_console_formatter()
         << (recorded ? "SYNTHETIC_BPM_NUMERIC_OBSERVER=PASS"
                      : "SYNTHETIC_BPM_NUMERIC_OBSERVER=SKIPPED");
