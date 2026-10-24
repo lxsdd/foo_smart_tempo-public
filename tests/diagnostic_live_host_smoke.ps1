@@ -227,17 +227,17 @@ try {
     # Run the real engine only on fully generated public synthetic PCM,
     # with deterministic reference truth fixed before observing any results.
     $syntheticRoot=Join-Path $root 'synthetic-oracle'
-    python ./tools/generate_synthetic_bpm_reference.py --output $syntheticRoot
+    # Qualify one WAV using the same proven direct-file host dispatch as WAV smoke.
+    # The eleven-track case is deferred to the slower, separate matrix.
+    python ./tools/generate_synthetic_bpm_reference.py --output $syntheticRoot --case pulse_128
     if ($LASTEXITCODE -ne 0) { throw 'Synthetic oracle WAV creation failed' }
     $reference=Join-Path $syntheticRoot 'reference.json'
     $cases=@((Get-Content -LiteralPath $reference -Raw | ConvertFrom-Json).cases)
-    if ($cases.Count -ne 11) { throw 'Unexpected synthetic oracle case count' }
-    $wavFiles=@($cases | ForEach-Object { Join-Path $syntheticRoot ($_.id+'.wav') })
-    $playlist=Join-Path $syntheticRoot 'synthetic-oracle.m3u8'
-    [IO.File]::WriteAllLines($playlist, [string[]](@('#EXTM3U') + $wavFiles),
-                             [Text.UTF8Encoding]::new($false))
-    $all=@($playlist,$reference) + $wavFiles
-    Run-Case $installer $root $playlist $all 11 'SYNTHETIC'
+    if ($cases.Count -ne 1 -or $cases[0].id -ne 'pulse_128') {
+      throw 'Unexpected one-track oracle identity'
+    }
+    $wavFile=Join-Path $syntheticRoot 'pulse_128.wav'
+    Run-Case $installer $root $wavFile @($wavFile,$reference) 1 'SYNTHETIC'
   }
   Write-Host ("SMART_TEMPO_DIAGNOSTIC_RUNTIME_{0}=PASS" -f $Architecture)
 } finally { if (Test-Path $root) { Remove-Item $root -Recurse -Force -ErrorAction SilentlyContinue } }
