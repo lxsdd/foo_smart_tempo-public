@@ -173,6 +173,13 @@ if exist "$(OutDir)$(TargetName)$(TargetExt)" move /y "$(OutDir)$(TargetName)$(T
       <AdditionalDependencies>$(FooPfcLib);$(FooSdkLib);$(FooHelpersLib);$(FooClientLib);$(SolutionDir)sdk\foobar2000\shared\shared-$(Platform).lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
+  <!-- Never define in ordinary/owner binary builds. CI-only observer
+       reads synthetic result numbers, not audio or tag data. -->
+  <ItemDefinitionGroup Condition="'$(SmartTempoCIRuntimeProbe)'=='true'">
+    <ClCompile>
+      <PreprocessorDefinitions>SMART_TEMPO_CI_ORACLE_PROBE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+  </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="analysis_telemetry.cpp" />
     <ClCompile Include="analysis_math_utils.cpp" />
