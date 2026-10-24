@@ -99,6 +99,12 @@ jobs:
           # BPM accuracy is NOT asserted here; future CI will analyze these
           # fixtures with the real component and compare its reported BPMs.
 
+      - name: Verify BPM oracle scoring and ambiguous/held cases
+        shell: pwsh
+        run: |
+          python -m unittest discover -s tests -p 'test_synthetic_bpm_scorer.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'Synthetic BPM scorer unit tests failed' }
+
       - name: Run privacy-safe MW1 evidence comparator tests
         shell: pwsh
         run: |
