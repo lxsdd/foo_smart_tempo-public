@@ -7,6 +7,7 @@
 // The observer is compiled out of every personal/distributable component.
 #include <Windows.h>
 #include <cmath>
+#include <cwchar>
 #include <cstring>
 #include <string>
 #include <vector>
