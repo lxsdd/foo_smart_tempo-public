@@ -167,16 +167,12 @@ function Run-Case([string]$installer,[string]$root,[string]$inputFile,[string[]]
     if (-not [STUI]::IsWindow($dialog)) { throw 'Secondary no-write guard failed' }
     foreach ($file in $files) { if ((Stamp $file) -cne $baseline[$file]) { throw 'File changed after blocked Update handler' } }
     if ($label.StartsWith('SYNTHETIC_', [StringComparison]::Ordinal)) {
-      Write-Host ("SYNTHETIC_CASE={0}" -f $label.Substring(10))
-      # Compiled only in CI probe binaries; the engine values are captured
-      # after worker join, not scraped through unreliable headless UIA.
+      # The oracle output is aggregate-scored after every public test case.
+      # No fixture-specific reference is used by the analyzer or selector.
       $observed=$inputFile+'.results.csv'
-      $reference=Join-Path (Split-Path -Parent $inputFile) 'reference.json'
       if (-not (Test-Path -LiteralPath $observed -PathType Leaf)) {
         throw 'Real foobar numeric BPM oracle observer is not available'
       }
-      python ./tools/score_synthetic_bpm_reference.py --manifest $reference --observed $observed --precision-details
-      if ($LASTEXITCODE -ne 0) { throw 'Real foobar synthetic BPM evaluation failed' }
       $evidenceFile=$inputFile+'.candidates.csv'
       if (-not (Test-Path -LiteralPath $evidenceFile -PathType Leaf)) {
         throw 'Synthetic-only measured candidate evidence is missing'
@@ -184,8 +180,7 @@ function Run-Case([string]$installer,[string]$root,[string]$inputFile,[string[]]
       $evidenceRows=@(Import-Csv -LiteralPath $evidenceFile)
       if ($evidenceRows.Count -gt 32) { throw 'Synthetic candidate evidence cap exceeded' }
       foreach ($candidate in $evidenceRows) {
-        # Pure numbers, produced by the CI-only observer from the synthetic
-        # MIR candidate board. Never write private metadata to Actions logs.
+        # Pure numbers from the bounded synthetic MIR candidate board.
         Write-Host ("SYNTHETIC_BPM_CANDIDATE id={0} rank={1} bpm={2} evidence={3} support={4} winner={5} local_exact={6}" -f
           $label.Substring(10),$candidate.rank,$candidate.bpm,$candidate.evidence,
           $candidate.support,$candidate.winner,$candidate.local_exact)
@@ -241,14 +236,20 @@ try {
   Run-Case $installer $root $wav @($wav) 1 'WAV'
   Run-Case $installer $root $cue @($wav,$cue) 2 'CUE'
   if ($Architecture -eq 'x64') {
-    # All eleven predeclared public references, one disposable WAV per
-    # foobar instance. A single 11-track MIR batch exceeds the 150s UI gate.
-    # Numerical errors, alias choices and Review Holds remain visible.
-    $oracleCases=@('pulse_60','pulse_90','pulse_120','pulse_128',
-                   'pulse_140','pulse_175','pulse_128_syncopated',
-                   'pulse_120_swing','pulse_128_half_pulse',
-                   'pulse_120_sparse','silence')
+    # One public matrix in one CI run. Each individual WAV gets a fresh
+    # portable foobar instance because multi-track MIR exceeds the UI timeout.
+    # Only after ALL cases finish do we score the full fixed synthetic corpus.
+    $oracleCases=@(python ./tools/generate_synthetic_bpm_reference.py --list-cases)
+    if ($LASTEXITCODE -ne 0 -or $oracleCases.Count -ne 47 -or
+        @($oracleCases | Sort-Object -Unique).Count -ne $oracleCases.Count) {
+      throw 'Public synthetic matrix inventory mismatch'
+    }
+    $referenceCases=[System.Collections.Generic.List[object]]::new()
+    $observedRows=[System.Collections.Generic.List[object]]::new()
     foreach ($caseId in $oracleCases) {
+      if ($caseId -cnotmatch '^[a-z0-9_]+$') {
+        throw 'Unexpected non-public synthetic case identifier'
+      }
       $syntheticRoot=Join-Path $root ('synthetic-oracle-'+$caseId)
       python ./tools/generate_synthetic_bpm_reference.py --output $syntheticRoot --case $caseId
       if ($LASTEXITCODE -ne 0) { throw "Synthetic oracle WAV creation failed for $caseId" }
@@ -259,8 +260,28 @@ try {
       }
       $wavFile=Join-Path $syntheticRoot ($caseId+'.wav')
       Run-Case $installer $root $wavFile @($wavFile,$reference) 1 ('SYNTHETIC_'+$caseId)
+      $numbers=@(Import-Csv -LiteralPath ($wavFile+'.results.csv'))
+      if ($numbers.Count -ne 1 -or $numbers[0].index -cne '0') {
+        throw 'Missing or misaligned synthetic oracle observation'
+      }
+      $referenceCases.Add($cases[0])
+      $observedRows.Add([pscustomobject][ordered]@{
+        index=($observedRows.Count)
+        bpm=$numbers[0].bpm
+        held=$numbers[0].held
+      })
     }
+    $aggregateReference=Join-Path $root 'synthetic-reference-matrix.json'
+    $aggregateObserved=Join-Path $root 'synthetic-observed-matrix.csv'
+    [ordered]@{
+      schema='synthetic_bpm_reference_v1'
+      cases=@($referenceCases.ToArray())
+    } | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $aggregateReference -Encoding utf8
+    $observedRows | Export-Csv -LiteralPath $aggregateObserved -NoTypeInformation -Encoding utf8
+    python ./tools/score_synthetic_bpm_reference.py --manifest $aggregateReference --observed $aggregateObserved --precision-details
+    if ($LASTEXITCODE -ne 0) { throw 'Complete synthetic BPM matrix scoring failed' }
     Write-Host ("SYNTHETIC_REAL_CASE_COUNT_x64={0}" -f $oracleCases.Count)
+    Write-Host 'SYNTHETIC_REAL_MATRIX_COMPLETED_x64=PASS'
   }
   Write-Host ("SMART_TEMPO_DIAGNOSTIC_RUNTIME_{0}=PASS" -f $Architecture)
 } finally { if (Test-Path $root) { Remove-Item $root -Recurse -Force -ErrorAction SilentlyContinue } }

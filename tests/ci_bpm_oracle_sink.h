@@ -39,9 +39,17 @@ inline bool record(const std::vector<double>& bpm,
   // parent traversal, private media, or production component configurations.
   constexpr const wchar_t* kCases[] = {
       L"pulse_60", L"pulse_90", L"pulse_120", L"pulse_128",
-      L"pulse_140", L"pulse_175", L"pulse_128_syncopated",
-      L"pulse_120_swing", L"pulse_128_half_pulse", L"pulse_120_sparse",
-      L"silence"};
+      L"pulse_140", L"pulse_175", L"pulse_128_syncopated", L"pulse_120_swing",
+      L"pulse_128_half_pulse", L"pulse_120_sparse", L"silence", L"pulse_40",
+      L"pulse_45", L"pulse_50", L"pulse_70", L"pulse_80",
+      L"pulse_100", L"pulse_110", L"pulse_130", L"pulse_150",
+      L"pulse_160", L"pulse_180", L"pulse_200", L"pulse_220",
+      L"pulse_59_73", L"pulse_93_37", L"pulse_123_45", L"pulse_127_31",
+      L"pulse_174_62", L"pulse_199_25", L"pulse_90_syncopated", L"pulse_175_syncopated",
+      L"pulse_90_swing", L"pulse_175_swing", L"pulse_90_half_pulse", L"pulse_175_half_pulse",
+      L"pulse_128_sparse", L"pulse_175_sparse", L"pulse_128_8s", L"pulse_128_12s",
+      L"pulse_128_40s", L"pulse_128_44100_mono", L"pulse_128_48000_stereo", L"pulse_123_45_44100_stereo",
+      L"single_click", L"steady_tone", L"noise"};
   bool approved = false;
   for (const wchar_t* id : kCases) {
     std::wstring suffix = L"\\synthetic-oracle-";

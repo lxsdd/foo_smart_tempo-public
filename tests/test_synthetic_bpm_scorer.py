@@ -80,6 +80,40 @@ class ScorerTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             list(score.precision_detail_lines(scored))
 
+    def test_ambiguity_and_negative_false_accept_do_not_hide_in_precision(self):
+        refs = {"cases": [
+            {"id": "pulse_128_half_pulse", "style": "half_pulse",
+             "reference_bpm": 128.0, "ambiguity": "meter_underdetermined"},
+            {"id": "pulse_120_sparse", "style": "sparse",
+             "reference_bpm": 120.0, "ambiguity": "meter_underdetermined"},
+            {"id": "noise", "style": "noise", "reference_bpm": None},
+            {"id": "pulse_123_45", "style": "regular", "reference_bpm": 123.45},
+        ]}
+        measured = [
+            {"bpm": "128", "held": "0"},
+            {"bpm": "0", "held": "1"},
+            {"bpm": "90", "held": "0"},
+            {"bpm": "123.6", "held": "0"},
+        ]
+        result = score.evaluate(refs, measured)
+        self.assertEqual(result["counts"]["ambiguous_accept"], 1)
+        self.assertEqual(result["counts"]["ambiguous_hold"], 1)
+        self.assertEqual(result["counts"]["false_positive_nonrhythmic"], 1)
+        self.assertEqual(result["precision"]["clear_reference_n"], 1)
+        self.assertEqual(result["precision"]["within_0_20_bpm"], 1)
+        self.assertEqual(result["unsafe_count"], 2)
+        self.assertEqual(result["quality_verdict"], "NO_GO")
+
+    def test_unambiguous_error_larger_than_point_two_is_quality_no_go(self):
+        refs = {"cases": [
+            {"id": "pulse_90", "style": "regular", "reference_bpm": 90.0}
+        ]}
+        result = score.evaluate(refs, [{"bpm": "90.3", "held": "0"}])
+        self.assertEqual(result["counts"]["within_two_percent"], 1)
+        self.assertEqual(result["precision"]["within_0_20_bpm"], 0)
+        self.assertEqual(result["unsafe_count"], 1)
+        self.assertEqual(result["quality_verdict"], "NO_GO")
+
     def test_observation_ordinals_rejected(self):
         with tempfile.TemporaryDirectory() as temp:
             observed = Path(temp) / "numbers.csv"

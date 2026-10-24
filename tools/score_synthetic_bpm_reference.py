@@ -25,6 +25,7 @@ def evaluate(reference, observed):
         if not math.isfinite(value) or value < 0:
             raise ValueError("non-finite/negative BPM")
         bpm = expected["reference_bpm"]
+        ambiguous = expected.get("ambiguity") == "meter_underdetermined"
         absolute_error_bpm = None
         if held and value > 0:
             # A held candidate is not an accepted BPM even if it is measured.
@@ -32,8 +33,19 @@ def evaluate(reference, observed):
         else:
             accepted = value > 0 and not held
         if bpm is None:
-            category = "correct_abstention" if not accepted else "false_positive_silence"
+            if not accepted:
+                category = "correct_abstention"
+            elif expected["style"] == "silence":
+                category = "false_positive_silence"
+            else:
+                category = "false_positive_nonrhythmic"
             relative_error = None
+        elif ambiguous:
+            # The same PCM pulse train admits multiple metrical BPM labels.
+            # A numerically lucky match is not proof of identifiability.
+            category = "ambiguous_hold" if not accepted else "ambiguous_accept"
+            absolute_error_bpm = abs(value - bpm) if accepted else None
+            relative_error = (absolute_error_bpm / bpm) if accepted else None
         elif not accepted:
             category = "abstained"
             relative_error = None
@@ -50,22 +62,43 @@ def evaluate(reference, observed):
                        "reference_bpm": bpm, "reported_bpm": value,
                        "held": held, "category": category,
                        "relative_error": relative_error,
+                       "ambiguous": ambiguous,
                        "absolute_error_bpm": absolute_error_bpm})
     counts = {kind: sum(row["category"] == kind for row in scored)
               for kind in ("within_two_percent", "half_double_alias",
-                           "other_error", "abstained",
-                           "correct_abstention", "false_positive_silence")}
-    accepted_errors = [row["absolute_error_bpm"] for row in scored
+                           "other_error", "abstained", "ambiguous_accept",
+                           "ambiguous_hold", "correct_abstention",
+                           "false_positive_silence",
+                           "false_positive_nonrhythmic")}
+    clear = [row for row in scored
+             if row["reference_bpm"] is not None and not row["ambiguous"]]
+    accepted_errors = [row["absolute_error_bpm"] for row in clear
                        if row["absolute_error_bpm"] is not None]
     precision = {
+        "clear_reference_n": len(clear),
         "accepted_reference_n": len(accepted_errors),
         "within_0_05_bpm": sum(error <= 0.05 + 1e-9
                                for error in accepted_errors),
         "within_0_20_bpm": sum(error <= 0.20 + 1e-9
                                for error in accepted_errors),
+        "max_accepted_error_bpm": max(accepted_errors, default=0.0),
     }
+    unsafe = sum(
+        row["category"] in ("half_double_alias", "other_error",
+                            "ambiguous_accept", "false_positive_silence",
+                            "false_positive_nonrhythmic") or
+        (not row["ambiguous"] and row["absolute_error_bpm"] is not None and
+         row["absolute_error_bpm"] > 0.20 + 1e-9)
+        for row in scored
+    )
+    verdict = ("NO_GO" if unsafe else
+               "REVIEW_HOLDS" if counts["abstained"] else
+               "SYNTHETIC_ONLY_PASS" if precision["within_0_05_bpm"] ==
+               len(clear) else "REVIEW_PRECISION")
     return {"schema": "synthetic_bpm_score_v1", "n": len(rows),
-            "counts": counts, "precision": precision, "results": scored}
+            "counts": counts, "precision": precision,
+            "quality_verdict": verdict, "unsafe_count": unsafe,
+            "results": scored}
 
 
 def load_observed(path):
@@ -85,9 +118,17 @@ def load_observed(path):
 # metadata logger. Normal offline scoring does not print individual rows.
 PUBLIC_CASE_IDS = frozenset({
     "pulse_60", "pulse_90", "pulse_120", "pulse_128",
-    "pulse_140", "pulse_175", "pulse_128_syncopated",
-    "pulse_120_swing", "pulse_128_half_pulse", "pulse_120_sparse",
-    "silence",
+    "pulse_140", "pulse_175", "pulse_128_syncopated", "pulse_120_swing",
+    "pulse_128_half_pulse", "pulse_120_sparse", "silence", "pulse_40",
+    "pulse_45", "pulse_50", "pulse_70", "pulse_80",
+    "pulse_100", "pulse_110", "pulse_130", "pulse_150",
+    "pulse_160", "pulse_180", "pulse_200", "pulse_220",
+    "pulse_59_73", "pulse_93_37", "pulse_123_45", "pulse_127_31",
+    "pulse_174_62", "pulse_199_25", "pulse_90_syncopated", "pulse_175_syncopated",
+    "pulse_90_swing", "pulse_175_swing", "pulse_90_half_pulse", "pulse_175_half_pulse",
+    "pulse_128_sparse", "pulse_175_sparse", "pulse_128_8s", "pulse_128_12s",
+    "pulse_128_40s", "pulse_128_44100_mono", "pulse_128_48000_stereo", "pulse_123_45_44100_stereo",
+    "single_click", "steady_tone", "noise",
 })
 
 
@@ -126,6 +167,8 @@ def main():
         print(f"SYNTHETIC_BPM_{category.upper()}={count}")
     for category, count in scored["precision"].items():
         print(f"SYNTHETIC_BPM_{category.upper()}={count}")
+    print(f"SYNTHETIC_BPM_UNSAFE_ACCEPT_COUNT={scored['unsafe_count']}")
+    print(f"SYNTHETIC_QUALITY_VERDICT={scored['quality_verdict']}")
     if args.precision_details:
         for line in precision_detail_lines(scored):
             print(line)
