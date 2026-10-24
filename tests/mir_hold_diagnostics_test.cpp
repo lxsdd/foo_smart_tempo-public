@@ -32,13 +32,13 @@ int main() {
                "MIR: measured candidate board empty; BPM write blocked",
                "empty board despite rich onset evidence");
   expect_stage(400, 15, 3, true,
-               "MIR: ambiguous candidates; safety review hold",
+               "MIR: measured candidates withheld by safety policy",
                "nonempty board with safety hold");
   expect_stage(400, 15, 3, false,
                "MIR: no admissible primary candidate; BPM write blocked",
                "nonempty board without admissible selection");
   expect_stage(0, 0, 3, true,
-               "MIR: ambiguous candidates; safety review hold",
+               "MIR: measured candidates withheld by safety policy",
                "measured candidates must take precedence");
   std::cout << "PASS_SYNTHETIC_MIR_HOLD_STAGES" << std::endl;
   return EXIT_SUCCESS;
