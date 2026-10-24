@@ -35,8 +35,10 @@ inline bool record(const std::vector<double>& bpm,
   // Explicit synthetic-only allowlist. Never accept arbitrary fixture names,
   // parent traversal, private media, or production component configurations.
   constexpr const wchar_t* kCases[] = {
-      L"pulse_90", L"pulse_128", L"pulse_175",
-      L"pulse_128_syncopated", L"pulse_128_half_pulse", L"silence"};
+      L"pulse_60", L"pulse_90", L"pulse_120", L"pulse_128",
+      L"pulse_140", L"pulse_175", L"pulse_128_syncopated",
+      L"pulse_120_swing", L"pulse_128_half_pulse", L"pulse_120_sparse",
+      L"silence"};
   bool approved = false;
   for (const wchar_t* id : kCases) {
     std::wstring suffix = L"\\synthetic-oracle-";
