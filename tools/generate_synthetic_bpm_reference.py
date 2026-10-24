@@ -111,6 +111,32 @@ WINDOW_CASES = (
     ("window_nonperiodic_percussion", None, "nonperiodic_percussion"),
 )
 
+# Prospective parameter holdout: fixed before the new real-host run. These
+# tempos/styles are not used in the 80-case profile exploration. They are
+# still synthetic and do not substitute for human-labeled owner acceptance.
+PROSPECTIVE_CASES = (
+    ("prospective_four_floor_97_25", 97.25, "drum_four_floor"),
+    ("prospective_four_floor_133_70", 133.70, "drum_four_floor"),
+    ("prospective_four_floor_181_30", 181.30, "drum_four_floor"),
+    ("prospective_breakbeat_96_70", 96.70, "drum_breakbeat"),
+    ("prospective_breakbeat_144_20", 144.20, "drum_breakbeat"),
+    ("prospective_breakbeat_189_60", 189.60, "drum_breakbeat"),
+    ("prospective_shuffle_83_80", 83.80, "drum_shuffle"),
+    ("prospective_shuffle_134_60", 134.60, "drum_shuffle"),
+    ("prospective_triplet_107_20", 107.20, "drum_triplet"),
+    ("prospective_triplet_156_40", 156.40, "drum_triplet"),
+    ("prospective_odd_five_117_30", 117.30, "drum_odd_five"),
+    ("prospective_odd_five_149_20", 149.20, "drum_odd_five"),
+    ("prospective_poly_three_143_60", 143.60, "drum_poly_three"),
+    ("prospective_dense_hats_118_40", 118.40, "drum_dense_hats"),
+    ("prospective_half_pulse_153_60", 153.60, "half_pulse"),
+    ("prospective_sparse_117_80", 117.80, "sparse"),
+    ("prospective_tempo_switch_alt", None, "tempo_switch_alt"),
+    ("prospective_nonperiodic_alt", None, "nonperiodic_percussion_alt"),
+    ("prospective_tone_alt", None, "tone_alt"),
+    ("prospective_noise_alt", None, "noise_alt"),
+)
+
 # Public-only fixture geometry. All remaining cases are 20s/16kHz/mono.
 CASE_VARIANTS = {
     "pulse_128_8s": (8, 16000, 1),
@@ -251,9 +277,10 @@ def render_drum_beat_grid(samples: bytearray, bpm: float, style: str,
 
 
 def render_nonperiodic_percussion(samples: bytearray, duration: float,
-                                   sample_rate: int, channels: int) -> None:
+                                   sample_rate: int, channels: int,
+                                   seed: int = 0x64136F23) -> None:
     """Nonstationary, seeded impacts with no stable event inter-onset period."""
-    state = 0x64136F23
+    state = seed
     t = 0.19
     count = 0
     while t < duration - 0.15:
@@ -270,11 +297,13 @@ def render_nonperiodic_percussion(samples: bytearray, duration: float,
 
 
 def render_tempo_switch(samples: bytearray, duration: float,
-                        sample_rate: int, channels: int) -> list[int]:
-    """90 BPM first half, 128 BPM second: no single whole-track tempo."""
+                        sample_rate: int, channels: int,
+                        alternate: bool = False) -> list[int]:
+    """Two disjoint BPM halves: no single whole-track tempo."""
     positions = []
-    for start, end, bpm in ((0.25, duration / 2, 90.0),
-                            (duration / 2 + 0.25, duration, 128.0)):
+    early, late = (108.0, 142.0) if alternate else (90.0, 128.0)
+    for start, end, bpm in ((0.25, duration / 2, early),
+                            (duration / 2 + 0.25, duration, late)):
         index = 0
         while True:
             t = start + index * 60.0 / bpm
@@ -296,16 +325,16 @@ def render(name: str, bpm: float | None, style: str, target: Path) -> dict:
     total = sample_rate * duration
     samples = bytearray(total * channels * 2)
     positions = []
-    if style == "tone":
+    if style in ("tone", "tone_alt"):
         # Constant energy without beats. A transient at startup alone does
         # not establish tempo; accepting any BPM here is unsafe.
         for frame in range(total):
-            sample = int(6000 * math.sin(2 * math.pi * 220 * frame / sample_rate))
+            sample = int(6000 * math.sin(2 * math.pi * (437 if style == "tone_alt" else 220) * frame / sample_rate))
             for ch in range(channels):
                 struct.pack_into("<h", samples, 2 * (frame * channels + ch), sample)
-    elif style == "noise":
+    elif style in ("noise", "noise_alt"):
         # Deterministic white-ish xorshift noise: no private/copyright samples.
-        state = 0x12345678
+        state = 0x87654321 if style == "noise_alt" else 0x12345678
         for frame in range(total):
             state ^= (state << 13) & 0xffffffff
             state ^= state >> 17
@@ -313,10 +342,13 @@ def render(name: str, bpm: float | None, style: str, target: Path) -> dict:
             sample = int(state % 12001) - 6000
             for ch in range(channels):
                 struct.pack_into("<h", samples, 2 * (frame * channels + ch), sample)
-    elif style == "nonperiodic_percussion":
-        render_nonperiodic_percussion(samples, duration, sample_rate, channels)
-    elif style == "tempo_switch":
-        positions = render_tempo_switch(samples, duration, sample_rate, channels)
+    elif style in ("nonperiodic_percussion", "nonperiodic_percussion_alt"):
+        seed = 0x4A2B7C31 if style.endswith("_alt") else 0x64136F23
+        render_nonperiodic_percussion(samples, duration, sample_rate, channels,
+                                      seed)
+    elif style in ("tempo_switch", "tempo_switch_alt"):
+        positions = render_tempo_switch(samples, duration, sample_rate,
+                                        channels, style.endswith("_alt"))
     elif style.startswith("drum_"):
         positions = render_drum_beat_grid(
             samples, bpm, style, duration, sample_rate, channels)
@@ -342,7 +374,7 @@ def render(name: str, bpm: float | None, style: str, target: Path) -> dict:
         "id": name, "reference_bpm": bpm, "style": style,
         "ambiguity": ("meter_underdetermined"
                       if style in ("half_pulse", "sparse") else
-                      "tempo_nonstationary" if style == "tempo_switch" else "none"),
+                      "tempo_nonstationary" if style.startswith("tempo_switch") else "none"),
         "duration_sec": duration, "sample_rate": sample_rate,
         "channels": channels, "event_sample_positions": positions,
         "wav_sha256": hashlib.sha256(target.read_bytes()).hexdigest(),
@@ -360,17 +392,25 @@ def main() -> None:
                         help="Generate one 120s public window-sweep fixture")
     parser.add_argument("--list-window-cases", action="store_true",
                         help="List the six 120s public window-sweep fixture IDs")
+    parser.add_argument("--prospective-case", choices=[c[0] for c in PROSPECTIVE_CASES],
+                        help="Generate one predeclared synthetic parameter holdout")
+    parser.add_argument("--list-prospective-cases", action="store_true",
+                        help="List the predeclared synthetic parameter holdout IDs")
     args = parser.parse_args()
-    if args.list_cases or args.list_window_cases:
-        if args.output is not None or args.case is not None or args.window_case is not None:
-            parser.error("list modes cannot generate files")
-        if args.list_cases and args.list_window_cases:
-            parser.error("list exactly one fixture family")
-        for name, _, _ in (WINDOW_CASES if args.list_window_cases else CASES):
+    list_count = sum((args.list_cases, args.list_window_cases,
+                      args.list_prospective_cases))
+    selected_count = sum(x is not None for x in
+                         (args.case, args.window_case, args.prospective_case))
+    if list_count:
+        if args.output is not None or selected_count or list_count != 1:
+            parser.error("list exactly one fixture family; do not generate files")
+        family = (WINDOW_CASES if args.list_window_cases else
+                  PROSPECTIVE_CASES if args.list_prospective_cases else CASES)
+        for name, _, _ in family:
             print(name)
         return
-    if args.case is not None and args.window_case is not None:
-        parser.error("--case and --window-case are mutually exclusive")
+    if selected_count > 1:
+        parser.error("select at most one fixture family")
     if args.output is None:
         parser.error("--output is required for generation")
     dest = args.output.resolve()
@@ -378,7 +418,9 @@ def main() -> None:
     if any(dest.iterdir()):
         parser.error("output directory must be empty (fail closed)")
     manifest = []
-    cases = ([c for c in WINDOW_CASES if c[0] == args.window_case]
+    cases = ([c for c in PROSPECTIVE_CASES if c[0] == args.prospective_case]
+             if args.prospective_case is not None else
+             [c for c in WINDOW_CASES if c[0] == args.window_case]
              if args.window_case is not None else
              [c for c in CASES if args.case is None or c[0] == args.case])
     for name, bpm, style in cases:

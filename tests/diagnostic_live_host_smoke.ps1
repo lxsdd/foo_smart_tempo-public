@@ -504,6 +504,73 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Temporal phase comparison scoring failed' }
     Write-Host ("SYNTHETIC_REAL_TEMPORAL_CASE_COUNT_x64={0}" -f $temporalRows.Count)
     Write-Host 'SYNTHETIC_REAL_TEMPORAL_COMPLETED_x64=PASS'
+    # Prospective synthetic parameter holdout, declared before this run.
+    # It is not owner audio or an independent recording-domain validation.
+    # The fixed shadow reads only measured candidates after the real host
+    # completes; no hypothetical choice reaches production or tag writes.
+    $prospectiveIds=@(python ./tools/generate_synthetic_bpm_reference.py --list-prospective-cases)
+    if ($LASTEXITCODE -ne 0 -or $prospectiveIds.Count -ne 20 -or
+        @($prospectiveIds | Sort-Object -Unique).Count -ne 20) {
+      throw 'Prospective synthetic fixture inventory mismatch'
+    }
+    $prospectiveReference=[System.Collections.Generic.List[object]]::new()
+    $prospectiveObserved=[System.Collections.Generic.List[object]]::new()
+    $prospectiveCandidates=[System.Collections.Generic.List[object]]::new()
+    foreach ($caseId in $prospectiveIds) {
+      if ($caseId -cnotmatch '^prospective_[a-z0-9_]+$') {
+        throw 'Unexpected prospective synthetic fixture identity'
+      }
+      $fixtureRoot=Join-Path $root ('synthetic-oracle-'+$caseId)
+      python ./tools/generate_synthetic_bpm_reference.py --output $fixtureRoot --prospective-case $caseId
+      if ($LASTEXITCODE -ne 0) { throw "Prospective WAV generation failed for $caseId" }
+      $wavFile=Join-Path $fixtureRoot ($caseId+'.wav')
+      $manifest=Join-Path $fixtureRoot 'reference.json'
+      $cases=@((Get-Content -LiteralPath $manifest -Raw | ConvertFrom-Json).cases)
+      if ($cases.Count -ne 1 -or $cases[0].id -cne $caseId -or
+          $cases[0].wav_sha256 -cne (Get-FileHash $wavFile -Algorithm SHA256).Hash.ToLowerInvariant()) {
+        throw "Prospective fixture reference invalid for $caseId"
+      }
+      Run-Case $installer $root $wavFile @($wavFile,$manifest) 1 ('SYNTHETIC_'+$caseId)
+      $result=@(Import-Csv -LiteralPath ($wavFile+'.results.csv'))
+      if ($result.Count -ne 1 -or $result[0].index -cne '0') {
+        throw "Missing prospective real-host BPM result for $caseId"
+      }
+      $prospectiveReference.Add($cases[0])
+      $prospectiveObserved.Add([pscustomobject][ordered]@{
+        index=$prospectiveObserved.Count
+        bpm=$result[0].bpm
+        held=$result[0].held
+      })
+      $evidence=@(Import-Csv -LiteralPath ($wavFile+'.candidates.csv'))
+      if ($evidence.Count -gt 32) { throw 'Prospective candidate cap exceeded' }
+      foreach ($candidate in $evidence) {
+        $prospectiveCandidates.Add([pscustomobject][ordered]@{
+          id=$caseId
+          rank=$candidate.rank
+          bpm=$candidate.bpm
+          evidence=$candidate.evidence
+          support=$candidate.support
+          winner=$candidate.winner
+          local_exact=$candidate.local_exact
+        })
+      }
+    }
+    if ($prospectiveObserved.Count -ne 20 -or $prospectiveCandidates.Count -eq 0) {
+      throw 'Incomplete prospective real-host matrix'
+    }
+    $prospectiveManifest=Join-Path $root 'prospective-reference-matrix.json'
+    [ordered]@{
+      schema='synthetic_bpm_reference_v1'
+      cases=@($prospectiveReference.ToArray())
+    } | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $prospectiveManifest -Encoding utf8
+    $prospectiveCsv=Join-Path $root 'prospective-observed-matrix.csv'
+    $prospectiveObserved | Export-Csv -LiteralPath $prospectiveCsv -NoTypeInformation -Encoding utf8
+    $prospectiveCandidateCsv=Join-Path $root 'prospective-candidates-matrix.csv'
+    $prospectiveCandidates | Export-Csv -LiteralPath $prospectiveCandidateCsv -NoTypeInformation -Encoding utf8
+    python ./tools/score_prospective_bpm_reference.py --manifest $prospectiveManifest --observed $prospectiveCsv --candidates $prospectiveCandidateCsv
+    if ($LASTEXITCODE -ne 0) { throw 'Prospective real-host BPM scoring failed' }
+    Write-Host 'SYNTHETIC_REAL_PROSPECTIVE_CASE_COUNT_x64=20'
+    Write-Host 'SYNTHETIC_REAL_PROSPECTIVE_COMPLETED_x64=PASS'
   }
   Write-Host ("SMART_TEMPO_DIAGNOSTIC_RUNTIME_{0}=PASS" -f $Architecture)
 } finally { if (Test-Path $root) { Remove-Item $root -Recurse -Force -ErrorAction SilentlyContinue } }
