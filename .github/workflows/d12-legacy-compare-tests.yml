@@ -4,12 +4,16 @@ on:
   pull_request:
     paths:
       - 'tools/compare-d12-builds.py'
+      - 'tools/verify-private-d12-fixtures.ps1'
+      - 'tests/test_private_d12_fixture_integrity.ps1'
       - 'tests/test_d12_crossbuild.py'
       - '.github/workflows/d12-legacy-compare-tests.yml'
   push:
     branches: [main]
     paths:
       - 'tools/compare-d12-builds.py'
+      - 'tools/verify-private-d12-fixtures.ps1'
+      - 'tests/test_private_d12_fixture_integrity.ps1'
       - 'tests/test_d12_crossbuild.py'
       - '.github/workflows/d12-legacy-compare-tests.yml'
 
@@ -27,6 +31,9 @@ jobs:
           persist-credentials: false
       - name: Synthetic legacy/current comparison regressions
         run: python3 -m unittest discover -s tests -p 'test_d12_crossbuild.py' -v
+      - name: Synthetic local-only fixture integrity and privacy regressions
+        shell: pwsh
+        run: ./tests/test_private_d12_fixture_integrity.ps1
       - name: No private evidence or build artifact upload
         run: |
           test ! -d private-research
