@@ -383,7 +383,9 @@ BOOL bpm_auto_analysis_thread::OnInitDialog(CWindow wndFocus,
   UpdateStatusLine();
   static_api_ptr_t<message_loop>()->add_message_filter(this);
 
-  SetTimer(1, 100);
+  // Four status refreshes per second are sufficient for a background MIR job.
+  // ETA itself is updated at most once per second; avoid unnecessary polling.
+  SetTimer(1, 250);
 
   m_workerThread = std::thread([this]() {
     try {
@@ -1070,7 +1072,8 @@ void bpm_auto_analysis_thread::InitTooltips() {
   AddTooltip(ID_BPM_PROGRESS_FILE, _T("Live list of currently analyzed files ")
                                    _T("(one line per active worker)."));
   AddTooltip(ID_BPM_PROGRESS_TOTAL,
-             _T("Deterministic total progress across the full analysis job."));
+             _T("Estimated analysis work; always moves forward and reaches "
+                "100% only when every track has finished."));
   AddTooltip(ID_BPM_PROGRESS_INFO,
              _T("Current analysis state and timing details."));
   AddTooltip(ID_BPM_PROGRESS_PAUSE,
