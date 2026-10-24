@@ -32,11 +32,26 @@ inline bool record(const std::vector<double>& bpm,
   if (fixture.size() <= root.size() ||
       _wcsnicmp(root.c_str(), fixture.c_str(), root.size()) != 0) return false;
 
-  constexpr wchar_t name[] = L"\\synthetic-oracle\\pulse_128.wav";
-  constexpr std::size_t suffix_len = (sizeof(name) / sizeof(name[0])) - 1;
-  if (fixture.size() < suffix_len ||
-      _wcsicmp(fixture.c_str() + fixture.size() - suffix_len, name) != 0)
-    return false;
+  // Explicit synthetic-only allowlist. Never accept arbitrary fixture names,
+  // parent traversal, private media, or production component configurations.
+  constexpr const wchar_t* kCases[] = {
+      L"pulse_90", L"pulse_128", L"pulse_175",
+      L"pulse_128_syncopated", L"pulse_128_half_pulse", L"silence"};
+  bool approved = false;
+  for (const wchar_t* id : kCases) {
+    std::wstring suffix = L"\\synthetic-oracle-";
+    suffix += id;
+    suffix += L"\\";
+    suffix += id;
+    suffix += L".wav";
+    if (fixture.size() >= suffix.size() &&
+        _wcsicmp(fixture.c_str() + fixture.size() - suffix.size(),
+                 suffix.c_str()) == 0) {
+      approved = true;
+      break;
+    }
+  }
+  if (!approved) return false;
   const std::wstring report = fixture + L".results.csv";
   const double numeric = std::isfinite(bpm[0]) && bpm[0] > 0.0
                              ? bpm[0] : 0.0;
