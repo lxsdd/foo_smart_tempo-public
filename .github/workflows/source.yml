@@ -90,6 +90,15 @@ jobs:
           ctest --test-dir synthetic-test-build -C Release --output-on-failure
           if ($LASTEXITCODE -ne 0) { throw 'Synthetic MIR window tests failed' }
 
+      - name: Verify exact-tempo synthetic WAV reference corpus
+        shell: pwsh
+        run: |
+          python -m unittest discover -s tests -p 'test_synthetic_bpm_reference.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'Synthetic WAV oracle regressions failed' }
+          # Generated WAV files exist only inside unittest temporary folders.
+          # BPM accuracy is NOT asserted here; future CI will analyze these
+          # fixtures with the real component and compare its reported BPMs.
+
       - name: Run privacy-safe MW1 evidence comparator tests
         shell: pwsh
         run: |
