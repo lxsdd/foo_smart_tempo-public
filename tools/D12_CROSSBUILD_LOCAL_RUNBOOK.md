@@ -41,23 +41,23 @@ Public GitHub CI continues to build and test both Win32 and x64. Keep the
 32-bit local instance available for a short final architecture-specific check.
 
 Use *copied* media and CUE/sidecar files in one **isolated fixture directory**,
-for example \`C:\private-d12\copies\`. Keep the hash state JSON *outside*
+for example `C:\private-d12\copies`. Keep the hash state JSON *outside*
 that directory. The helper verifies every file in the tree, not that a foobar
 playlist contains precisely 12 subsongs; choose the twelve intended items
 in foobar yourself. **Do not run the snapshot against original music.**
 
 Run from PowerShell 5.1+ with a local checkout of these public tools:
 
-\`\`\`powershell
+```powershell
 $fixtures = 'C:\private-d12\copies'
 $state = 'C:\private-d12\x64-before.json'
 .\tools\verify-private-d12-fixtures.ps1 -Phase Before -Root $fixtures -StateFile $state
 # In the x64 foobar test profile: select the copied D12 tracks;
 # Smart Tempo > Analyze selected tracks (no tag writes); close without writing.
 .\tools\verify-private-d12-fixtures.ps1 -Phase After -Root $fixtures -StateFile $state
-\`\`\`
+```
 
-Accept \`D12_FIXTURE_INTEGRITY=PASS\` only after the final After step. The
+Accept `D12_FIXTURE_INTEGRITY=PASS` only after the final After step. The
 guard checks file identities, size, full SHA256 and LastWriteTimeUtc for
 all files (including external .cue files). New/deleted sidecars, symlinks,
 overwritten fixture state, any changed bytes or modified timestamps cause
