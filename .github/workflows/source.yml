@@ -105,6 +105,12 @@ jobs:
           python -m unittest discover -s tests -p 'test_synthetic_bpm_scorer.py' -v
           if ($LASTEXITCODE -ne 0) { throw 'Synthetic BPM scorer unit tests failed' }
 
+      - name: Verify local-only BPM holdout scorer using synthetic telemetry
+        shell: pwsh
+        run: |
+          python -m unittest discover -s tests -p 'test_private_bpm_holdout.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'Private holdout scorer synthetic regression failed' }
+
       - name: Run privacy-safe MW1 evidence comparator tests
         shell: pwsh
         run: |
