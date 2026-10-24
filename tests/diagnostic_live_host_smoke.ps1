@@ -175,7 +175,7 @@ function Run-Case([string]$installer,[string]$root,[string]$inputFile,[string[]]
       if (-not (Test-Path -LiteralPath $observed -PathType Leaf)) {
         throw 'Real foobar numeric BPM oracle observer is not available'
       }
-      python ./tools/score_synthetic_bpm_reference.py --manifest $reference --observed $observed
+      python ./tools/score_synthetic_bpm_reference.py --manifest $reference --observed $observed --precision-details
       if ($LASTEXITCODE -ne 0) { throw 'Real foobar synthetic BPM evaluation failed' }
     }
     Write-Host ("DIAGNOSTIC_MENU_{0}_{1}=PASS" -f $Architecture,$label)
@@ -226,11 +226,13 @@ try {
   Run-Case $installer $root $wav @($wav) 1 'WAV'
   Run-Case $installer $root $cue @($wav,$cue) 2 'CUE'
   if ($Architecture -eq 'x64') {
-    # Six independently predeclared synthetic references. Run one WAV at a
-    # time: large multi-track MIR batches exceed the existing 150s UI gate.
-    # Misclassifications and Review Holds are measured, not hidden or retuned.
-    $oracleCases=@('pulse_90','pulse_128','pulse_175',
-                   'pulse_128_syncopated','pulse_128_half_pulse','silence')
+    # All eleven predeclared public references, one disposable WAV per
+    # foobar instance. A single 11-track MIR batch exceeds the 150s UI gate.
+    # Numerical errors, alias choices and Review Holds remain visible.
+    $oracleCases=@('pulse_60','pulse_90','pulse_120','pulse_128',
+                   'pulse_140','pulse_175','pulse_128_syncopated',
+                   'pulse_120_swing','pulse_128_half_pulse',
+                   'pulse_120_sparse','silence')
     foreach ($caseId in $oracleCases) {
       $syntheticRoot=Join-Path $root ('synthetic-oracle-'+$caseId)
       python ./tools/generate_synthetic_bpm_reference.py --output $syntheticRoot --case $caseId
