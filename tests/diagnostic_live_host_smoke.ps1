@@ -167,11 +167,12 @@ function Run-Case([string]$installer,[string]$root,[string]$inputFile,[string[]]
     if (-not [STUI]::IsWindow($dialog)) { throw 'Secondary no-write guard failed' }
     foreach ($file in $files) { if ((Stamp $file) -cne $baseline[$file]) { throw 'File changed after blocked Update handler' } }
     if ($label -eq 'SYNTHETIC') {
-      $observed=Join-Path $root 'synthetic-observed.csv'
+      # Compiled only in CI probe binaries; the engine values are captured
+      # after worker join, not scraped through unreliable headless UIA.
+      $observed=$inputFile+'.results.csv'
       $reference=Join-Path (Split-Path -Parent $inputFile) 'reference.json'
-      & ./tests/capture_synthetic_bpm_ui.ps1 -DialogHandle ([long]$dialog) -Manifest $reference -OutputCsv $observed
-      if (-not (Test-Path -LiteralPath $observed)) {
-        throw 'Real foobar BPM observation is not available'
+      if (-not (Test-Path -LiteralPath $observed -PathType Leaf)) {
+        throw 'Real foobar numeric BPM oracle observer is not available'
       }
       python ./tools/score_synthetic_bpm_reference.py --manifest $reference --observed $observed
       if ($LASTEXITCODE -ne 0) { throw 'Real foobar synthetic BPM evaluation failed' }
