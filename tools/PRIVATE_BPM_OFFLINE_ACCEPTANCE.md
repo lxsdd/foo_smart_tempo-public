@@ -65,7 +65,7 @@ ambiguous accepts, non-rhythmic false accepts, holds, and an **offline
 shadow-only** `local_exact` alternative count. It never outputs labels,
 identifiers, paths or per-track BPM values and it cannot change a BPM
 decision or write tags. Even `PRIVATE_SAMPLE_MEETS_PRECISION` describes only
- the supplied sample, never release qualification.
+the supplied sample, never release qualification.
 
 The underlying verbose log must have a complete `MirSamplingPlan`,
 `MirPolicyDecision`, `Decision:`, `Final Output:` and `Track Timing:`
