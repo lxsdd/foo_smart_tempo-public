@@ -32,11 +32,24 @@ inline bool record(const std::vector<double>& bpm,
   if (fixture.size() <= root.size() ||
       _wcsnicmp(root.c_str(), fixture.c_str(), root.size()) != 0) return false;
 
-  constexpr wchar_t name[] = L"\\synthetic-oracle\\pulse_128.wav";
-  constexpr std::size_t suffix_len = (sizeof(name) / sizeof(name[0])) - 1;
-  if (fixture.size() < suffix_len ||
-      _wcsicmp(fixture.c_str() + fixture.size() - suffix_len, name) != 0)
-    return false;
+  // Explicit allowlist; only predeclared public synthetic tempo cases can
+  // trigger CI-only evidence export. Personal media can never opt into it.
+  constexpr const wchar_t* allowed[] = {
+      L"\\synthetic-oracle\\pulse_60.wav",
+      L"\\synthetic-oracle\\pulse_128.wav",
+      L"\\synthetic-oracle\\pulse_175.wav",
+      L"\\synthetic-oracle\\silence.wav",
+  };
+  bool approved = false;
+  for (const wchar_t* suffix : allowed) {
+    const std::size_t n = std::wcslen(suffix);
+    if (fixture.size() >= n &&
+        _wcsicmp(fixture.c_str() + fixture.size() - n, suffix) == 0) {
+      approved = true;
+      break;
+    }
+  }
+  if (!approved) return false;
   const std::wstring report = fixture + L".results.csv";
   const double numeric = std::isfinite(bpm[0]) && bpm[0] > 0.0
                              ? bpm[0] : 0.0;
