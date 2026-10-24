@@ -177,6 +177,21 @@ function Run-Case([string]$installer,[string]$root,[string]$inputFile,[string[]]
       }
       python ./tools/score_synthetic_bpm_reference.py --manifest $reference --observed $observed --precision-details
       if ($LASTEXITCODE -ne 0) { throw 'Real foobar synthetic BPM evaluation failed' }
+      $evidenceFile=$inputFile+'.candidates.csv'
+      if (-not (Test-Path -LiteralPath $evidenceFile -PathType Leaf)) {
+        throw 'Synthetic-only measured candidate evidence is missing'
+      }
+      $evidenceRows=@(Import-Csv -LiteralPath $evidenceFile)
+      if ($evidenceRows.Count -gt 32) { throw 'Synthetic candidate evidence cap exceeded' }
+      foreach ($candidate in $evidenceRows) {
+        # Pure numbers, produced by the CI-only observer from the synthetic
+        # MIR candidate board. Never write private metadata to Actions logs.
+        Write-Host ("SYNTHETIC_BPM_CANDIDATE id={0} rank={1} bpm={2} evidence={3} support={4} winner={5} local_exact={6}" -f
+          $label.Substring(10),$candidate.rank,$candidate.bpm,$candidate.evidence,
+          $candidate.support,$candidate.winner,$candidate.local_exact)
+      }
+      Write-Host ("SYNTHETIC_BPM_CANDIDATE_COUNT id={0} n={1}" -f
+        $label.Substring(10),$evidenceRows.Count)
     }
     Write-Host ("DIAGNOSTIC_MENU_{0}_{1}=PASS" -f $Architecture,$label)
     Write-Host ("DIAGNOSTIC_ROWS_{0}_{1}={2}" -f $Architecture,$label,$rows)
