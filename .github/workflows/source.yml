@@ -96,7 +96,14 @@ jobs:
           python -m unittest discover -s tests -p 'test_mw1_comparator.py' -v
           if ($LASTEXITCODE -ne 0) { throw 'MW1 synthetic evaluator tests failed' }
 
+      - name: Verify independent fail-closed Win32 and x64 host-gate policy
+        shell: pwsh
+        run: |
+          python -m unittest discover -s tests -p 'test_independent_host_gates.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'Host-gate policy regression failed' }
+
       - name: Build Win32 and x64 with public SDK
+        id: source_build
         shell: pwsh
         run: |
           # The SDK's independent helpers project includes atlapp.h but does
@@ -122,7 +129,11 @@ jobs:
         with:
           architecture: Win32
           component-dll: build/foo_smart_tempo.dll
+      # Explicit status function avoids GitHub's implicit success() guard:
+      # x64 still tests the actual DLL if Win32 /add fails, but not after a
+      # failed build or cancellation. Both hard gates still fail the job.
       - name: HARD GATE - real foobar2000 x64 component load
+        if: ${{ !cancelled() && steps.source_build.outcome == 'success' }}
         uses: lxsdd/dev-infrastructure-public/.github/actions/foobar-host-smoke@2eaf8a84adf3d5614173947ea60d2dafa89ed1ee
         with:
           architecture: x64
