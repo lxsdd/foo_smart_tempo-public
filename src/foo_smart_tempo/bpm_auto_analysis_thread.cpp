@@ -715,10 +715,17 @@ void bpm_auto_analysis_thread::WorkerMain() {
           routingContext.primary_center_bpm = routeCenterBpm;
           routingContext.primary_spread_bpm = routeSpreadBpm;
           m_routing_context_results[index].assign(routingContext);
+          // The CI-only synthetic observer may inspect measured candidate
+          // evidence; release binaries retain the existing opt-in behavior.
+          bool captureMeasuredCandidates = m_measuredCandidateInspectionMode;
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+          captureMeasuredCandidates = captureMeasuredCandidates ||
+                                      m_batchDryRunMode;
+#endif
           m_bpm_results[index] = analyzer->analyze(
               p_item, status, m_abort, routeMinBpm, routeMaxBpm,
               trackIdentifier.get_ptr(), &routingContext,
-              m_measuredCandidateInspectionMode);
+              captureMeasuredCandidates);
           const auto &diag = analyzer->get_diagnostics();
           m_confidence_results[index] = diag.confidence;
           m_method_results[index] = diag.method;
