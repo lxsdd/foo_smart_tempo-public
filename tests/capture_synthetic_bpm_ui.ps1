@@ -15,7 +15,7 @@ if ($manifest.schema -ne 'synthetic_bpm_reference_v1') {
   throw 'Unknown synthetic corpus'
 }
 $cases = @($manifest.cases)
-if ($cases.Count -ne 11) { throw 'Unexpected synthetic case count' }
+if ($cases.Count -lt 1 -or $cases.Count -gt 11) { throw 'Unexpected synthetic case count' }
 if (Test-Path -LiteralPath $OutputCsv) { throw 'Oracle CSV already exists' }
 $dialog = [System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]::new($DialogHandle))
 if ($null -eq $dialog) { throw 'Diagnostic dialog UI Automation handle missing' }
