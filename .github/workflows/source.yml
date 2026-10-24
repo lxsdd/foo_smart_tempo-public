@@ -123,6 +123,12 @@ jobs:
           python -m unittest discover -s tests -p 'test_prospective_bpm_scorer.py' -v
           if ($LASTEXITCODE -ne 0) { throw 'Prospective synthetic scorer regressions failed' }
 
+      - name: Verify batched public prospective pass-count scorer
+        shell: pwsh
+        run: |
+          python -m unittest discover -s tests -p 'test_prospective_pass_sweep.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'Batched prospective pass-sweep scorer regressions failed' }
+
       - name: Verify local-only BPM holdout scorer using synthetic telemetry
         shell: pwsh
         run: |
@@ -202,7 +208,7 @@ jobs:
         run: |
           & ./tests/diagnostic_live_host_smoke.ps1 -Architecture Win32 -ComponentDll 'build/ci-probe/Win32/foo_smart_tempo.dll'
 
-      - name: HARD GATE - x64 80 BPM, 78 windows, 12 temporal, 20 prospective host cases
+      - name: HARD GATE - x64 batched 80 BPM, 78 windows, 12 temporal, 20 prospective plus 33 pass probes
         shell: pwsh
         run: |
           & ./tests/diagnostic_live_host_smoke.ps1 -Architecture x64 -ComponentDll 'build/ci-probe/x64/foo_smart_tempo.dll'

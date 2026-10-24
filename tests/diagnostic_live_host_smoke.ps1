@@ -571,6 +571,81 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Prospective real-host BPM scoring failed' }
     Write-Host 'SYNTHETIC_REAL_PROSPECTIVE_CASE_COUNT_x64=20'
     Write-Host 'SYNTHETIC_REAL_PROSPECTIVE_COMPLETED_x64=PASS'
+
+    # Paired, exploratory pass-count sensitivity on the same 11 public WAVs.
+    # One x64 runner already paid for SDK/build/host initialization; reuse it.
+    # References and shadow choices are applied only after every host result.
+    $passTargets=@(python ./tools/score_prospective_pass_sweep.py --list-targets)
+    if ($LASTEXITCODE -ne 0 -or $passTargets.Count -ne 11 -or
+        @($passTargets | Sort-Object -Unique).Count -ne 11) {
+      throw 'Public prospective pass-sweep target inventory mismatch'
+    }
+    foreach ($target in $passTargets) {
+      if ($target -cnotin $prospectiveIds) { throw 'Pass-sweep target outside prospective corpus' }
+    }
+    $passObserved=[System.Collections.Generic.List[object]]::new()
+    $passCandidates=[System.Collections.Generic.List[object]]::new()
+    foreach ($caseId in $passTargets) {
+      $seedRoot=Join-Path $root ('synthetic-oracle-'+$caseId)
+      $seedWave=Join-Path $seedRoot ($caseId+'.wav')
+      $seedManifest=Join-Path $seedRoot 'reference.json'
+      foreach ($passes in @(1,5,20)) {
+        $variantRoot=Join-Path $root ("pass-$caseId-$passes")
+        $fixtureRoot=Join-Path $variantRoot ('synthetic-oracle-'+$caseId)
+        New-Item -ItemType Directory -Path $fixtureRoot -Force | Out-Null
+        $wavFile=Join-Path $fixtureRoot ($caseId+'.wav')
+        $manifest=Join-Path $fixtureRoot 'reference.json'
+        Copy-Item -LiteralPath $seedWave -Destination $wavFile
+        Copy-Item -LiteralPath $seedManifest -Destination $manifest
+        if ((Get-FileHash $wavFile -Algorithm SHA256).Hash -ine
+            (Get-FileHash $seedWave -Algorithm SHA256).Hash) {
+          throw 'Pass-sweep media copy mismatch'
+        }
+        $label=('SYNTHETIC_PASS_'+$caseId+'_P'+$passes)
+        Run-Case $installer $root $wavFile @($wavFile,$manifest) 1 $label 20 $passes
+        $result=@(Import-Csv -LiteralPath ($wavFile+'.results.csv'))
+        $plan=@(Import-Csv -LiteralPath ($wavFile+'.plan.csv'))
+        if ($result.Count -ne 1 -or $result[0].index -cne '0' -or $plan.Count -ne 1) {
+          throw "Missing pass-sweep host observation for $label"
+        }
+        $passObserved.Add([pscustomobject][ordered]@{
+          id=$caseId
+          passes=$passes
+          bpm=$result[0].bpm
+          held=$result[0].held
+          effective_seconds=$plan[0].effective_seconds
+          effective_passes=$plan[0].effective_passes
+        })
+        $evidence=@(Import-Csv -LiteralPath ($wavFile+'.candidates.csv'))
+        if ($evidence.Count -gt 32) { throw 'Public pass-sweep candidate cap exceeded' }
+        foreach ($candidate in $evidence) {
+          $passCandidates.Add([pscustomobject][ordered]@{
+            id=$caseId
+            passes=$passes
+            rank=$candidate.rank
+            bpm=$candidate.bpm
+            evidence=$candidate.evidence
+            support=$candidate.support
+            winner=$candidate.winner
+            local_exact=$candidate.local_exact
+          })
+        }
+      }
+    }
+    if ($passObserved.Count -ne 33) { throw 'Incomplete 11-by-3 public pass-sweep grid' }
+    $passObservedCsv=Join-Path $root 'prospective-pass-sweep-observed.csv'
+    $passObserved | Export-Csv -LiteralPath $passObservedCsv -NoTypeInformation -Encoding utf8
+    $passCandidateCsv=Join-Path $root 'prospective-pass-sweep-candidates.csv'
+    if ($passCandidates.Count -eq 0) {
+      'id,passes,rank,bpm,evidence,support,winner,local_exact' |
+        Set-Content -LiteralPath $passCandidateCsv -Encoding utf8
+    } else {
+      $passCandidates | Export-Csv -LiteralPath $passCandidateCsv -NoTypeInformation -Encoding utf8
+    }
+    python ./tools/score_prospective_pass_sweep.py --manifest $prospectiveManifest --baseline-observed $prospectiveCsv --baseline-candidates $prospectiveCandidateCsv --observed $passObservedCsv --candidates $passCandidateCsv
+    if ($LASTEXITCODE -ne 0) { throw 'Public prospective pass-sweep scoring failed' }
+    Write-Host 'SYNTHETIC_REAL_PROSPECTIVE_PASS_SWEEP_COUNT_x64=33'
+    Write-Host 'SYNTHETIC_REAL_PROSPECTIVE_PASS_SWEEP_COMPLETED_x64=PASS'
   }
   Write-Host ("SMART_TEMPO_DIAGNOSTIC_RUNTIME_{0}=PASS" -f $Architecture)
 } finally { if (Test-Path $root) { Remove-Item $root -Recurse -Force -ErrorAction SilentlyContinue } }
