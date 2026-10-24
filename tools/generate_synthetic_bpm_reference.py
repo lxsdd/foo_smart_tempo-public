@@ -86,13 +86,15 @@ def render(name: str, bpm: float | None, style: str, target: Path) -> dict:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--case", choices=[c[0] for c in CASES], help="A single fixed reference case for a fast real-host smoke")
     args = parser.parse_args()
     dest = args.output.resolve()
     dest.mkdir(parents=True, exist_ok=True)
     if any(dest.iterdir()):
         parser.error("output directory must be empty (fail closed)")
     manifest = []
-    for name, bpm, style in CASES:
+    cases = [c for c in CASES if args.case is None or c[0] == args.case]
+    for name, bpm, style in cases:
         manifest.append(render(name, bpm, style, dest / (name + ".wav")))
     (dest / "reference.json").write_text(
         json.dumps({"schema": "synthetic_bpm_reference_v1", "cases": manifest},
