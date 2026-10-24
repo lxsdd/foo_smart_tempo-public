@@ -132,6 +132,69 @@ PUBLIC_CASE_IDS = frozenset({
 })
 
 
+
+def load_candidate_inventory(path):
+    """Read CI-only numeric evidence for fixed, public synthetic cases."""
+    fields = {"id", "rank", "bpm", "evidence", "support", "winner", "local_exact"}
+    with path.open(newline="", encoding="utf-8") as handle:
+        reader = csv.DictReader(handle)
+        if set(reader.fieldnames or ()) != fields:
+            raise ValueError("candidate inventory header mismatch")
+        entries = list(reader)
+    counts = {}
+    for entry in entries:
+        if set(entry) != fields or entry["id"] not in PUBLIC_CASE_IDS:
+            raise ValueError("unexpected candidate field or non-public ID")
+        rank = int(entry["rank"])
+        if not 1 <= rank <= 32:
+            raise ValueError("candidate rank outside bounded CI probe")
+        values = [float(entry[field]) for field in
+                  ("bpm", "evidence", "support", "winner", "local_exact")]
+        if not all(map(math.isfinite, values)) or values[0] <= 0:
+            raise ValueError("invalid numeric candidate")
+        counts[entry["id"]] = counts.get(entry["id"], 0) + 1
+        if counts[entry["id"]] > 32:
+            raise ValueError("candidate evidence cap exceeded")
+    return entries
+
+
+def inspect_candidate_inventory(scored, entries):
+    """Separate candidate-generation failure from downstream rejection.
+
+    This reports availability only. It never selects or promotes a BPM.
+    References must not be passed into any production DSP or selector.
+    """
+    grouped = {}
+    known_ids = {row["id"] for row in scored["results"]}
+    for entry in entries:
+        if entry["id"] not in known_ids:
+            raise ValueError("candidate ID absent from the public manifest")
+        grouped.setdefault(entry["id"], []).append(float(entry["bpm"]))
+    incorrect = [row for row in scored["results"]
+                 if not row["ambiguous"] and row["reference_bpm"] is not None
+                 and row["absolute_error_bpm"] is not None
+                 and row["absolute_error_bpm"] > 0.20 + 1e-9]
+    present_reference = 0
+    present_output = 0
+    details = []
+    for row in incorrect:
+        values = grouped.get(row["id"], [])
+        reference_found = any(abs(value - row["reference_bpm"]) <= 0.20 + 1e-9
+                              for value in values)
+        output_found = any(abs(value - row["reported_bpm"]) <= 0.20 + 1e-9
+                           for value in values)
+        present_reference += reference_found
+        present_output += output_found
+        details.append((row["id"], int(reference_found), int(output_found)))
+    return {
+        "incorrect_clear_reference_n": len(incorrect),
+        "correct_measured_candidate_present_n": present_reference,
+        "chosen_measured_candidate_present_n": present_output,
+        "candidate_records_n": len(entries),
+        "per_error": details,
+    }
+
+
 def precision_detail_lines(scored):
     for row in scored["results"]:
         if row["id"] not in PUBLIC_CASE_IDS:
@@ -150,6 +213,8 @@ def main():
     parser.add_argument("--manifest", required=True, type=Path)
     parser.add_argument("--observed", required=True, type=Path)
     parser.add_argument("--json-report", type=Path)
+    parser.add_argument("--candidates", type=Path,
+                        help="bounded CI-only measured candidate inventory CSV")
     parser.add_argument("--precision-details", action="store_true",
                         help="print synthetic-only numeric deviation for known public cases")
     args = parser.parse_args()
@@ -172,6 +237,19 @@ def main():
     if args.precision_details:
         for line in precision_detail_lines(scored):
             print(line)
+    if args.candidates:
+        diagnostics = inspect_candidate_inventory(
+            scored, load_candidate_inventory(args.candidates))
+        for key in ("incorrect_clear_reference_n",
+                    "correct_measured_candidate_present_n",
+                    "chosen_measured_candidate_present_n",
+                    "candidate_records_n"):
+            print(f"SYNTHETIC_CANDIDATE_{key.upper()}={diagnostics[key]}")
+        if args.precision_details:
+            for case_id, reference_found, output_found in diagnostics["per_error"]:
+                print(f"SYNTHETIC_CANDIDATE_RESCUE id={case_id} "
+                      f"reference_present={reference_found} "
+                      f"output_present={output_found}")
     print(f"SYNTHETIC_BPM_EVALUATED={scored['n']}")
 
 

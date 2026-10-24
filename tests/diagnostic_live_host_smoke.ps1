@@ -246,6 +246,7 @@ try {
     }
     $referenceCases=[System.Collections.Generic.List[object]]::new()
     $observedRows=[System.Collections.Generic.List[object]]::new()
+    $candidateRows=[System.Collections.Generic.List[object]]::new()
     foreach ($caseId in $oracleCases) {
       if ($caseId -cnotmatch '^[a-z0-9_]+$') {
         throw 'Unexpected non-public synthetic case identifier'
@@ -270,6 +271,19 @@ try {
         bpm=$numbers[0].bpm
         held=$numbers[0].held
       })
+      # Strictly numeric measured candidates from this *public synthetic*
+      # fixture only. The same bounded observer already prints these rows.
+      foreach ($candidate in @(Import-Csv -LiteralPath ($wavFile+'.candidates.csv'))) {
+        $candidateRows.Add([pscustomobject][ordered]@{
+          id=$caseId
+          rank=$candidate.rank
+          bpm=$candidate.bpm
+          evidence=$candidate.evidence
+          support=$candidate.support
+          winner=$candidate.winner
+          local_exact=$candidate.local_exact
+        })
+      }
     }
     $aggregateReference=Join-Path $root 'synthetic-reference-matrix.json'
     $aggregateObserved=Join-Path $root 'synthetic-observed-matrix.csv'
@@ -278,7 +292,9 @@ try {
       cases=@($referenceCases.ToArray())
     } | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $aggregateReference -Encoding utf8
     $observedRows | Export-Csv -LiteralPath $aggregateObserved -NoTypeInformation -Encoding utf8
-    python ./tools/score_synthetic_bpm_reference.py --manifest $aggregateReference --observed $aggregateObserved --precision-details
+    $aggregateCandidates=Join-Path $root 'synthetic-candidates-matrix.csv'
+    $candidateRows | Export-Csv -LiteralPath $aggregateCandidates -NoTypeInformation -Encoding utf8
+    python ./tools/score_synthetic_bpm_reference.py --manifest $aggregateReference --observed $aggregateObserved --candidates $aggregateCandidates --precision-details
     if ($LASTEXITCODE -ne 0) { throw 'Complete synthetic BPM matrix scoring failed' }
     Write-Host ("SYNTHETIC_REAL_CASE_COUNT_x64={0}" -f $oracleCases.Count)
     Write-Host 'SYNTHETIC_REAL_MATRIX_COMPLETED_x64=PASS'

@@ -114,6 +114,65 @@ class ScorerTests(unittest.TestCase):
         self.assertEqual(result["unsafe_count"], 1)
         self.assertEqual(result["quality_verdict"], "NO_GO")
 
+
+    def test_measured_candidate_availability_is_reported_not_selected(self):
+        refs = {"cases": [
+            {"id": "pulse_60", "style": "regular", "reference_bpm": 60},
+            {"id": "pulse_90", "style": "regular", "reference_bpm": 90},
+            {"id": "noise", "style": "noise", "reference_bpm": None},
+        ]}
+        observed = [
+            {"bpm": "90", "held": "0"},
+            {"bpm": "90", "held": "0"},
+            {"bpm": "0", "held": "1"},
+        ]
+        result = score.evaluate(refs, observed)
+        evidence = [
+            {"id": "pulse_60", "rank": "1", "bpm": "60.01",
+             "evidence": "1.0", "support": "1", "winner": "0",
+             "local_exact": "0.8"},
+            {"id": "pulse_60", "rank": "2", "bpm": "90",
+             "evidence": "0.1", "support": "1", "winner": "1",
+             "local_exact": "0.5"},
+            {"id": "pulse_90", "rank": "1", "bpm": "90",
+             "evidence": "1", "support": "1", "winner": "1",
+             "local_exact": "1"},
+        ]
+        audit = score.inspect_candidate_inventory(result, evidence)
+        self.assertEqual(audit["incorrect_clear_reference_n"], 1)
+        self.assertEqual(audit["correct_measured_candidate_present_n"], 1)
+        self.assertEqual(audit["chosen_measured_candidate_present_n"], 1)
+        self.assertEqual(audit["candidate_records_n"], 3)
+        self.assertEqual(audit["per_error"], [("pulse_60", 1, 1)])
+        self.assertEqual(result["results"][0]["reported_bpm"], 90)
+
+        # The result remains a violation despite a valid measured alternate.
+        self.assertEqual(result["quality_verdict"], "NO_GO")
+
+    def test_candidate_inventory_fails_closed_on_non_public_id_or_values(self):
+        header = ["id", "rank", "bpm", "evidence", "support",
+                  "winner", "local_exact"]
+        base = {"id": "pulse_60", "rank": "1", "bpm": "60.01",
+                "evidence": "1.0", "support": "1", "winner": "1",
+                "local_exact": "0.8"}
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "public-candidates.csv"
+            for change in ({"id": "private-track"},
+                           {"rank": "33"}, {"bpm": "nan"},
+                           {"evidence": "inf"}, {"bpm": "-5"}):
+                row = {**base, **change}
+                with path.open("w", encoding="utf-8", newline="") as handle:
+                    writer = csv.DictWriter(handle, fieldnames=header)
+                    writer.writeheader()
+                    writer.writerow(row)
+                with self.subTest(change=change), self.assertRaises(ValueError):
+                    score.load_candidate_inventory(path)
+            with path.open("w", encoding="utf-8", newline="") as handle:
+                writer = csv.DictWriter(handle, fieldnames=header)
+                writer.writeheader()
+                writer.writerow(base)
+            self.assertEqual(len(score.load_candidate_inventory(path)), 1)
+
     def test_observation_ordinals_rejected(self):
         with tempfile.TemporaryDirectory() as temp:
             observed = Path(temp) / "numbers.csv"
