@@ -25,6 +25,7 @@ def evaluate(reference, observed):
         if not math.isfinite(value) or value < 0:
             raise ValueError("non-finite/negative BPM")
         bpm = expected["reference_bpm"]
+        absolute_error_bpm = None
         if held and value > 0:
             # A held candidate is not an accepted BPM even if it is measured.
             accepted = False
@@ -37,7 +38,8 @@ def evaluate(reference, observed):
             category = "abstained"
             relative_error = None
         else:
-            relative_error = abs(value - bpm) / bpm
+            absolute_error_bpm = abs(value - bpm)
+            relative_error = absolute_error_bpm / bpm
             if relative_error <= 0.02:
                 category = "within_two_percent"
             elif min(abs(value / bpm - 2), abs(value / bpm - .5)) <= 0.04:
@@ -47,13 +49,23 @@ def evaluate(reference, observed):
         scored.append({"id": expected["id"], "style": expected["style"],
                        "reference_bpm": bpm, "reported_bpm": value,
                        "held": held, "category": category,
-                       "relative_error": relative_error})
+                       "relative_error": relative_error,
+                       "absolute_error_bpm": absolute_error_bpm})
     counts = {kind: sum(row["category"] == kind for row in scored)
               for kind in ("within_two_percent", "half_double_alias",
                            "other_error", "abstained",
                            "correct_abstention", "false_positive_silence")}
+    accepted_errors = [row["absolute_error_bpm"] for row in scored
+                       if row["absolute_error_bpm"] is not None]
+    precision = {
+        "accepted_reference_n": len(accepted_errors),
+        "within_0_05_bpm": sum(error <= 0.05 + 1e-9
+                               for error in accepted_errors),
+        "within_0_20_bpm": sum(error <= 0.20 + 1e-9
+                               for error in accepted_errors),
+    }
     return {"schema": "synthetic_bpm_score_v1", "n": len(rows),
-            "counts": counts, "results": scored}
+            "counts": counts, "precision": precision, "results": scored}
 
 
 def load_observed(path):
@@ -68,11 +80,37 @@ def load_observed(path):
     return entries
 
 
+# Only public generator case identifiers may be printed by the optional
+# CI precision observer. This is a synthetic-only diagnostic, not a path or
+# metadata logger. Normal offline scoring does not print individual rows.
+PUBLIC_CASE_IDS = frozenset({
+    "pulse_60", "pulse_90", "pulse_120", "pulse_128",
+    "pulse_140", "pulse_175", "pulse_128_syncopated",
+    "pulse_120_swing", "pulse_128_half_pulse", "pulse_120_sparse",
+    "silence",
+})
+
+
+def precision_detail_lines(scored):
+    for row in scored["results"]:
+        if row["id"] not in PUBLIC_CASE_IDS:
+            raise ValueError("precision detail requires a known public fixture")
+        reference = (f'{row["reference_bpm"]:.6f}'
+                     if row["reference_bpm"] is not None else "none")
+        error = (f'{row["absolute_error_bpm"]:.6f}'
+                 if row["absolute_error_bpm"] is not None else "unavailable")
+        yield (f'SYNTHETIC_BPM_PRECISION id={row["id"]} '
+               f'reference={reference} observed={row["reported_bpm"]:.6f} '
+               f'abs_error_bpm={error} held={int(row["held"])} '
+               f'category={row["category"]}')
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--manifest", required=True, type=Path)
     parser.add_argument("--observed", required=True, type=Path)
     parser.add_argument("--json-report", type=Path)
+    parser.add_argument("--precision-details", action="store_true",
+                        help="print synthetic-only numeric deviation for known public cases")
     args = parser.parse_args()
     reference = json.loads(args.manifest.read_text(encoding="utf-8"))
     if reference.get("schema") != "synthetic_bpm_reference_v1":
@@ -86,6 +124,11 @@ def main():
     print("SYNTHETIC_BPM_OBSERVATION=PASS")
     for category, count in scored["counts"].items():
         print(f"SYNTHETIC_BPM_{category.upper()}={count}")
+    for category, count in scored["precision"].items():
+        print(f"SYNTHETIC_BPM_{category.upper()}={count}")
+    if args.precision_details:
+        for line in precision_detail_lines(scored):
+            print(line)
     print(f"SYNTHETIC_BPM_EVALUATED={scored['n']}")
 
 
