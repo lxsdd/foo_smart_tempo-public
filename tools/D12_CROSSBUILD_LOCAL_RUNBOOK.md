@@ -34,6 +34,45 @@ exercised the real menu GUID using disposable WAV and external CUE:
 with unchanged SHA256, length and LastWriteTime. This does **not** establish
 D12 reference BPM accuracy, real-audio tag safety or owner acceptance.
 
+### x64-first fixture integrity guard (optional, recommended)
+
+For the first owner acceptance pass, the x64 test instance is sufficient.
+Public GitHub CI continues to build and test both Win32 and x64. Keep the
+32-bit local instance available for a short final architecture-specific check.
+
+Use *copied* media and CUE/sidecar files in one **isolated fixture directory**,
+for example \`C:\private-d12\copies\`. Keep the hash state JSON *outside*
+that directory. The helper verifies every file in the tree, not that a foobar
+playlist contains precisely 12 subsongs; choose the twelve intended items
+in foobar yourself. **Do not run the snapshot against original music.**
+
+Run from PowerShell 5.1+ with a local checkout of these public tools:
+
+\`\`\`powershell
+$fixtures = 'C:\private-d12\copies'
+$state = 'C:\private-d12\x64-before.json'
+.\tools\verify-private-d12-fixtures.ps1 -Phase Before -Root $fixtures -StateFile $state
+# In the x64 foobar test profile: select the copied D12 tracks;
+# Smart Tempo > Analyze selected tracks (no tag writes); close without writing.
+.\tools\verify-private-d12-fixtures.ps1 -Phase After -Root $fixtures -StateFile $state
+\`\`\`
+
+Accept \`D12_FIXTURE_INTEGRITY=PASS\` only after the final After step. The
+guard checks file identities, size, full SHA256 and LastWriteTimeUtc for
+all files (including external .cue files). New/deleted sidecars, symlinks,
+overwritten fixture state, any changed bytes or modified timestamps cause
+a nonzero failure. Do not repeat Before using the same state file; create
+a new state file for each new test. The output contains only status and
+aggregate file counts. The locally saved state uses salted hashes of
+relative names instead of raw filenames, but it and all console logs
+**remain private** and must not be uploaded to GitHub.
+
+The helper does not start foobar, inspect its UI, prove reference BPM
+accuracy, or inspect the foobar profile outside this directory. It cannot
+rule out changes made to other directories: use an isolated portable test
+profile. A passing result means only that the tested copied fixture tree
+remained identical across that analysis.
+
 ### Local-only baseline and variant evidence
 
 1. Download the two **unpublished owner-only** components while logged
