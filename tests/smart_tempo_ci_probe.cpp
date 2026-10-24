@@ -3,6 +3,9 @@
 // SmartTempoCIRuntimeProbe=true. Never link it into personal components.
 // The driver calls the real registered context command by GUID; no guessing
 // of unsupported foobar command-line options.
+#ifndef SMART_TEMPO_CI_ORACLE_PROBE
+#error "CI runner must build with the isolated numeric observer enabled"
+#endif
 #include "../src/foo_smart_tempo/stdafx.h"
 #include "../src/foo_smart_tempo/guid.h"
 #include "foobar2000/SDK/foobar2000.h"
