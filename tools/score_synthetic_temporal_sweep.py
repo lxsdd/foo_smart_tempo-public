@@ -97,7 +97,10 @@ def parse_candidates(path: Path) -> dict[tuple[str, str], list[dict]]:
                 float(raw[k]) for k in
                 ("bpm", "evidence", "support", "winner", "local_exact")
             )
-            if (not 1 <= rank <= 32 or
+            # Source rank is assigned before the observer drops invalid rows.
+            # Thus 32 stored candidates can legitimately include rank 33+.
+            # The hard 32-row cap below is the true inventory bound.
+            if (not 1 <= rank <= 256 or
                     not all(math.isfinite(x) for x in
                             (bpm, evidence, support, winner, local)) or
                     bpm <= 0 or support < 0 or winner < 0 or

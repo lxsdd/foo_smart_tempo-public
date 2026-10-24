@@ -114,8 +114,11 @@ class TemporalSweepScorerTests(unittest.TestCase):
         bad = self._candidates()
         bad[0]["id"] = "owner_private_track"
         self.assertNotEqual(self._run(rows, bad).returncode, 0)
+        legitimate = self._candidates()
+        legitimate[0]["rank"] = 33  # Original rank can exceed 32 stored rows.
+        self.assertEqual(self._run(rows, legitimate).returncode, 0)
         bad = self._candidates()
-        bad[0]["rank"] = 33
+        bad[0]["rank"] = 257
         self.assertNotEqual(self._run(rows, bad).returncode, 0)
         bad = self._candidates()
         bad[0]["local_exact"] = float("nan")
