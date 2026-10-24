@@ -1295,7 +1295,6 @@ void bpm_auto_analysis_thread::UpdateStatusLine() {
   double byAudio = (totalAudioSeconds > 0.0)
                        ? (completedAudioSeconds / totalAudioSeconds)
                        : 0.0;
-  double byTracks = (total > 0) ? ((double)done / (double)total) : 1.0;
   const size_t workerCount =
       (std::max)(m_workerCount.load(std::memory_order_relaxed),
                  workerSlotsReady ? m_workerSlotCount : size_t{0});
