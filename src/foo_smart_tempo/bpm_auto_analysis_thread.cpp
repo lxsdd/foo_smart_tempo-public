@@ -2,6 +2,9 @@
 #include "foo_smart_tempo.h"
 
 #include "bpm_auto_analysis_thread.h"
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+#include "../../tests/ci_bpm_oracle_sink.h"
+#endif
 
 #include <algorithm>
 #include <atomic>
@@ -1658,6 +1661,18 @@ LRESULT bpm_auto_analysis_thread::OnWorkerDone(UINT, WPARAM wp, LPARAM) {
 
   if (m_workerThread.joinable())
     m_workerThread.join();
+
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+  // CI-probe DLL only. Capture the numeric result AFTER all workers stop,
+  // BEFORE displaying it. Never available in private/production builds.
+  if (!m_wasAborted && m_batchDryRunMode) {
+    const bool recorded = smart_tempo::ci_oracle::record(
+        m_bpm_results, m_suppress_write_results);
+    FB2K_console_formatter()
+        << (recorded ? "SYNTHETIC_BPM_NUMERIC_OBSERVER=PASS"
+                     : "SYNTHETIC_BPM_NUMERIC_OBSERVER=SKIPPED");
+  }
+#endif
 
   if (!m_wasAborted && core_api::assert_main_thread()) {
     if (!m_measuredCandidateInspectionMode && !m_batchDryRunMode &&
