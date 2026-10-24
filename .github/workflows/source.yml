@@ -111,6 +111,12 @@ jobs:
           python -m unittest discover -s tests -p 'test_synthetic_window_sweep.py' -v
           if ($LASTEXITCODE -ne 0) { throw 'Window-sweep scorer regressions failed' }
 
+      - name: Verify public early/late temporal phase evidence scorer
+        shell: pwsh
+        run: |
+          python -m unittest discover -s tests -p 'test_synthetic_temporal_sweep.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'Temporal phase scorer regressions failed' }
+
       - name: Verify local-only BPM holdout scorer using synthetic telemetry
         shell: pwsh
         run: |
@@ -190,7 +196,7 @@ jobs:
         run: |
           & ./tests/diagnostic_live_host_smoke.ps1 -Architecture Win32 -ComponentDll 'build/ci-probe/Win32/foo_smart_tempo.dll'
 
-      - name: HARD GATE - x64 80-case BPM and 78-case window/pass host matrix
+      - name: HARD GATE - x64 80 BPM, 78 windows, 12 temporal host cases
         shell: pwsh
         run: |
           & ./tests/diagnostic_live_host_smoke.ps1 -Architecture x64 -ComponentDll 'build/ci-probe/x64/foo_smart_tempo.dll'

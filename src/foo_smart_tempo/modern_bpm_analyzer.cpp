@@ -1529,8 +1529,13 @@ double ModernBpmAnalyzer::analyze(metadb_handle_ptr track, threaded_process_stat
   smart_tempo::ci_oracle::override_window_geometry(secondsToRead, samplePasses);
 #endif
 
-  const int offsetMinPct = kAnalysisOffsetMinPct;
-  const int offsetMaxPct = kAnalysisOffsetMaxPct;
+  int offsetMinPct = kAnalysisOffsetMinPct;
+  int offsetMaxPct = kAnalysisOffsetMaxPct;
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+  // Early/late single-pass-only probes on strictly approved public CI WAVs.
+  smart_tempo::ci_oracle::override_single_pass_offset(
+      samplePasses, offsetMinPct, offsetMaxPct);
+#endif
   const bool hasPriorWindow =
       priorMinBpm > 0.0 && priorMaxBpm > priorMinBpm;
   double targetMinBpm = 0.0;
@@ -1580,7 +1585,8 @@ double ModernBpmAnalyzer::analyze(metadb_handle_ptr track, threaded_process_stat
   const int effectiveSamplePasses = windowPlan.samplePasses;
 #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
   smart_tempo::ci_oracle::record_window_plan(
-      secondsToRead, samplePasses, effectiveSecondsToRead, effectiveSamplePasses);
+      secondsToRead, samplePasses, effectiveSecondsToRead, effectiveSamplePasses,
+      offsetMinPct, offsetMaxPct);
 #endif
   // Provenance is diagnostic only: no metadata, candidate, or DSP selection
   // uses these output fields. This binds MW1/D12 runs to their actual geometry.

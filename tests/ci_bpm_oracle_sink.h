@@ -95,20 +95,38 @@ inline bool override_window_geometry(int& seconds, int& passes) {
   return true;
 }
 
+// Probe-only, deterministic early/late sampling offsets (single pass). The
+// test dispatcher, allowlist and no-write guards remain mandatory.
+inline bool override_single_pass_offset(int samplePasses,
+                                        int& minPct, int& maxPct) {
+  if (samplePasses != 1 || approved_fixture().empty()) return false;
+  const std::wstring offset = read_env(L"SMART_TEMPO_CI_OFFSET_PCT");
+  if (offset == L"20") {
+    minPct = 20; maxPct = 20; return true;
+  }
+  if (offset == L"80") {
+    minPct = 80; maxPct = 80; return true;
+  }
+  return false;
+}
+
 // The observer emits actual host geometry, not merely the requested values.
 // Only public disposable fixtures get this output, and only in probe builds.
 inline bool record_window_plan(int requestedSeconds, int requestedPasses,
-                               double effectiveSeconds, int effectivePasses) {
+                               double effectiveSeconds, int effectivePasses,
+                               int offsetMinPct, int offsetMaxPct) {
   if (read_env(L"SMART_TEMPO_CI_WINDOW_SECONDS").empty()) return false;
   const std::wstring fixture = approved_fixture();
   if (fixture.empty() || !std::isfinite(effectiveSeconds) ||
       effectiveSeconds <= 0.0 || effectivePasses <= 0) return false;
   std::string csv =
-      "requested_seconds,requested_passes,effective_seconds,effective_passes\n";
+      "requested_seconds,requested_passes,effective_seconds,effective_passes,offset_min_pct,offset_max_pct\n";
   csv += std::to_string(requestedSeconds) + "," +
          std::to_string(requestedPasses) + "," +
          std::to_string(effectiveSeconds) + "," +
-         std::to_string(effectivePasses) + "\n";
+         std::to_string(effectivePasses) + "," +
+         std::to_string(offsetMinPct) + "," +
+         std::to_string(offsetMaxPct) + "\n";
   const std::wstring output = fixture + L".plan.csv";
   HANDLE h = CreateFileW(output.c_str(), GENERIC_WRITE, 0, nullptr,
                          CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);

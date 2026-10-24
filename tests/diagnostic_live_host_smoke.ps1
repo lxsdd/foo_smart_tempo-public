@@ -87,7 +87,7 @@ function Launch([string]$exe,[string[]]$args) {
   foreach ($a in $args) { [void]$i.ArgumentList.Add($a) }
   return [Diagnostics.Process]::Start($i)
 }
-function Run-Case([string]$installer,[string]$root,[string]$inputFile,[string[]]$files,[int]$minimum,[string]$label,[int]$windowSeconds=0,[int]$windowPasses=0) {
+function Run-Case([string]$installer,[string]$root,[string]$inputFile,[string[]]$files,[int]$minimum,[string]$label,[int]$windowSeconds=0,[int]$windowPasses=0,[int]$offsetPct=0) {
   $hostDir=Join-Path $root ('host-'+$label)
   $install=Start-Process $installer -ArgumentList @('/S',"/D=$hostDir") -Wait -PassThru
   if ($install.ExitCode -ne 0) { throw 'Official host installer failed' }
@@ -106,16 +106,25 @@ function Run-Case([string]$installer,[string]$root,[string]$inputFile,[string[]]
     if (($windowSeconds -eq 0) -ne ($windowPasses -eq 0)) {
       throw 'Window and pass overrides must be supplied together'
     }
+    if ($offsetPct -ne 0 -and
+        ($windowSeconds -ne 20 -or $windowPasses -ne 1 -or
+         $offsetPct -notin @(20,80))) {
+      throw 'Only public 20s/1-pass early/late phase probes are supported'
+    }
     $env:SMART_TEMPO_CI_FIXTURE=$inputFile
     if ($windowSeconds -gt 0) {
       $env:SMART_TEMPO_CI_WINDOW_SECONDS=[string]$windowSeconds
       $env:SMART_TEMPO_CI_SAMPLE_PASSES=[string]$windowPasses
+    }
+    if ($offsetPct -gt 0) {
+      $env:SMART_TEMPO_CI_OFFSET_PCT=[string]$offsetPct
     }
     try { $hostProcess=Launch $exe @() }
     finally {
       Remove-Item Env:SMART_TEMPO_CI_FIXTURE -ErrorAction SilentlyContinue
       Remove-Item Env:SMART_TEMPO_CI_WINDOW_SECONDS -ErrorAction SilentlyContinue
       Remove-Item Env:SMART_TEMPO_CI_SAMPLE_PASSES -ErrorAction SilentlyContinue
+      Remove-Item Env:SMART_TEMPO_CI_OFFSET_PCT -ErrorAction SilentlyContinue
     }
     $until=[DateTime]::UtcNow.AddSeconds(40)
     $loaded=$false
@@ -193,12 +202,18 @@ function Run-Case([string]$installer,[string]$root,[string]$inputFile,[string[]]
       }
       $evidenceRows=@(Import-Csv -LiteralPath $evidenceFile)
       if ($evidenceRows.Count -gt 32) { throw 'Synthetic candidate evidence cap exceeded' }
-      if ($windowSeconds -eq 0) { foreach ($candidate in $evidenceRows) {
-        # Pure numbers from the bounded synthetic MIR candidate board.
-        Write-Host ("SYNTHETIC_BPM_CANDIDATE id={0} rank={1} bpm={2} evidence={3} support={4} winner={5} local_exact={6}" -f
-          $label.Substring(10),$candidate.rank,$candidate.bpm,$candidate.evidence,
-          $candidate.support,$candidate.winner,$candidate.local_exact)
-      }
+      if ($windowSeconds -eq 0) {
+        foreach ($candidate in $evidenceRows) {
+          Write-Host ("SYNTHETIC_BPM_CANDIDATE id={0} rank={1} bpm={2} evidence={3} support={4} winner={5} local_exact={6}" -f
+            $label.Substring(10),$candidate.rank,$candidate.bpm,$candidate.evidence,
+            $candidate.support,$candidate.winner,$candidate.local_exact)
+        }
+      } elseif ($offsetPct -gt 0) {
+        foreach ($candidate in $evidenceRows) {
+          Write-Host ("TEMPORAL_CANDIDATE id={0} offset={1} rank={2} bpm={3} local_exact={4} support={5}" -f
+            $label.Substring(19),$offsetPct,$candidate.rank,$candidate.bpm,
+            $candidate.local_exact,$candidate.support)
+        }
       }
       Write-Host ("SYNTHETIC_BPM_CANDIDATE_COUNT id={0} n={1}" -f
         $label.Substring(10),$evidenceRows.Count)
@@ -215,7 +230,13 @@ function Run-Case([string]$installer,[string]$root,[string]$inputFile,[string[]]
           [double]$plan[0].effective_seconds -le 0 -or
           [double]$plan[0].effective_seconds -gt $windowSeconds -or
           [int]$plan[0].effective_passes -le 0 -or
-          [int]$plan[0].effective_passes -gt $windowPasses) {
+          [int]$plan[0].effective_passes -gt $windowPasses -or
+          (($offsetPct -ne 0) -and
+           ([int]$plan[0].offset_min_pct -ne $offsetPct -or
+            [int]$plan[0].offset_max_pct -ne $offsetPct)) -or
+          (($offsetPct -eq 0) -and
+           ([int]$plan[0].offset_min_pct -ne 20 -or
+            [int]$plan[0].offset_max_pct -ne 80))) {
         throw "Requested/effective window mismatch for $label"
       }
       Write-Host ("WINDOW_HOST_GEOMETRY id={0} requested={1}s/{2} actual={3}s/{4} analysis_ms={5}" -f
@@ -409,6 +430,57 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Measured host window-sweep scoring failed' }
     Write-Host ("SYNTHETIC_REAL_WINDOW_SWEEP_CASE_COUNT_x64={0}" -f $windowObserved.Count)
     Write-Host 'SYNTHETIC_REAL_WINDOW_SWEEP_COMPLETED_x64=PASS'
+
+    # Independent temporal stationarity probe: same 120s public WAV, one
+    # 20-second read at 20% (early) vs 80% (late). This is diagnostic
+    # evidence for tempo changes; it cannot affect normal MIR selection.
+    $temporalRows=[System.Collections.Generic.List[object]]::new()
+    foreach ($caseId in $windowCases) {
+      $seedRoot=Join-Path $root ('sweep-seed-'+$caseId)
+      $seedWave=Join-Path $seedRoot ($caseId+'.wav')
+      $seedManifest=Join-Path $seedRoot 'reference.json'
+      $truth=@((Get-Content -LiteralPath $seedManifest -Raw | ConvertFrom-Json).cases)[0]
+      $referenceBpm=if ($null -eq $truth.reference_bpm) { '' } else { [string]$truth.reference_bpm }
+      foreach ($offsetPct in @(20,80)) {
+        $phase=if ($offsetPct -eq 20) { 'early' } else { 'late' }
+        $variantRoot=Join-Path $root ("phase-$caseId-$phase")
+        $fixtureRoot=Join-Path $variantRoot ('synthetic-oracle-'+$caseId)
+        New-Item -ItemType Directory -Path $fixtureRoot -Force | Out-Null
+        $wavFile=Join-Path $fixtureRoot ($caseId+'.wav')
+        $manifest=Join-Path $fixtureRoot 'reference.json'
+        Copy-Item -LiteralPath $seedWave -Destination $wavFile
+        Copy-Item -LiteralPath $seedManifest -Destination $manifest
+        $label="SYNTHETIC_TEMPORAL_${caseId}_${phase}"
+        Run-Case $installer $root $wavFile @($wavFile,$manifest) 1 $label 20 1 $offsetPct
+        $observed=@(Import-Csv -LiteralPath ($wavFile+'.results.csv'))
+        $plan=@(Import-Csv -LiteralPath ($wavFile+'.plan.csv'))
+        if ($observed.Count -ne 1 -or $plan.Count -ne 1) {
+          throw "Missing independent real-host temporal observation: $label"
+        }
+        $temporalRows.Add([pscustomobject][ordered]@{
+          id=$caseId
+          style=$truth.style
+          reference_bpm=$referenceBpm
+          ambiguity=$truth.ambiguity
+          phase=$phase
+          offset_pct=$offsetPct
+          seconds=20
+          passes=1
+          effective_seconds=$plan[0].effective_seconds
+          effective_passes=$plan[0].effective_passes
+          bpm=$observed[0].bpm
+          held=$observed[0].held
+          analysis_ms=$script:LastSyntheticAnalysisMs
+        })
+      }
+    }
+    if ($temporalRows.Count -ne 12) { throw 'Incomplete temporal phase-pair grid' }
+    $temporalCsv=Join-Path $root 'temporal-sweep-observed.csv'
+    $temporalRows | Export-Csv -LiteralPath $temporalCsv -NoTypeInformation -Encoding utf8
+    python ./tools/score_synthetic_temporal_sweep.py --observed $temporalCsv
+    if ($LASTEXITCODE -ne 0) { throw 'Temporal phase comparison scoring failed' }
+    Write-Host ("SYNTHETIC_REAL_TEMPORAL_CASE_COUNT_x64={0}" -f $temporalRows.Count)
+    Write-Host 'SYNTHETIC_REAL_TEMPORAL_COMPLETED_x64=PASS'
   }
   Write-Host ("SMART_TEMPO_DIAGNOSTIC_RUNTIME_{0}=PASS" -f $Architecture)
 } finally { if (Test-Path $root) { Remove-Item $root -Recurse -Force -ErrorAction SilentlyContinue } }
