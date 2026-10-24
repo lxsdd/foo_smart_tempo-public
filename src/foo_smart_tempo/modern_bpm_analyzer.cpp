@@ -16,6 +16,7 @@
 #include "foo_smart_tempo.h"
 #include "hodgkinson_full_mir.h"
 #include "mir_candidate_pipeline.h"
+#include "mir_hold_diagnostics.h"
 #include "hodgkinson_tatum_probe.h"
 #include "preferences.h"
 #include "smart_tempo_helpers.h"
@@ -2771,8 +2772,14 @@ double ModernBpmAnalyzer::analyze(metadb_handle_ptr track, threaded_process_stat
                       ? "mir_review_hold"
                       : "mir_no_candidate";
               if (m_diag.error_reason.is_empty()) {
-                m_diag.error_reason =
-                    "Hodgkinson/MIR review hold: no writable measured candidate";
+                // Explain the observed read-only failure stage. This cannot
+                // promote any candidate or authorize a metadata write.
+                m_diag.error_reason = smart_tempo::mir_no_write_stage_message(
+                    mirPrimaryPhasePeaks.size(),
+                    hodgkinsonFullMirSegmentResults.size(),
+                    mirMeasuredCandidateBoard.raw_candidates.size(),
+                    mirPrimarySelection.review_hold ||
+                        mirPolicyDecision.output_would_review_hold);
               }
             }
             if (smart_tempo::experimental::
