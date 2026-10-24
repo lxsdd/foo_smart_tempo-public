@@ -13,6 +13,7 @@
 #include <string>
 
 #include "analysis_telemetry.h"
+#include "analysis_progress_projection.h"
 #include "bpm_analyzer_factory.h"
 #include "bpm_result_dialog.h"
 #include "experimental_feature_flags.h"
@@ -359,6 +360,7 @@ BOOL bpm_auto_analysis_thread::OnInitDialog(CWindow wndFocus,
   m_startedAt = std::chrono::steady_clock::now();
   m_pausedSeconds = 0.0;
   m_pauseLatched = false;
+  m_lastDisplayedProgressPermille = 0;
   m_etaDisplayedRemaining = 0.0;
   m_smoothedTotalTimeSeconds = 0.0;
   m_etaUiInitialized = false;
@@ -381,7 +383,9 @@ BOOL bpm_auto_analysis_thread::OnInitDialog(CWindow wndFocus,
   UpdateStatusLine();
   static_api_ptr_t<message_loop>()->add_message_filter(this);
 
-  SetTimer(1, 100);
+  // Four status refreshes per second are sufficient for a background MIR job.
+  // ETA itself is updated at most once per second; avoid unnecessary polling.
+  SetTimer(1, 250);
 
   m_workerThread = std::thread([this]() {
     try {
@@ -1065,10 +1069,11 @@ void bpm_auto_analysis_thread::InitTooltips() {
   m_tooltip.SetDelayTime(TTDT_INITIAL, 350);
   m_tooltip.Activate(TRUE);
 
-  AddTooltip(ID_BPM_PROGRESS_FILE, _T("Live list of currently analyzed files ")
-                                   _T("(one line per active worker)."));
+  AddTooltip(ID_BPM_PROGRESS_FILE, _T("Exact completed tracks and worker assignments. ")
+                                   _T("Track names are hidden by default."));
   AddTooltip(ID_BPM_PROGRESS_TOTAL,
-             _T("Deterministic total progress across the full analysis job."));
+             _T("Estimated analysis work; always moves forward and reaches "
+                "100% only when every track has finished."));
   AddTooltip(ID_BPM_PROGRESS_INFO,
              _T("Current analysis state and timing details."));
   AddTooltip(ID_BPM_PROGRESS_PAUSE,
@@ -1277,7 +1282,22 @@ void bpm_auto_analysis_thread::UpdateStatusLine() {
     if (activeCount == 0)
       activeCount = 1;
   } else {
-    fileText = "Analyzing...";
+    // Use the full-width first row for factual counts; leave the narrow
+    // lower row for elapsed time and tentative ETA only.
+    const size_t configuredWorkers =
+        m_workerCount.load(std::memory_order_relaxed);
+    pfc::string_formatter status;
+    if (done >= total) {
+      status << "Completed " << static_cast<uint64_t>(done) << "/"
+             << static_cast<uint64_t>(total) << " tracks";
+    } else {
+      status << (m_pauseRequested.load() ? "Paused: " : "Analyzing: ")
+             << static_cast<uint64_t>(done) << "/"
+             << static_cast<uint64_t>(total) << " tracks | "
+             << activeWorkerCount << "/" << configuredWorkers
+             << " workers assigned";
+    }
+    fileText = status;
     activeCount = 1;
   }
 
@@ -1293,34 +1313,17 @@ void bpm_auto_analysis_thread::UpdateStatusLine() {
   double byAudio = (totalAudioSeconds > 0.0)
                        ? (completedAudioSeconds / totalAudioSeconds)
                        : 0.0;
-  double byTracks = (total > 0) ? ((double)done / (double)total) : 1.0;
   const size_t workerCount =
       (std::max)(m_workerCount.load(std::memory_order_relaxed),
                  workerSlotsReady ? m_workerSlotCount : size_t{0});
-  const t_size activeTail =
-      (done < total && workerCount > 0)
-          ? (std::min)(static_cast<t_size>(workerCount), total - done)
-          : 0;
-  const double activeTrackWindow =
-      (total > 0) ? (static_cast<double>(activeTail) / static_cast<double>(total))
-                  : 0.0;
-  // Decode progress can run ahead of the expensive MIR segment aggregation.
-  // Keep per-track movement alive, but reserve part of each active worker slot
-  // for post-decode MIR work so the batch bar and ETA do not finish early.
-  const double activeDecodeCap = byTracks + activeTrackWindow * 0.85;
-  double overall = (std::max)(byTracks, (std::min)(byAudio, activeDecodeCap));
-  if (overall < 0.0)
-    overall = 0.0;
-  if (overall > 1.0)
-    overall = 1.0;
-
+  // Decoding can complete before a worker finishes its MIR computations.
+  // Estimated work is not an exact wall-clock forecast. Keep the bar
+  // monotonic and below 100% until the last track actually completes.
+  m_lastDisplayedProgressPermille = smart_tempo::progress_permille(
+      static_cast<size_t>(total), static_cast<size_t>(done), workerCount,
+      byAudio, m_lastDisplayedProgressPermille);
   CProgressBarCtrl bar(GetDlgItem(ID_BPM_PROGRESS_TOTAL));
-  constexpr double kProgressBeforeCompleteCap = 0.985;
-  const double displayedOverall =
-      (done < total && overall > kProgressBeforeCompleteCap)
-          ? kProgressBeforeCompleteCap
-          : overall;
-  bar.SetPos((int)(displayedOverall * 1000.0));
+  bar.SetPos(m_lastDisplayedProgressPermille);
 
   if (m_pauseRequested.load()) {
     SetProgressInfo(
@@ -1340,17 +1343,18 @@ void bpm_auto_analysis_thread::UpdateStatusLine() {
   if (total <= 10) {
     pfc::string_formatter info;
     pfc::string_formatter infoTooltip;
-    info << "Time elapsed: " << FormatClock(elapsed) << " | ";
-    infoTooltip << "Time elapsed: " << FormatClock(elapsed) << ". ";
+    info << "Elapsed: " << FormatClock(elapsed) << " | ";
+    infoTooltip << "Completed tracks and active workers are exact. "
+                << "The progress bar estimates work, not remaining seconds. "
+                << "Time elapsed: " << FormatClock(elapsed) << ". ";
     if (done == 0) {
-      info << "Analyzing " << static_cast<uint64_t>(total) << " tracks...";
+      info << "ETA unavailable (small batch)";
       infoTooltip << "Analyzing a small batch of "
                   << static_cast<uint64_t>(total)
                   << " tracks. A numeric ETA is intentionally omitted because "
                      "too few completion samples are available.";
     } else if (done < total) {
-      info << "Processing... (" << static_cast<uint64_t>(done) << "/"
-           << static_cast<uint64_t>(total) << " completed)";
+      info << "ETA unavailable (small batch)";
       infoTooltip << static_cast<uint64_t>(done) << " of "
                   << static_cast<uint64_t>(total)
                   << " tracks are complete. A numeric ETA is intentionally "
@@ -1442,8 +1446,10 @@ void bpm_auto_analysis_thread::UpdateStatusLine() {
 
   pfc::string_formatter info;
   pfc::string_formatter infoTooltip;
-  info << "Time elapsed: " << FormatClock(elapsed) << ", ";
-  infoTooltip << "Time elapsed: " << FormatClock(elapsed) << ". ";
+  info << "Elapsed: " << FormatClock(elapsed) << " | ";
+  infoTooltip << "Track completion and active worker counts are measured. "
+              << "The progress bar is an approximate workload indicator. "
+              << "Time elapsed: " << FormatClock(elapsed) << ". ";
   const bool useTwoWaveTail = total >= normalizedWorkerCount * 6;
   const t_size etaTailCompletions =
       normalizedWorkerCount * (useTwoWaveTail ? 2 : 1);
@@ -1493,8 +1499,10 @@ void bpm_auto_analysis_thread::UpdateStatusLine() {
                      "estimate.";
     }
   } else {
-    info << "Time remaining: " << FormatClock(m_etaDisplayedRemaining);
-    infoTooltip << "Estimated time remaining: "
+    info << "ETA (approx.): " << FormatClock(m_etaDisplayedRemaining);
+    infoTooltip << "Tentative ETA based on completed tracks, "
+                   "not an exact duration. Mixed track costs and parallel "
+                   "workers may change it substantially. Current estimate: "
                 << FormatClock(m_etaDisplayedRemaining) << ".";
   }
 

@@ -13,3 +13,7 @@ add_test(NAME mir_onset_gate COMMAND mir_onset_gate_test)
 add_executable(mir_hold_diagnostics_test mir_hold_diagnostics_test.cpp)
 target_compile_features(mir_hold_diagnostics_test PRIVATE cxx_std_20)
 add_test(NAME mir_hold_diagnostics COMMAND mir_hold_diagnostics_test)
+
+add_executable(analysis_progress_projection_test analysis_progress_projection_test.cpp)
+target_compile_features(analysis_progress_projection_test PRIVATE cxx_std_20)
+add_test(NAME analysis_progress_projection COMMAND analysis_progress_projection_test)
