@@ -74,6 +74,38 @@ Per-class mandatory denominators: N clear / accepted within **±0.05 BPM** / acc
 4. Replay alternatives **offline against identical captured evidence** without rerunning the expensive decoder for each candidate Selector/Policy variant. Reject any replay that requires audio features not captured; arrange a *bounded* additional capture cohort instead of ad-hoc patchwork.
 5. One independent validation pass, then private real-audio holdout gate.
 
+## Package B: real native CI-only candidate lineage pilot
+
+The first native observer (`tests/ci_pipeline_trace.h`) is compiled **only**
+with `SMART_TEMPO_CI_ORACLE_PROBE`, restricted to the single public
+`synthetic-oracle/pulse_128.wav` under `RUNNER_TEMP` and
+`GITHUB_ACTIONS=true`. It writes `pulse_128.wav.pipeline.jsonl` beside the
+disposable synthetic fixture via `CREATE_NEW`. The production DLL never
+includes or emits it. The existing real x64 foobar host smoke must verify
+the bounded JSONL with `tools/audit_smart_tempo_ci_pipeline_trace.py`;
+nine independent positive/adversarial Python tests run before the SDK
+download. It never changes a BPM proposal or the file/write outcome.
+
+The initial live-boundary trace includes all raw alias candidates, collapsed
+cluster candidates, the **observed primary input pool**, separately
+transformed exact-BPM policy FullBoard, the primary choice, policy proposal,
+final accepted-or-held BPM and the no-write CI guard. It uses stable
+per-analysis candidate IDs with verified source and cluster parentage.
+Only numeric measurements and fixed reason enums appear in the public trace.
+
+**Crucial remaining proof distinction:** a member of the collapsed primary
+*input pool* is not necessarily eligible under that lane's branch-specific
+selector and veto conditions. Therefore the current real observer
+**explicitly emits** `pool_only_gate_unresolved`, and the strict scorer
+reports `PHASE_B_CAUSAL_COMPLETENESS=INCOMPLETE_PRIMARY_VETO`.
+This is meaningful empirical pilot evidence, NOT evidence that package B is
+finished. Before package B completes, native instrumentation must record
+every actual lane filter/veto/rank decision, all auxiliary measured candidates
+and exact final-witness identity. The same frozen synthetic positive and
+negative cases must then reconcile all counts without inferred join logic.
+Do not launch the large batched phase C musical experiment until that proof
+and an independent audit pass.
+
 ## Candidate architecture candidates: all compared under identical evidence
 
 - **A:** unchanged current MIR + primary + policy baseline.

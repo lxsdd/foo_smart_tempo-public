@@ -43,6 +43,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Smart Tempo architecture source-contract regressions failed' }
           python ./tools/audit_smart_tempo_pipeline.py
           if ($LASTEXITCODE -ne 0) { throw 'Smart Tempo architecture source audit failed' }
+          python -m unittest discover -s tests -p 'test_smart_tempo_ci_pipeline_trace.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'CI-only candidate lineage integrity regressions failed' }
           Write-Host 'SMART_TEMPO_ARCHITECTURE_PHASE_A_SOURCE_CONTRACT=PASS'
           Write-Host 'SMART_TEMPO_MUSICAL_BPM_QUALITY=NOT_INFERRED'
 

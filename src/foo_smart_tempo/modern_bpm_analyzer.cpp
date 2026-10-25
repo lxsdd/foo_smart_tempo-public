@@ -16,6 +16,9 @@
 #include "foo_smart_tempo.h"
 #include "hodgkinson_full_mir.h"
 #include "mir_candidate_pipeline.h"
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+#include "../../tests/ci_pipeline_trace.h"
+#endif
 #include "mir_hold_diagnostics.h"
 #include "hodgkinson_tatum_probe.h"
 #include "preferences.h"
@@ -2979,6 +2982,20 @@ double ModernBpmAnalyzer::analyze(metadb_handle_ptr track, threaded_process_stat
               m_diag.measured_bpm_candidates.push_back(std::move(item));
             }
           }
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+          // Observational synthetic-only lineage data. Production has no
+          // observer; this never alters selected BPM, policy or write flag.
+          if (!smart_tempo::ci_pipeline_trace::permitted_fixture().empty()) {
+            const auto primaryPool = collapse_mir_candidates(mirMeasuredCandidateBoard);
+            const bool traced = smart_tempo::ci_pipeline_trace::record(
+                mirMeasuredCandidateBoard, primaryPool,
+                mirPolicyMeasuredCandidates, mirPrimarySelection,
+                mirPolicyDecision, finalBpm, m_diag.suppress_write);
+            FB2K_console_formatter()
+                << (traced ? "SMART_TEMPO_CI_PIPELINE_TRACE=PASS"
+                           : "SMART_TEMPO_CI_PIPELINE_TRACE=FAIL");
+          }
+#endif
         }
       }
 

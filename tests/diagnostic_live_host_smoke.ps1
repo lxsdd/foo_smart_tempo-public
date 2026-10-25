@@ -176,6 +176,14 @@ function Run-Case([string]$installer,[string]$root,[string]$inputFile,[string[]]
       }
       python ./tools/score_synthetic_bpm_reference.py --manifest $reference --observed $observed
       if ($LASTEXITCODE -ne 0) { throw 'Real foobar synthetic BPM evaluation failed' }
+      $trace=$inputFile+'.pipeline.jsonl'
+      if (-not (Test-Path -LiteralPath $trace -PathType Leaf)) {
+        throw 'Real foobar native primary/policy lineage observer is missing'
+      }
+      python ./tools/audit_smart_tempo_ci_pipeline_trace.py --trace $trace
+      if ($LASTEXITCODE -ne 0) { throw 'Real foobar native BPM lineage contract failed' }
+      Write-Host 'SMART_TEMPO_NATIVE_POOL_PROVENANCE=PASS'
+      Write-Host 'SMART_TEMPO_PRIMARY_VETO_INDIVIDUAL_REASONS=UNMEASURED'
     }
     Write-Host ("DIAGNOSTIC_MENU_{0}_{1}=PASS" -f $Architecture,$label)
     Write-Host ("DIAGNOSTIC_ROWS_{0}_{1}={2}" -f $Architecture,$label,$rows)
