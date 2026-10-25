@@ -359,8 +359,10 @@ inline bool record(
                          std::strcmp(item.reason, "general_baseline_rank_scored") == 0 ||
                          std::strcmp(item.reason, "general_alt_rank_scored") == 0;
     const bool terminal = std::strncmp(item.reason, "terminal_", 9) == 0;
+    const bool comparison = std::strstr(item.reason, "_compare_") != nullptr;
     out.push(terminal ? "primary_terminal" :
-             ranking ? "primary_rank" : "candidate_filter",
+             ranking ? "primary_rank" :
+             comparison ? "primary_compare" : "candidate_filter",
              terminal ? "selected" :
                  item.included ? "included" : "excluded",
              item.reason, ids[item.source_index], {}, item.bpm, item.score, 0.0);

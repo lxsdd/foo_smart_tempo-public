@@ -1028,11 +1028,19 @@ evaluate_mir_high_pulse_interval_conflict_shadow(
                                                mir_raw_winner_support(*best, board.segment_count),
                                                best->score_sum,
                                                -std::abs(best->bpm - routeCenter));
-    if (best == nullptr || score > bestScore + 1e-9 ||
-        (std::abs(score - bestScore) <= 1e-9 && tie > bestTie)) {
+    const bool comparisonWon =
+        best == nullptr || score > bestScore + 1e-9 ||
+        (std::abs(score - bestScore) <= 1e-9 && tie > bestTie);
+    if (comparisonWon) {
       best = candidate;
       bestScore = score;
     }
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+    ci_primary_event(static_cast<std::size_t>(candidate - board.raw_candidates.data()),
+                     candidate->bpm, score, true, comparisonWon,
+                     comparisonWon ? "raw_compare_won" :
+                                     "raw_compare_lost");
+#endif
   }
   return best;
 }
@@ -1145,11 +1153,19 @@ evaluate_mir_high_pulse_interval_conflict_shadow(
                              : std::make_tuple(best->support, best->winner_support,
                                                best->score_sum,
                                                -std::abs(best->bpm - routeCenter));
-    if (best == nullptr || score > bestScore + 1e-9 ||
-        (std::abs(score - bestScore) <= 1e-9 && tie > bestTie)) {
+    const bool comparisonWon =
+        best == nullptr || score > bestScore + 1e-9 ||
+        (std::abs(score - bestScore) <= 1e-9 && tie > bestTie);
+    if (comparisonWon) {
       best = candidate;
       bestScore = score;
     }
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+    ci_primary_event(static_cast<std::size_t>(candidate - candidates.data()),
+                     candidate->bpm, score, false, comparisonWon,
+                     comparisonWon ? "general_baseline_compare_won" :
+                                     "general_baseline_compare_lost");
+#endif
   }
   return best;
 }
@@ -1531,10 +1547,17 @@ select_mir_low_pulse_continuous_center_rescue(
     ci_primary_event(static_cast<std::size_t>(candidate - candidates.data()),
                      candidate->bpm, score, false, true, "harmonic_rank_scored");
 #endif
-    if (best == nullptr || score > bestScore) {
+    const bool comparisonWon = best == nullptr || score > bestScore;
+    if (comparisonWon) {
       best = candidate;
       bestScore = score;
     }
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+    ci_primary_event(static_cast<std::size_t>(candidate - candidates.data()),
+                     candidate->bpm, score, false, comparisonWon,
+                     comparisonWon ? "harmonic_compare_won" :
+                                     "harmonic_compare_lost");
+#endif
   }
   return best;
 }
@@ -1615,11 +1638,6 @@ select_mir_low_pulse_continuous_center_rescue(
     if (routeCenter > 0.0) {
       score -= std::abs(candidate->bpm - routeCenter) * 0.025;
     }
-#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
-    ci_primary_event(static_cast<std::size_t>(candidate - candidates.data()),
-                     candidate->bpm, score, false, true,
-                     "general_alt_rank_scored");
-#endif
     const double evidence =
         candidate->best_combined_score + candidate->pulse_section_support * 0.12;
     const bool candidate144 =
@@ -1629,10 +1647,22 @@ select_mir_low_pulse_continuous_center_rescue(
     if (candidate144 && bestNon144Evidence >= evidence * 1.20) {
       score -= 3.5;
     }
-    if (best == nullptr || score > bestScore) {
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+    ci_primary_event(static_cast<std::size_t>(candidate - candidates.data()),
+                     candidate->bpm, score, false, true,
+                     "general_alt_rank_scored");
+#endif
+    const bool comparisonWon = best == nullptr || score > bestScore;
+    if (comparisonWon) {
       best = candidate;
       bestScore = score;
     }
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+    ci_primary_event(static_cast<std::size_t>(candidate - candidates.data()),
+                     candidate->bpm, score, false, comparisonWon,
+                     comparisonWon ? "general_alt_compare_won" :
+                                     "general_alt_compare_lost");
+#endif
   }
   if (best == nullptr) {
     return baseline;

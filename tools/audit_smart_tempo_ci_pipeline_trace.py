@@ -33,6 +33,7 @@ ENUMS = {
     "primary_eligibility": ("observed", "pool_only_gate_unresolved"),
     "candidate_filter": (None, None),
     "primary_rank": ("included", None),
+    "primary_compare": (None, None),
     "primary_terminal": ("selected", None),
     "primary_disposition": ("observed", None),
     "policy_eligibility": ("included", None),
@@ -65,6 +66,16 @@ ALLOWED_RANK_REASONS = frozenset((
     "raw_rank_scored", "harmonic_rank_scored", "low_rank_scored",
     "general_baseline_rank_scored", "general_alt_rank_scored"
 ))
+COMPARE_TO_RANK = {
+    "raw": "raw_rank_scored",
+    "harmonic": "harmonic_rank_scored",
+    "general_baseline": "general_baseline_rank_scored",
+    "general_alt": "general_alt_rank_scored"
+}
+ALLOWED_COMPARE_REASONS = frozenset(
+    prefix + "_compare_" + verdict
+    for prefix in COMPARE_TO_RANK for verdict in ("won", "lost")
+)
 ALLOWED_DISPOSITION_REASONS = frozenset((
     "selected_final_object", "ranked_not_final",
     "observed_not_ranked", "no_cluster_observation"
@@ -103,7 +114,7 @@ def validate(rows: list[dict], *, require_windows: bool = False) -> dict:
         "candidate_create": 0, "candidate_transform": 1,
         "primary_eligibility": 1, "policy_eligibility": 2,
         "supplemental_candidate": 2,
-        "candidate_filter": 3, "primary_rank": 3,
+        "candidate_filter": 3, "primary_rank": 3, "primary_compare": 3,
         "primary_terminal": 3, "primary_disposition": 3,
         "primary_select": 4,
         "policy_resolution": 5, "policy_pointer": 6,
@@ -224,10 +235,11 @@ def validate(rows: list[dict], *, require_windows: bool = False) -> dict:
                     parents or item["reason_code"] not in ALLOWED_DISPOSITION_REASONS or
                     any(item["metrics"][key] != 0 for key in ("score", "support"))):
                 raise TraceError("invalid native candidate disposition")
-        elif stage in ("candidate_filter", "primary_rank", "primary_terminal"):
+        elif stage in ("candidate_filter", "primary_rank", "primary_compare", "primary_terminal"):
             # Actual executed selector probes, with explicit raw/cluster source.
             reason_set = (ALLOWED_FILTER_REASONS if stage == "candidate_filter"
                           else ALLOWED_RANK_REASONS if stage == "primary_rank"
+                          else ALLOWED_COMPARE_REASONS if stage == "primary_compare"
                           else ALLOWED_TERMINAL_REASONS)
             if item["reason_code"] not in reason_set:
                 raise TraceError("unknown selector-veto/rank reason")
@@ -235,8 +247,13 @@ def validate(rows: list[dict], *, require_windows: bool = False) -> dict:
             if (candidate_id is None or ids.get(candidate_id) !=
                     ("candidate_create" if expect_raw else "candidate_transform")):
                 raise TraceError("selector event not linked to correct source board")
-            if stage == "candidate_filter" and item["outcome"] not in ("included", "excluded"):
-                raise TraceError("invalid selector gate outcome")
+            if stage in ("candidate_filter", "primary_compare") and item["outcome"] not in ("included", "excluded"):
+                raise TraceError("invalid selector gate/comparison outcome")
+            if stage == "primary_compare":
+                expected_outcome = ("included" if item["reason_code"].endswith("_won")
+                                    else "excluded")
+                if item["outcome"] != expected_outcome or parents:
+                    raise TraceError("native comparison result inconsistent")
             if item["reason_code"] in ("low_threshold_fallback_readmitted",
                                        "general_rail_fallback_readmitted"):
                 predecessor = ("low_threshold_provisional_exclusion" if
@@ -257,6 +274,45 @@ def validate(rows: list[dict], *, require_windows: bool = False) -> dict:
         if stage == "policy_eligibility" and any(ids[p] != "candidate_transform" for p in parents):
             raise TraceError("policy candidate parent not collapsed")
         stage_indices[stage].append(item)
+    # Executed rank/comparator pairs prove actual incumbent displacement.
+    # A low-pulse rank is not yet a comparator proof.
+    comparisons = stage_indices["primary_compare"]
+    current_best = {}
+    if comparisons or require_windows:
+        for index, row in enumerate(rows):
+            if row["stage"] == "primary_rank" and row["reason_code"] in COMPARE_TO_RANK.values():
+                prefix = next(k for k, v in COMPARE_TO_RANK.items()
+                              if v == row["reason_code"])
+                if index + 1 >= len(rows):
+                    raise TraceError("native rank missing adjacent comparator")
+                comp = rows[index + 1]
+                if (comp["stage"] != "primary_compare" or
+                        comp["reason_code"] not in (prefix + "_compare_won",
+                                                     prefix + "_compare_lost") or
+                        comp["candidate_id"] != row["candidate_id"] or
+                        comp["metrics"] != row["metrics"]):
+                    raise TraceError("native rank/comparator identity or score mismatch")
+            if row["stage"] != "primary_compare":
+                continue
+            if index == 0 or rows[index - 1]["stage"] != "primary_rank":
+                raise TraceError("orphan native comparator")
+            prefix = row["reason_code"].rsplit("_compare_", 1)[0]
+            if prefix not in COMPARE_TO_RANK:
+                raise TraceError("unknown comparator family")
+            score = row["metrics"]["score"]
+            won = row["outcome"] == "included"
+            previous = current_best.get(prefix)
+            if previous is None and not won:
+                raise TraceError("first comparator challenger cannot lose")
+            # Multi-field tie tuples are not captured; no inferred tie-veto.
+            if previous is not None:
+                epsilon = 1e-9 if prefix in ("raw", "general_baseline") else 0.0
+                if won and score < previous - epsilon:
+                    raise TraceError("comparator promoted lower-scoring challenger")
+                if not won and score > previous + epsilon:
+                    raise TraceError("comparator rejected higher-scoring challenger")
+            if won:
+                current_best[prefix] = score
     for single in ("primary_select", "policy_resolution",
                    "policy_pointer", "policy_change", "final_output",
                    "measured_witness", "write_guard"):
@@ -517,6 +573,8 @@ def validate(rows: list[dict], *, require_windows: bool = False) -> dict:
             x["reason_code"].startswith(("residual_high_", "residual_harmonic_", "harmonic_direct_"))
             for x in stage_indices["candidate_filter"]),
         "selector_rank_observations": len(stage_indices["primary_rank"]),
+        "selector_comparator_observations": len(comparisons),
+        "selector_comparator_families": len(current_best),
         "selector_terminal_observations": len(stage_indices["primary_terminal"]),
         "selector_disposition_observations": len(dispositions),
         "disposition_ranked_not_final": sum(

@@ -453,6 +453,55 @@ class NativePipelineTraceTests(unittest.TestCase):
             validate(rows)
 
 
+    def test_native_comparator_chronology_positive_and_adversarial(self):
+        base = with_resource(trace())
+        insert_at = next(i for i, row in enumerate(base)
+                         if row["stage"] == "primary_disposition")
+        rank = event("primary_rank", "c1", [], 128., "included",
+                     "general_baseline_rank_scored", 0)
+        comparison = event("primary_compare", "c1", [], 128., "included",
+                           "general_baseline_compare_won", 0)
+        base[insert_at:insert_at] = [rank, comparison]
+        for i, row in enumerate(base):
+            row["sequence"] = i
+        result = validate(base)
+        self.assertEqual(result["selector_comparator_observations"], 1)
+        self.assertEqual(result["selector_comparator_families"], 1)
+        for kind in ("orphan", "wrong_id", "wrong_score", "wrong_family",
+                     "first_loses", "bad_outcome", "unapproved_reason"):
+            with self.subTest(kind=kind):
+                bad = copy.deepcopy(base)
+                comp = next(row for row in bad if row["stage"] == "primary_compare")
+                if kind == "orphan":
+                    bad = [row for row in bad if row["stage"] != "primary_rank"]
+                elif kind == "wrong_id":
+                    comp["candidate_id"] = "c0"
+                elif kind == "wrong_score":
+                    comp["metrics"]["score"] += .01
+                elif kind == "wrong_family":
+                    comp["reason_code"] = "harmonic_compare_won"
+                elif kind == "first_loses":
+                    comp["reason_code"] = "general_baseline_compare_lost"
+                    comp["outcome"] = "excluded"
+                elif kind == "bad_outcome":
+                    comp["outcome"] = "excluded"
+                else:
+                    comp["reason_code"] = "fabricated_compare_won"
+                for i, row in enumerate(bad):
+                    row["sequence"] = i
+                with self.assertRaises(TraceError):
+                    validate(bad)
+
+    def test_native_comparator_source_is_compile_only_and_all_four_branches_instrumented(self):
+        source = (ROOT / "src/foo_smart_tempo/mir_candidate_pipeline.cpp").read_text(
+            encoding="utf-8")
+        reporter = (ROOT / "tests/ci_pipeline_trace.h").read_text(encoding="utf-8")
+        for family in ("raw", "harmonic", "general_baseline", "general_alt"):
+            self.assertEqual(source.count('"' + family + '_compare_won"'), 1)
+            self.assertEqual(source.count('"' + family + '_compare_lost"'), 1)
+        self.assertIn('comparison ? "primary_compare"', reporter)
+        self.assertIn('#if defined(SMART_TEMPO_CI_ORACLE_PROBE)', source)
+
     def test_per_candidate_disposition_recomputed_from_executed_events(self):
         rows = with_resource(trace())
         self.assertEqual(validate(rows)["selector_disposition_observations"], 1)
