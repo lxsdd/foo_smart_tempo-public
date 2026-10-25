@@ -243,12 +243,22 @@ inline bool record(
       !std::isfinite(policy.candidate_local_exact_score) ||
       !std::isfinite(policy.candidate_support))
     return false;
+  // Exact executed final-selector event, not a set of numerically equal BPMs.
   std::vector<std::string> primary_parent;
-  for (std::size_t i = 0; i < collapsed.size(); ++i) {
-    if (primary.selected_bpm > 0.0 &&
-        std::abs(collapsed[i].bpm - primary.selected_bpm) < 0.001)
-      primary_parent.push_back(cluster_ids[i]);
+  for (const auto& item : selectorEvents) {
+    if (std::strcmp(item.reason, "terminal_final_choice") == 0) {
+      if (item.raw || item.source_index >= cluster_ids.size() ||
+          !std::isfinite(item.bpm) || item.bpm <= 0.0)
+        return false;
+      if (!primary_parent.empty()) return false;
+      if (std::abs(collapsed[item.source_index].bpm - item.bpm) >= 0.001 ||
+          std::abs(primary.selected_bpm - item.bpm) >= 0.001)
+        return false;
+      primary_parent.push_back(cluster_ids[item.source_index]);
+    }
   }
+  if (primary.selected_bpm > 0.0 && primary_parent.size() != 1)
+    return false;
   out.push("primary_select",
            primary.review_hold ? "review_hold" :
            primary.auto_candidate ? "selected" : "no_candidate",

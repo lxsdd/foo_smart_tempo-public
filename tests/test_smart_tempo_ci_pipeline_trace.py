@@ -192,6 +192,29 @@ class NativePipelineTraceTests(unittest.TestCase):
                 with self.assertRaises(TraceError):
                     validate(bad)
 
+    def test_primary_terminal_winner_must_be_exact_object_not_equal_bpm(self):
+        rows = trace()
+        # Two collapsed candidates can share identical BPM; the actual native
+        # final pointer, not a match on bpm text, chooses the winner.
+        # Keep staged creator IDs and terminal/event ordering internally sound.
+        # A simple falsification is to assign an unrelated primary identity
+        # while retaining the exactly equal BPM and valid known object.
+        terminal = [
+            event("primary_terminal", "c1", [], 128., "selected",
+                  "terminal_lane_choice", 0),
+            event("primary_terminal", "c1", [], 128., "selected",
+                  "terminal_residual_choice", 0),
+            event("primary_terminal", "c1", [], 128., "selected",
+                  "terminal_final_choice", 0)
+        ]
+        rows[4:4] = terminal
+        for i, row in enumerate(rows):
+            row["sequence"] = i
+        self.assertEqual(validate(rows)["selector_terminal_observations"], 3)
+        rows[7]["parent_candidate_ids"] = ["c2"]  # same ~BPM, policy object != primary object
+        with self.assertRaisesRegex(TraceError, "exact terminal object"):
+            validate(rows)
+
     def test_raw_aliased_candidates_can_exceed_output_rail_but_not_safety_limit(self):
         rows = trace()
         rows[0]["metrics"]["bpm"] = 512.0
@@ -462,6 +485,8 @@ class NativePipelineTraceTests(unittest.TestCase):
         self.assertIn("candidate_filter", header)
         self.assertIn("primary_rank", header)
         self.assertIn("item.source_index >= count", header)
+        self.assertIn("primary_parent.push_back(cluster_ids[item.source_index])", header)
+        self.assertIn("terminal_final_choice", header)
         self.assertIn("ids[item.source_index]", header)
         self.assertIn('"primary_terminal"', header)
         self.assertIn("general_baseline_rank_scored", header)

@@ -277,6 +277,10 @@ def validate(rows: list[dict], *, require_windows: bool = False) -> dict:
             raise TraceError("selector terminal missing clustered candidate ID")
         if not primary["metrics"]["bpm"] and primary["outcome"] == "selected":
             raise TraceError("selector selected without terminal BPM")
+        if (primary["parent_candidate_ids"] != [terminal[-1]["candidate_id"]] or
+                abs(terminal[-1]["metrics"]["bpm"] -
+                    primary["metrics"]["bpm"]) >= 0.001):
+            raise TraceError("primary selected candidate is not exact terminal object")
     if primary["reason_code"] not in (
             "primary_auto", "primary_review_hold", "primary_no_candidate"):
         raise TraceError("unapproved primary decision reason")
