@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "smart_tempo_source_decision_trace_v1",
+  "title": "Read-only Smart Tempo analysis decision trace v1",
+  "description": "Proposed CI/private-offline research envelope, not an enabled production writer and not a license to export user data",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "analysis_id", "sequence", "stage", "outcome",
+    "reason_code", "candidate_id", "parent_candidate_ids", "metrics"
+  ],
+  "properties": {
+    "schema": {"const": "smart_tempo_source_decision_trace_v1"},
+    "analysis_id": {"type": "string", "pattern": "^[a-f0-9]{16,64}$"},
+    "sequence": {"type": "integer", "minimum": 0},
+    "stage": {
+      "enum": [
+        "decode_window", "resample", "odf", "onset", "tatum_meter",
+        "mir_segment", "candidate_create", "candidate_transform",
+        "candidate_filter", "primary_eligibility", "primary_rank",
+        "primary_select", "primary_hold", "policy_eligibility",
+        "policy_rank", "policy_change", "policy_hold_release",
+        "measured_witness", "final_output", "write_guard"
+      ]
+    },
+    "outcome": {
+      "enum": [
+        "observed", "included", "excluded", "selected", "rejected",
+        "review_hold", "no_candidate", "write_permitted", "write_blocked"
+      ]
+    },
+    "reason_code": {"type": "string", "pattern": "^[a-z][a-z0-9_]{0,95}$"},
+    "candidate_id": {"type": ["string", "null"], "pattern": "^c[0-9]{1,7}$"},
+    "parent_candidate_ids": {
+      "type": "array", "uniqueItems": true, "maxItems": 128,
+      "items": {"type": "string", "pattern": "^c[0-9]{1,7}$"}
+    },
+    "metrics": {
+      "type": "object", "additionalProperties": {"type": "number"},
+      "maxProperties": 48
+    }
+  },
+  "x-privacy": {
+    "public_ci": "only bounded preapproved synthetic IDs, no titles, genres, file paths or raw audio",
+    "private_offline": "track identifiers and real-audio features stay local and are never committed or uploaded",
+    "negative": "this schema does not enable collection or emission of production data"
+  },
+  "x-proof-constraints": [
+    "Every final nonzero BPM must reference a measured same-analysis candidate",
+    "One candidate may have several origin markers; origin is not eligibility",
+    "Every exclusion must name its exact stage and reason",
+    "Review Hold is a first-class outcome, not counted as a wrong BPM",
+    "Window geometry and decoding costs must be independently measured",
+    "Ground-truth labels never flow into candidate creation or production selection"
+  ]
+}
