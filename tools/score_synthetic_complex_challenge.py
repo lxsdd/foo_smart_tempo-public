@@ -444,6 +444,9 @@ def main() -> None:
     print("CHALLENGE_SOURCE_BITS_INTERPRETATION=" + origin["interpretation"])
     for key, value in origin["totals"].items():
         print(f"CHALLENGE_SOURCE_BITS_TOTAL_{key.upper()}={value}")
+    for cohort, values in origin["cohorts"].items():
+        for key, value in values.items():
+            print(f"CHALLENGE_SOURCE_BITS_COHORT_{cohort.upper()}_{key.upper()}={value}")
     for name, values in origin["stages"].items():
         for key, value in values.items():
             print(f"CHALLENGE_SOURCE_BITS_{name.upper()}_{key.upper()}={value}")

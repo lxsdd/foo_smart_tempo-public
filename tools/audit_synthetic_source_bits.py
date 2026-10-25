@@ -59,6 +59,12 @@ def audit_source_bits(scored: dict, signals: dict[str, list[dict]],
             [row[0] for row in stages["details"]] != names):
         raise ValueError("source-bit stage/oracle identity mismatch")
     counts = {stage: dict.fromkeys(COUNTS, 0) for stage in stages["stages"]}
+    cohort_fields = ("cases", "cases_with_board", "candidate_rows",
+                     "candidate_full_rows", "candidate_primary_rows",
+                     "candidate_supplement_only_rows", "cases_with_full",
+                     "cases_with_primary", "cases_with_supplement_only")
+    cohorts = {"clear": dict.fromkeys(cohort_fields, 0),
+               "risk": dict.fromkeys(cohort_fields, 0)}
     details = []
     for (name, reference, style), observed, info in zip(
             cases, scored["results"], stages["details"]):
@@ -69,6 +75,18 @@ def audit_source_bits(scored: dict, signals: dict[str, list[dict]],
         if len(board) != len(bits) or len(board) > 32 or any(
                 type(m) is not int or not 1 <= m <= 31 for m in bits):
             raise ValueError("source-bit board mismatch")
+        cohort = cohorts["risk" if style in RISKS else "clear"]
+        cohort["cases"] += 1
+        cohort["cases_with_board"] += int(bool(bits))
+        cohort["candidate_rows"] += len(bits)
+        cohort["candidate_full_rows"] += sum(bool(m & FULL) for m in bits)
+        cohort["candidate_primary_rows"] += sum(bool(m & PRIMARY) for m in bits)
+        cohort["candidate_supplement_only_rows"] += sum(
+            not (m & (FULL | PRIMARY)) for m in bits)
+        cohort["cases_with_full"] += int(any(m & FULL for m in bits))
+        cohort["cases_with_primary"] += int(any(m & PRIMARY for m in bits))
+        cohort["cases_with_supplement_only"] += int(
+            any(not (m & (FULL | PRIMARY)) for m in bits))
         if style in RISKS or outcome != "wrong":
             details.append((name, stage, outcome, "na", "na"))
             continue
@@ -123,5 +141,18 @@ def audit_source_bits(scored: dict, signals: dict[str, list[dict]],
     if (sum(x["clear"] for x in stages["stages"].values()) != 11 or
             sum(x["risk"] for x in stages["stages"].values()) != 5):
         raise ValueError("source-bit 11+5 denominator mismatch")
-    return {"stages": counts, "totals": totals, "details": details,
+    if cohorts["clear"]["cases"] != 11 or cohorts["risk"]["cases"] != 5:
+        raise ValueError("source-bit cohort case denominator mismatch")
+    for stat in cohorts.values():
+        if (stat["cases_with_board"] > stat["cases"] or
+                stat["candidate_rows"] > stat["cases"] * 32 or
+                stat["candidate_full_rows"] > stat["candidate_rows"] or
+                stat["candidate_primary_rows"] > stat["candidate_rows"] or
+                stat["candidate_supplement_only_rows"] > stat["candidate_rows"] or
+                any(stat[key] > stat["cases"] for key in (
+                    "cases_with_full", "cases_with_primary",
+                    "cases_with_supplement_only"))):
+            raise ValueError("source-bit cohort candidate denominator mismatch")
+    return {"stages": counts, "totals": totals, "cohorts": cohorts,
+            "details": details,
             "interpretation": "merged_review_sources_not_primary_eligibility"}
