@@ -535,6 +535,7 @@ try {
     $challengeObserved=[System.Collections.Generic.List[object]]::new()
     $challengeTimes=[System.Collections.Generic.List[object]]::new()
     $challengeCandidateRows=[System.Collections.Generic.List[object]]::new()
+    $challengePolicyRows=[System.Collections.Generic.List[object]]::new()
     foreach ($caseId in $challengeIds) {
       if ($caseId -cnotmatch '^challenge_[a-z0-9_]+$') {
         throw 'Disallowed complex synthetic fixture ID'
@@ -549,6 +550,14 @@ try {
       }
       $wav=Join-Path $fixtureRoot ($caseId+'.wav')
       Run-Case $installer $root $wav @($wav,$manifest) 1 ('SYNTHETIC_'+$caseId)
+      # Per-file policy was validated by Run-Case after blocked Update and stamp checks.
+      $policy=@(Import-Csv -LiteralPath ($wav+'.policy.csv'))
+      if ($policy.Count -ne 1) { throw 'Missing complex final policy trace' }
+      $challengePolicyRows.Add([pscustomobject][ordered]@{
+        id=$caseId; policy_reason=$policy[0].policy_reason;
+        decision_class=$policy[0].decision_class;
+        measured_policy_reason=$policy[0].measured_policy_reason
+      })
       $result=@(Import-Csv -LiteralPath ($wav+'.results.csv'))
       if ($result.Count -ne 1 -or $result[0].index -cne '0') {
         throw 'Missing real-host complex BPM observation'
@@ -572,7 +581,9 @@ try {
         })
       }
     }
-    if ($challengeObserved.Count -ne 16) { throw 'Incomplete complex BPM matrix' }
+    if ($challengeObserved.Count -ne 16 -or $challengePolicyRows.Count -ne 16) {
+      throw 'Incomplete complex BPM/policy matrix'
+    }
     $challengeManifest=Join-Path $root 'complex-reference-matrix.json'
     [ordered]@{
       schema='synthetic_bpm_reference_v1'
@@ -585,7 +596,9 @@ try {
     $challengeCandidateCsv=Join-Path $root 'complex-candidates-matrix.csv'
     if ($challengeCandidateRows.Count -eq 0) { throw 'Complex candidate evidence missing' }
     $challengeCandidateRows | Export-Csv -LiteralPath $challengeCandidateCsv -NoTypeInformation -Encoding utf8
-    python ./tools/score_synthetic_complex_challenge.py --manifest $challengeManifest --observed $challengeCsv --timing $challengeTimeCsv --candidates $challengeCandidateCsv
+    $challengePolicyCsv=Join-Path $root 'complex-policy-matrix.csv'
+    $challengePolicyRows | Export-Csv -LiteralPath $challengePolicyCsv -NoTypeInformation -Encoding utf8
+    python ./tools/score_synthetic_complex_challenge.py --manifest $challengeManifest --observed $challengeCsv --timing $challengeTimeCsv --candidates $challengeCandidateCsv --policy $challengePolicyCsv
     if ($LASTEXITCODE -ne 0) { throw 'Complex real-host BPM scoring failed' }
     Write-Host 'SYNTHETIC_REAL_COMPLEX_CASE_COUNT_x64=16'
     Write-Host 'SYNTHETIC_REAL_COMPLEX_COMPLETED_x64=PASS'

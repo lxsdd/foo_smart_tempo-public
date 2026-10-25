@@ -13,6 +13,7 @@ from generate_synthetic_complex_challenge import CASES
 from score_synthetic_bpm_reference import evaluate, load_observed, shadow_candidate_choice
 from score_prospective_bpm_reference import PROFILE_MIN_LOCAL, PROFILE_HARMONIC_MARGIN
 from audit_synthetic_genre_prior import compare_audio_and_genre
+from audit_synthetic_policy_stage import load_policy, audit_policy_stages
 
 
 
@@ -295,7 +296,8 @@ def audit_genre_counterfactual(scored: dict, signals: dict[str, list[dict]]) -> 
 
 def score(manifest: dict, observed: list[dict], timing: list[dict],
           candidates: dict[str, list[float]] | None = None,
-          candidate_signals: dict[str, list[dict]] | None = None) -> dict:
+          candidate_signals: dict[str, list[dict]] | None = None,
+          policies: dict[str, dict[str, str]] | None = None) -> dict:
     expected = list(CASES)
     rows = manifest.get("cases")
     if (manifest.get("schema") != "synthetic_bpm_reference_v1" or
@@ -328,6 +330,10 @@ def score(manifest: dict, observed: list[dict], timing: list[dict],
         result["selection_path_audit"] = audit_selection_path(result, candidate_signals)
         result["frozen_shadow"] = audit_frozen_shadow(result, candidate_signals)
         result["genre_counterfactual"] = audit_genre_counterfactual(result, candidate_signals)
+    if policies is not None:
+        if candidate_signals is None:
+            raise ValueError("policy attribution requires measured candidate signals")
+        result["policy_stages"] = audit_policy_stages(result, candidate_signals, policies, CASES)
     millis = [float(row["analysis_ms"]) for row in timing]
     result["host_response_ms_median"] = statistics.median(millis)
     result["host_response_ms_p95"] = sorted(millis)[
@@ -341,6 +347,7 @@ def main() -> None:
     parser.add_argument("--observed", type=Path, required=True)
     parser.add_argument("--timing", type=Path, required=True)
     parser.add_argument("--candidates", type=Path, required=True)
+    parser.add_argument("--policy", type=Path, required=True)
     args = parser.parse_args()
     with args.manifest.open(encoding="utf-8-sig") as f:
         manifest = json.load(f)
@@ -352,7 +359,8 @@ def main() -> None:
         timing = list(reader)
     candidates = load_candidates(args.candidates)
     signals = load_candidate_signals(args.candidates)
-    result = score(manifest, observed, timing, candidates, signals)
+    policies = load_policy(args.policy, [name for name, _, _ in CASES])
+    result = score(manifest, observed, timing, candidates, signals, policies)
     print(f"CHALLENGE_REAL_CASES={result['n']}")
     print(f"CHALLENGE_CLEAR_CASES={result['precision']['clear_reference_n']}")
     print(f"CHALLENGE_ACCEPTED_CLEAR={result['precision']['accepted_reference_n']}")
@@ -387,6 +395,15 @@ def main() -> None:
               f"output_rank={row['output_rank'] or 'none'} "
               f"output_local={show(row['output_local'])} "
               f"output_error={show(row['output_error'])}")
+    stage_audit = result["policy_stages"]
+    for key, value in stage_audit["totals"].items():
+        print(f"CHALLENGE_STAGE_TOTAL_{key.upper()}={value}")
+    for stage_name, stats in stage_audit["stages"].items():
+        for key, value in stats.items():
+            print(f"CHALLENGE_STAGE_{stage_name.upper()}_{key.upper()}={value}")
+    for name, stage_name, outcome, precise, matches in stage_audit["details"]:
+        print(f"CHALLENGE_STAGE_CASE id={name} final_path={stage_name} "
+              f"outcome={outcome} precise_export={precise} output_matches_export={matches}")
     frozen = result["frozen_shadow"]
     print("CHALLENGE_FROZEN_PROFILE=min_local_0.95,harmonic_margin_0.10")
     for key, value in frozen["counts"].items():
