@@ -32,19 +32,21 @@ def score(manifest: dict, observed: list[dict]) -> dict:
         except (KeyError, ValueError, TypeError, OverflowError) as exc:
             raise ValueError("invalid observed BPM") from exc
         held = outcome.get("held")
-        if (not math.isfinite(got) or got < 0 or
-                type(held) is not bool or (held and got != 0) or
-                (not held and got == 0)):
-            raise ValueError("contradictory or non-finite host BPM")
+        if not math.isfinite(got) or got < 0 or type(held) is not bool:
+            raise ValueError("invalid or non-finite host BPM")
+        # The CI probe exports the underlying measured BPM even if the host
+        # withholds tag acceptance. A zero BPM with no hold flag may also mean
+        # no candidate was found; both outcomes are non-accepted.
+        abstained = held or got == 0
         if bpm is None:
             stats["ambiguous"] += 1
-            stats["ambiguous_held" if held else "ambiguous_accepted"] += 1
-            detail.append((name, "ambiguous_hold" if held else "unsafe_ambiguous_accept"))
+            stats["ambiguous_held" if abstained else "ambiguous_accepted"] += 1
+            detail.append((name, "ambiguous_hold" if abstained else "unsafe_ambiguous_accept"))
         else:
             stats["clear"] += 1
-            if held:
+            if abstained:
                 stats["held"] += 1
-                label = "held"
+                label = "review_hold" if held else "no_candidate"
             elif abs(got - bpm) <= .05 + 1e-9:
                 stats["correct_005"] += 1
                 stats["correct_020"] += 1
@@ -86,6 +88,10 @@ def main():
     result = score(ref, obs)
     for key, value in result["counts"].items():
         print(f"METER_CHALLENGE_{key.upper()}={value}")
+    for case_id, outcome in result["details"]:
+        # Case names are the exact five fixed PUBLIC synthetic IDs. No titles,
+        # file paths, metadata or oracle BPMs leave the disposable runner.
+        print(f"METER_CHALLENGE_CASE id={case_id} outcome={outcome}")
     print(f"METER_CHALLENGE_VERDICT={result['verdict']}")
 
 

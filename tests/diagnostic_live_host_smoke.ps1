@@ -310,6 +310,85 @@ try {
   Run-Case $installer $root $wav @($wav) 1 'WAV'
   Run-Case $installer $root $cue @($wav,$cue) 2 'CUE'
   if ($Architecture -eq 'x64') {
+    # Separate PUBLIC meter/beat-unit challenge; must not change 80/20 cohort.
+    # Every WAV is immutable before and after isolated foobar analysis.
+    $meterIds=@(python ./tools/generate_synthetic_meter_challenge.py --list-cases)
+    $meterFixed=@('meter_3_4_120_quarter','meter_6_8_80_dotted',
+      'meter_3_4_150_quarter','meter_6_8_100_dotted',
+      'meter_ambiguous_120q_80dq')
+    if ($LASTEXITCODE -ne 0 -or $meterIds.Count -ne 5 -or
+        ($meterIds -cjoin ',') -cne ($meterFixed -cjoin ',')) {
+      throw 'CI meter allowlist inventory or order changed'
+    }
+    $meterReferences=[System.Collections.Generic.List[object]]::new()
+    $meterObserved=[System.Collections.Generic.List[object]]::new()
+    $meterTimes=[System.Collections.Generic.List[int]]::new()
+    foreach ($meterId in $meterFixed) {
+      if ($meterId -cnotmatch '^meter_[a-z0-9_]+$') {
+        throw 'CI meter fixture ID invalid'
+      }
+      $meterRoot=Join-Path $root ('synthetic-oracle-'+$meterId)
+      python ./tools/generate_synthetic_meter_challenge.py --output $meterRoot --case $meterId
+      if ($LASTEXITCODE -ne 0) { throw "Meter fixture generation failed for $meterId" }
+      $meterWave=Join-Path $meterRoot ($meterId+'.wav')
+      $meterManifest=Join-Path $meterRoot 'reference.json'
+      $meterCases=@((Get-Content -LiteralPath $meterManifest -Raw | ConvertFrom-Json).cases)
+      if ($meterCases.Count -ne 1 -or $meterCases[0].id -cne $meterId -or
+          $meterCases[0].corpus_partition -cne 'separate_synthetic_meter_challenge_v2' -or
+          $meterCases[0].generator_revision -cne 'meter_grid_v2_fractional_samples_no_prng' -or
+          $meterCases[0].sample_rate -ne 16000 -or $meterCases[0].duration_sec -ne 20 -or
+          $meterCases[0].wav_sha256 -cne (Get-FileHash -LiteralPath $meterWave -Algorithm SHA256).Hash.ToLowerInvariant()) {
+        throw 'Public meter oracle identity/hash/geometry mismatch'
+      }
+      Run-Case $installer $root $meterWave @($meterWave,$meterManifest) 1 ('SYNTHETIC_'+$meterId)
+      if ($script:LastSyntheticAnalysisMs -le 0) { throw 'Missing meter host timing' }
+      $meterTimes.Add([int]$script:LastSyntheticAnalysisMs)
+      Write-Host ("SYNTHETIC_METER_HOST_CASE id={0} analysis_ms={1}" -f
+        $meterId,$script:LastSyntheticAnalysisMs)
+      $meterResult=@(Import-Csv -LiteralPath ($meterWave+'.results.csv'))
+      if ($meterResult.Count -ne 1 -or
+          ($meterResult[0].PSObject.Properties.Name -join ',') -cne 'index,bpm,held' -or
+          $meterResult[0].index -cne '0' -or
+          $meterResult[0].held -cnotmatch '^[01]$' -or
+          $meterResult[0].bpm -cnotmatch '^(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$') {
+        throw 'Malformed real-host meter BPM/held observation'
+      }
+      # Run-Case has already strictly validated this CI-only public policy
+      # triple. Emit bounded enums to attribute 3:2 alias acceptance/holds.
+      $meterPolicy=@(Import-Csv -LiteralPath ($meterWave+'.policy.csv'))
+      if ($meterPolicy.Count -ne 1 -or
+          ($meterPolicy[0].PSObject.Properties.Name -join ',') -cne
+            'policy_reason,decision_class,measured_policy_reason' -or
+          $meterPolicy[0].policy_reason -cnotmatch '^[A-Za-z0-9_-]{1,96}$' -or
+          $meterPolicy[0].decision_class -cnotmatch '^[A-Za-z0-9_-]{1,96}$' -or
+          $meterPolicy[0].measured_policy_reason -cnotmatch '^[A-Za-z0-9_-]{1,96}$') {
+        throw 'Invalid public meter policy trace'
+      }
+      Write-Host ("SYNTHETIC_METER_POLICY id={0} policy={1} class={2} measured_reason={3}" -f
+        $meterId,$meterPolicy[0].policy_reason,$meterPolicy[0].decision_class,
+        $meterPolicy[0].measured_policy_reason)
+      $meterReferences.Add($meterCases[0])
+      $meterObserved.Add([pscustomobject][ordered]@{
+        id=$meterId
+        bpm=$meterResult[0].bpm
+        held=$meterResult[0].held
+      })
+    }
+    $meterReferenceMatrix=Join-Path $root 'meter-reference-matrix.json'
+    $meterObservedMatrix=Join-Path $root 'meter-observed-matrix.csv'
+    [ordered]@{
+      schema='synthetic_meter_challenge_v2'
+      cases=@($meterReferences.ToArray())
+    } | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $meterReferenceMatrix -Encoding utf8
+    $meterObserved | Export-Csv -LiteralPath $meterObservedMatrix -NoTypeInformation -Encoding utf8
+    python ./tools/score_synthetic_meter_challenge.py --manifest $meterReferenceMatrix --observed $meterObservedMatrix
+    if ($LASTEXITCODE -ne 0) { throw 'Public meter host scorer failed' }
+    if ($meterTimes.Count -ne 5) { throw 'Incomplete meter host timing denominator' }
+    $meterSorted=@($meterTimes.ToArray() | Sort-Object)
+    Write-Host ("SYNTHETIC_METER_HOST_RESPONSE_MS_MEDIAN={0}" -f $meterSorted[2])
+    Write-Host ("SYNTHETIC_METER_HOST_RESPONSE_MS_P95={0}" -f $meterSorted[4])
+    Write-Host 'SYNTHETIC_REAL_METER_HOST_CASE_COUNT_x64=5'
+    Write-Host 'SYNTHETIC_REAL_METER_HOST_DIAGNOSTIC_COMPLETED_x64=PASS'
     # One public matrix in one CI run. Each individual WAV gets a fresh
     # portable foobar instance because multi-track MIR exceeds the UI timeout.
     # Only after ALL cases finish do we score the full fixed synthetic corpus.

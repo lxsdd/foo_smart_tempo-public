@@ -89,13 +89,66 @@ class MeterChallengeTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 score(ref, o)
             o = observe([120, 80, 150, 100, None])
-            o[0]["held"] = True
+            o[0]["held"] = "1"  # non-boolean flags are unsafe
             with self.assertRaises(ValueError):
                 score(ref, o)
             o = observe([120, 80, 150, 100, None])
             ref["cases"][1]["reference_bpm"] = 120
             with self.assertRaises(ValueError):
                 score(ref, o)
+
+    def test_real_host_review_hold_keeps_measurement_but_does_not_accept(self):
+        # Probe records numeric measured BPM and independent withheld flag.
+        with tempfile.TemporaryDirectory() as tmp:
+            ref = self.synthesize(Path(tmp))
+            observed = observe([120, 80, 150, 100, 80])
+            observed[0]["held"] = True  # measured 120 but intentionally held
+            observed[4]["held"] = True  # measured 80 underdetermined
+            result = score(ref, observed)
+            self.assertEqual((result["counts"]["correct_020"],
+                              result["counts"]["held"],
+                              result["counts"]["ambiguous_held"]), (3, 1, 1))
+            self.assertEqual(result["details"][0][1], "review_hold")
+            self.assertEqual(result["verdict"], "RESEARCH_ONLY_NOT_MUSICAL_GO")
+
+    def test_zero_bpm_without_hold_flag_is_nonaccepted_no_candidate(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ref = self.synthesize(Path(tmp))
+            observed = observe([120, 80, 150, 100, None])
+            observed[0] = dict(id=CASES[0][0], bpm="0", held=False)
+            observed[4] = dict(id=CASES[4][0], bpm="0", held=False)
+            result = score(ref, observed)
+            self.assertEqual(result["counts"]["held"], 1)
+            self.assertEqual(result["counts"]["ambiguous_held"], 1)
+            self.assertEqual(result["details"][0][1], "no_candidate")
+
+    def test_ci_only_meter_allowlist_and_no_write_host_contract(self):
+        root = Path(__file__).resolve().parents[1]
+        header = (root / "tests" / "ci_bpm_oracle_sink.h").read_text(encoding="utf-8")
+        host = (root / "tests" / "diagnostic_live_host_smoke.ps1").read_text(encoding="utf-8")
+        workflow = (root / ".github" / "workflows" / "source.yml").read_text(encoding="utf-8")
+        for name, _, _, _, _ in CASES:
+            self.assertEqual(header.count('L"' + name + '"'), 1)
+            self.assertIn(name, host)
+        self.assertIn('read_env(L"GITHUB_ACTIONS") != L"true"', header)
+        self.assertIn('read_env(L"RUNNER_TEMP")', header)
+        self.assertIn("SMART_TEMPO_CI_FIXTURE", host)
+        self.assertIn("MEDIA_WRITE_SAFETY_", host)
+        self.assertIn("Run-Case $installer $root $meterWave", host)
+        self.assertIn("score_synthetic_meter_challenge.py --manifest", host)
+        self.assertIn("SYNTHETIC_REAL_METER_HOST_CASE_COUNT_x64=5", host)
+        self.assertIn("SYNTHETIC_METER_HOST_RESPONSE_MS_MEDIAN", host)
+        self.assertIn("SYNTHETIC_METER_HOST_RESPONSE_MS_P95", host)
+        self.assertIn("SYNTHETIC_METER_POLICY id={0}", host)
+        self.assertIn("Invalid public meter policy trace", host)
+        scorer = (root / "tools" / "score_synthetic_meter_challenge.py").read_text(
+            encoding="utf-8")
+        self.assertIn("METER_CHALLENGE_CASE id=", scorer)
+        self.assertIn("$meterTimes.Count -ne 5", host)
+        self.assertIn('[System.Management.Automation.Language.Parser]::ParseFile', workflow)
+        self.assertTrue(host.rstrip().endswith(
+            "} finally { if (Test-Path $root) { Remove-Item $root -Recurse "
+            "-Force -ErrorAction SilentlyContinue } }"))
 
     def test_frozen_audio_mutation_detectable(self):
         with tempfile.TemporaryDirectory() as t:

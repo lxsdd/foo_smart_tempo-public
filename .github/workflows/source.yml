@@ -111,6 +111,16 @@ jobs:
         run: |
           python -m unittest discover -s tests -p 'test_synthetic_meter_challenge.py' -v
           if ($LASTEXITCODE -ne 0) { throw 'Separate synthetic meter challenge regressions failed' }
+          # Catch syntax errors in ANY host-script branch before expensive builds.
+          $tokens = $null
+          $parseErrors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path -LiteralPath './tests/diagnostic_live_host_smoke.ps1').Path,
+            [ref]$tokens, [ref]$parseErrors) | Out-Null
+          if (@($parseErrors).Count -ne 0) {
+            $parseErrors | Format-List | Out-String | Write-Host
+            throw 'Synthetic meter host PowerShell parser gate failed'
+          }
           # Generator/scorer only; host-BPM measurement has NOT yet run.
 
       - name: Verify BPM oracle scoring and ambiguous/held cases

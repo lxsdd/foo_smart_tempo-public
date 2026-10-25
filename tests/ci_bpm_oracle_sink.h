@@ -62,6 +62,10 @@ inline std::wstring approved_fixture() {
       L"prospective_half_pulse_153_60", L"prospective_sparse_117_80",
       L"prospective_tempo_switch_alt", L"prospective_nonperiodic_alt",
       L"prospective_tone_alt", L"prospective_noise_alt",
+      // Only fixed, public synthetic meter WAVs in disposable CI sessions.
+      L"meter_3_4_120_quarter", L"meter_6_8_80_dotted",
+      L"meter_3_4_150_quarter", L"meter_6_8_100_dotted",
+      L"meter_ambiguous_120q_80dq",
       L"window_128_four_floor", L"window_175_breakbeat", L"window_110_shuffle",
       L"window_100_odd_five", L"window_90_128_switch",
       L"window_nonperiodic_percussion"};
