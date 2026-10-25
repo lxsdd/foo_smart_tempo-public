@@ -3035,7 +3035,13 @@ double ModernBpmAnalyzer::analyze(metadb_handle_ptr track, threaded_process_stat
                 mir_ci_primary_selector_events(), mir_ci_policy_pointer_source(),
                 mirPrimarySelection,
                 mirPolicyDecision, finalBpm, m_diag.suppress_write,
-                measuredWitness, ciResource);
+                measuredWitness, ciResource,
+                materialRiskLocalExactProbe.candidate
+                    ? &materialRiskLocalExactProbe : nullptr,
+                partialBarAggregateShadow.candidate
+                    ? &partialBarAggregateShadow : nullptr,
+                std::span<const smart_tempo::HodgkinsonPartialBarTopKExactCandidate>(
+                    topKExactRows.data(), topKExactRows.size()));
             FB2K_console_formatter()
                 << (traced ? "SMART_TEMPO_CI_PIPELINE_TRACE=PASS"
                            : "SMART_TEMPO_CI_PIPELINE_TRACE=FAIL");

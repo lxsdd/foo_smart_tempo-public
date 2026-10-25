@@ -30,8 +30,9 @@ inline void ci_policy_selected(const MirPolicyMeasuredCandidate& selected) noexc
     }
   }
 }
-inline void ci_policy_supplemental(double bpm) noexcept {
-  g_ci_policy_source = {true, false, 0, bpm};
+inline void ci_policy_supplemental(double bpm, MirCiSupplementalKind kind,
+                                   const void* object) noexcept {
+  g_ci_policy_source = {true, false, 0, bpm, kind, object};
 }
 
 inline void ci_primary_event(std::size_t sourceIndex, double bpm, double score,
@@ -4910,7 +4911,8 @@ void set_mir_policy_candidate_resolution(
                          partialBarAggregate, priorCenterBpm,
                          priorSpreadBpm, routeMatched, genericRoute)) {
           #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
-  ci_policy_supplemental(partialBarAggregate->local_exact_bpm);
+  ci_policy_supplemental(partialBarAggregate->local_exact_bpm,
+      MirCiSupplementalKind::partial_bar_aggregate, partialBarAggregate);
 #endif
   shadow.candidate_bpm = partialBarAggregate->local_exact_bpm;
             shadow.candidate_cluster_bpm = partialBarAggregate->coarse_bpm;
@@ -4953,7 +4955,8 @@ void set_mir_policy_candidate_resolution(
               partialBarAggregate, measured, priorCenterBpm,
               priorSpreadBpm, routeMatched, genericRoute)) {
       #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
-  ci_policy_supplemental(partialBarAggregate->local_exact_bpm);
+  ci_policy_supplemental(partialBarAggregate->local_exact_bpm,
+      MirCiSupplementalKind::partial_bar_aggregate, partialBarAggregate);
 #endif
   shadow.candidate_bpm = partialBarAggregate->local_exact_bpm;
         shadow.candidate_cluster_bpm = partialBarAggregate->coarse_bpm;
@@ -5010,7 +5013,8 @@ void set_mir_policy_candidate_resolution(
         mir_policy_partial_bar_exact_half_recovery(
             partialBarAggregate, shadow.current_bpm)) {
     #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
-  ci_policy_supplemental(partialBarAggregate->local_exact_bpm);
+  ci_policy_supplemental(partialBarAggregate->local_exact_bpm,
+      MirCiSupplementalKind::partial_bar_aggregate, partialBarAggregate);
 #endif
   shadow.candidate_bpm = partialBarAggregate->local_exact_bpm;
       shadow.candidate_cluster_bpm = partialBarAggregate->coarse_bpm;
@@ -5060,7 +5064,8 @@ void set_mir_policy_candidate_resolution(
       is_mir_policy_material_risk_local_exact_release_candidate(
           *materialRiskProbe)) {
   #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
-  ci_policy_supplemental(materialRiskProbe->best_bpm);
+  ci_policy_supplemental(materialRiskProbe->best_bpm,
+      MirCiSupplementalKind::material_risk, materialRiskProbe);
 #endif
   shadow.candidate_bpm = materialRiskProbe->best_bpm;
     shadow.candidate_cluster_bpm = materialRiskProbe->best_anchor_bpm;
@@ -5576,7 +5581,8 @@ bool try_apply_mir_policy_partial_bar_topk_exact_release(
   const double totalSegments =
       static_cast<double>(selected->total_segment_count);
 #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
-  ci_policy_supplemental(selected->local_exact_bpm);
+  ci_policy_supplemental(selected->local_exact_bpm,
+      MirCiSupplementalKind::partial_bar_topk, selected);
 #endif
   decision.candidate_bpm = selected->local_exact_bpm;
   decision.candidate_cluster_bpm = selected->coarse_bpm;

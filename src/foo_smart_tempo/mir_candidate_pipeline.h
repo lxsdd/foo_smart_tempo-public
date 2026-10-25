@@ -250,11 +250,14 @@ struct MirPolicyMeasuredCandidate {
 #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
 // Observes the last ACTUALLY chosen object passed to the Policy candidate
 // selector. A coincident BPM alone is explicitly insufficient evidence.
+enum class MirCiSupplementalKind { none, partial_bar_aggregate, material_risk, partial_bar_topk };
 struct MirCiPolicyPointerSource {
   bool observed = false;
   bool in_fullboard = false;
   std::size_t index = 0;
   double bpm = 0.0;
+  MirCiSupplementalKind kind = MirCiSupplementalKind::none;
+  const void* object = nullptr;
 };
 [[nodiscard]] MirCiPolicyPointerSource mir_ci_policy_pointer_source() noexcept;
 #endif

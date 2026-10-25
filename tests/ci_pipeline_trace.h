@@ -207,7 +207,10 @@ inline bool record(
     const MirPrimarySelection& primary,
     const MirPolicyDecision& policy,
     double final_bpm, bool withheld, bool same_run_measured_witness,
-    const ProcessResourceObservation& resource) {
+    const ProcessResourceObservation& resource,
+    const smart_tempo::HodgkinsonMaterialRiskLocalExactProbe* risk,
+    const smart_tempo::HodgkinsonPartialBarAggregateShadow* partial,
+    std::span<const smart_tempo::HodgkinsonPartialBarTopKExactCandidate> topK) {
   const std::wstring fixture = permitted_fixture();
   const auto run_id = ci_run_id();
   if (fixture.empty() || run_id.empty() || !resource.valid ||
@@ -297,6 +300,45 @@ inline bool record(
              id, parents, candidate.bpm,
              candidate.local_exact_score, candidate.candidate.support);
   }
+  // Exact selected supplemental object from the analysis-owned input objects.
+  std::vector<std::string> supplemental_id;
+  double supplemental_bpm = 0.0;
+  if (policyPointer.kind != mir_pipeline::MirCiSupplementalKind::none) {
+    if (!policyPointer.observed || policyPointer.in_fullboard ||
+        policyPointer.object == nullptr) return false;
+    const char* source = nullptr;
+    double score = 0.0, support = 0.0;
+    if (policyPointer.kind == mir_pipeline::MirCiSupplementalKind::material_risk &&
+        risk != nullptr && policyPointer.object == risk) {
+      source = "material_risk_source";
+      supplemental_bpm = risk->best_bpm;
+      score = risk->best_score;
+    } else if (policyPointer.kind ==
+                   mir_pipeline::MirCiSupplementalKind::partial_bar_aggregate &&
+               partial != nullptr && policyPointer.object == partial) {
+      source = "partial_bar_aggregate_source";
+      supplemental_bpm = partial->local_exact_bpm;
+      score = partial->score_sum;
+    } else if (policyPointer.kind ==
+                   mir_pipeline::MirCiSupplementalKind::partial_bar_topk) {
+      for (const auto& candidate : topK) {
+        if (policyPointer.object != &candidate) continue;
+        source = "partial_bar_topk_source";
+        supplemental_bpm = candidate.local_exact_bpm;
+        score = candidate.local_exact_score;
+        support = candidate.score_ratio_to_top;
+        break;
+      }
+    }
+    if (!source || !finite_bpm(supplemental_bpm) ||
+        supplemental_bpm <= 0.0 || !std::isfinite(score) ||
+        !std::isfinite(support) ||
+        std::abs(supplemental_bpm - policyPointer.bpm) > 0.001)
+      return false;
+    supplemental_id.push_back(out.create_id());
+    out.push("supplemental_candidate", "observed", source,
+             supplemental_id.front(), {}, supplemental_bpm, score, support);
+  } else if (policyPointer.object != nullptr) return false;
   // Executed selector checks, not a fabricated ranking over the merged
   // manual-review pool. Provisional exclusions may be rescued by fallback.
   for (const auto& item : selectorEvents) {
@@ -382,12 +424,20 @@ inline bool record(
       std::isfinite(policyPointer.bpm) && policy.output_bpm > 0.0 &&
       std::abs(policyPointer.bpm - policy.output_bpm) <= 0.001 &&
       std::abs(fullboard[policyPointer.index].bpm - policyPointer.bpm) <= 0.001;
+  const bool actualSupplementalObject =
+      !supplemental_id.empty() && !actualFullBoardObject &&
+      policy.output_bpm > 0.0 &&
+      std::abs(policy.output_bpm - supplemental_bpm) <= 0.001;
   if (actualFullBoardObject)
     selected_policy_pointer.push_back(policy_ids[policyPointer.index]);
+  else if (actualSupplementalObject)
+    selected_policy_pointer = supplemental_id;
   const char* pointerReason = policy.output_bpm <= 0.0
                                  ? "pointer_no_output"
                                  : actualFullBoardObject
                                        ? "pointer_native_fullboard_consistent"
+                                       : actualSupplementalObject
+                                             ? "pointer_native_supplemental_consistent"
                                        : policyPointer.observed
                                              ? "pointer_supplemental_or_changed"
                                              : "pointer_not_observed";
@@ -433,7 +483,8 @@ inline bool record(
   out.push("write_guard", "write_blocked", "ci_dry_run",
            "", {}, 0.0, 0.0, 0.0);
   if (out.sequence != windows.size() + board.raw_candidates.size() + 2 * collapsed.size() +
-                      fullboard.size() + selectorEvents.size() + 8 ||
+                      fullboard.size() + selectorEvents.size() +
+                      supplemental_id.size() + 8 ||
       out.lines.size() > 2 * 1024 * 1024) return false;
   const std::wstring output = fixture + L".pipeline.jsonl";
   HANDLE h = CreateFileW(output.c_str(), GENERIC_WRITE, 0, nullptr,

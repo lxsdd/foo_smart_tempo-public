@@ -24,7 +24,8 @@ RESOURCE_METRICS = METRICS | frozenset((
 WINDOW_METRICS = METRICS | frozenset(("pass_index", "pass_total", "start_sec",
     "requested_frames", "decoded_frames", "analysis_frames",
     "source_rate_hz", "analysis_rate_hz"))
-CREATORS = frozenset(("candidate_create", "candidate_transform", "policy_eligibility"))
+CREATORS = frozenset(("candidate_create", "candidate_transform",
+                      "policy_eligibility", "supplemental_candidate"))
 ENUMS = {
     "decode_window": ("observed", "actual_decoded_extent"),
     "candidate_create": ("observed", "raw_alias"),
@@ -34,6 +35,7 @@ ENUMS = {
     "primary_rank": ("included", None),
     "primary_terminal": ("selected", None),
     "policy_eligibility": ("included", None),
+    "supplemental_candidate": ("observed", None),
     "primary_select": (None, None),
     "policy_resolution": ("observed", None),
     "policy_pointer": ("observed", None),
@@ -70,8 +72,13 @@ ALLOWED_POLICY_COMPARISONS = frozenset((
     "policy_no_output", "policy_one_same_bpm",
     "policy_no_fullboard_match", "policy_multiple_same_bpm"
 ))
+ALLOWED_SUPPLEMENTAL_SOURCES = frozenset((
+    "material_risk_source", "partial_bar_aggregate_source",
+    "partial_bar_topk_source"
+))
 ALLOWED_POINTER_REASONS = frozenset((
     "pointer_no_output", "pointer_native_fullboard_consistent",
+    "pointer_native_supplemental_consistent",
     "pointer_supplemental_or_changed", "pointer_not_observed"
 ))
 
@@ -90,6 +97,7 @@ def validate(rows: list[dict], *, require_windows: bool = False) -> dict:
         "decode_window": -1,
         "candidate_create": 0, "candidate_transform": 1,
         "primary_eligibility": 1, "policy_eligibility": 2,
+        "supplemental_candidate": 2,
         "candidate_filter": 3, "primary_rank": 3,
         "primary_terminal": 3, "primary_select": 4,
         "policy_resolution": 5, "policy_pointer": 6,
@@ -159,6 +167,10 @@ def validate(rows: list[dict], *, require_windows: bool = False) -> dict:
         if stage == "decode_window" and (candidate_id is not None or parents):
             raise TraceError("window must not contain candidate identity")
         if stage in CREATORS:
+            if stage == "supplemental_candidate" and (
+                    parents or item["reason_code"] not in ALLOWED_SUPPLEMENTAL_SOURCES or
+                    bpm <= 0):
+                raise TraceError("unmeasured or fabricated supplemental source")
             if candidate_id is None or candidate_id in ids:
                 raise TraceError("duplicated or missing created candidate ID")
             if int(candidate_id[1:]) != len(ids):
@@ -188,13 +200,17 @@ def validate(rows: list[dict], *, require_windows: bool = False) -> dict:
             if (candidate_id is not None or
                     item["reason_code"] not in ALLOWED_POINTER_REASONS or
                     len(parents) > 1 or
-                    any(ids[p] != "policy_eligibility" for p in parents) or
+                    any(ids[p] not in ("policy_eligibility", "supplemental_candidate")
+                        for p in parents) or
                     item["metrics"]["score"] not in (0, 1) or
                     item["metrics"]["support"] not in (0, 1)):
                 raise TraceError("malformed native policy pointer evidence")
-            pointer_consistent = item["reason_code"] == "pointer_native_fullboard_consistent"
-            if (pointer_consistent != (len(parents) == 1) or
-                    (pointer_consistent and
+            fullboard_pointer = item["reason_code"] == "pointer_native_fullboard_consistent"
+            supplemental_pointer = item["reason_code"] == "pointer_native_supplemental_consistent"
+            if ((fullboard_pointer or supplemental_pointer) != (len(parents) == 1) or
+                    (fullboard_pointer and ids[parents[0]] != "policy_eligibility") or
+                    (supplemental_pointer and ids[parents[0]] != "supplemental_candidate") or
+                    ((fullboard_pointer or supplemental_pointer) and
                      abs(candidate_bpm[parents[0]] - bpm) > 0.001)):
                 raise TraceError("policy pointer identity not verified")
         elif stage in ("candidate_filter", "primary_rank", "primary_terminal"):
@@ -283,6 +299,9 @@ def validate(rows: list[dict], *, require_windows: bool = False) -> dict:
     collapsed = stage_indices["candidate_transform"]
     primary_pool = stage_indices["primary_eligibility"]
     fullboard = stage_indices["policy_eligibility"]
+    supplemental = stage_indices["supplemental_candidate"]
+    if len(supplemental) > 1:
+        raise TraceError("multiple selected supplemental objects")
     if not raw or not collapsed:
         raise TraceError("missing raw/collapsed MIR")
     if len(primary_pool) != len(collapsed) or not all(
@@ -332,12 +351,19 @@ def validate(rows: list[dict], *, require_windows: bool = False) -> dict:
         raise TraceError("policy pointer/output BPM mismatch")
     pointer_reason = policy_pointer["reason_code"]
     pointer_native = pointer_reason == "pointer_native_fullboard_consistent"
+    pointer_supplemental = pointer_reason == "pointer_native_supplemental_consistent"
+    if pointer_supplemental and (not supplemental or
+            policy_pointer["parent_candidate_ids"] != [supplemental[0]["candidate_id"]]):
+        raise TraceError("supplemental pointer has no native selected source")
     pointer_seen = int(policy_pointer["metrics"]["score"])
     pointer_in_board = int(policy_pointer["metrics"]["support"])
     if (pointer_native and
         (not pointer_seen or not pointer_in_board or
          policy["metrics"]["bpm"] <= 0)):
         raise TraceError("unsupported native policy selected pointer")
+    if (pointer_supplemental and
+            (not pointer_seen or pointer_in_board or policy["metrics"]["bpm"] <= 0)):
+        raise TraceError("supplemental policy pointer flags inconsistent")
     if (pointer_reason == "pointer_not_observed" and pointer_seen):
         raise TraceError("policy pointer marked not observed yet seen")
     if (pointer_reason == "pointer_no_output") != (
@@ -423,6 +449,8 @@ def validate(rows: list[dict], *, require_windows: bool = False) -> dict:
             for x in stage_indices["candidate_filter"]),
         "selector_rank_observations": len(stage_indices["primary_rank"]),
         "selector_terminal_observations": len(stage_indices["primary_terminal"]),
+        "supplemental_selected_sources": len(supplemental),
+        "policy_supplemental_pointer_identity_complete": int(pointer_supplemental),
         "policy_origin_unknown": sum(x["reason_code"] == "full_board_origin_unknown"
                                      for x in fullboard),
         "policy_output_source_comparison": policy_origin["reason_code"],

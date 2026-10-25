@@ -281,3 +281,16 @@ does not authorize package C.
 ### 25 Oct 2026: CI-only process resource sampling (prepared, not a speedup claim)
 
 Single-analysis entry/exit snapshots record elapsed wall time, process CPU-time delta, process-lifetime peak working-set before/after and end working-set. The native probe uses Windows process counters under the disposable synthetic fixture gate. The full-process CPU delta may include background host threads and the process-lifetime peak cannot be attributed entirely to the analysis; both limitations are explicit. Neither is a per-pass FFT profile or music-quality evidence. Python requires one bounded resource event on the strict real-host path, rejects nonfinite/non-monotonic/missing/duplicated values and foreign fields, and reports numeric aggregates. Production builds do not compile or emit this observer. No performance policy, candidate, writer or threshold changes; Phase B remains open pending independent host + code qualification.
+
+
+### 25 Oct 2026: exact native supplemental Policy pointer provenance (CI-only)
+
+Three typed supplemental sources—material-risk local-exact, partial-bar
+aggregate, and partial-bar TopK—carry the actual selected object pointer.
+The synthetic host recorder checks that pointer against the same-analysis
+input objects (not an equal BPM), assigns at most one source-indexed ID, and
+emits numeric-only trace. The Python validator rejects missing, duplicate,
+foreign or mismatched pointer/candidate identity and preserves the distinction
+between a selected Policy pointer and the final writer's measured witness.
+This is not full first-veto or final supplemental witness completeness; no
+production selector, writer or audio DSP changed. Phase C remains closed.

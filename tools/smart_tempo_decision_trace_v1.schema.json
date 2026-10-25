@@ -19,7 +19,7 @@
         "mir_segment", "candidate_create", "candidate_transform",
         "candidate_filter", "primary_eligibility", "primary_rank",
         "primary_terminal", "primary_select", "primary_hold", "policy_eligibility", "policy_resolution", "policy_pointer",
-        "policy_rank", "policy_change", "policy_hold_release",
+        "policy_rank", "policy_change", "policy_hold_release", "supplemental_candidate",
         "measured_witness", "final_output", "resource_usage", "write_guard"
       ]
     },
