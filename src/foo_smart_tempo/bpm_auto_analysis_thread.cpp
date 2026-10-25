@@ -727,6 +727,15 @@ void bpm_auto_analysis_thread::WorkerMain() {
               trackIdentifier.get_ptr(), &routingContext,
               captureMeasuredCandidates);
           const auto &diag = analyzer->get_diagnostics();
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+          if (m_batchDryRunMode) {
+            // Bounded public-fixture-only decision trace, runner-temp sidecar.
+            // It does not participate in candidate selection or tag writes.
+            smart_tempo::ci_oracle::record_policy(
+                diag.policy_reason.get_ptr(), diag.decision_class.get_ptr(),
+                diag.decision_note.get_ptr());
+          }
+#endif
           m_confidence_results[index] = diag.confidence;
           m_method_results[index] = diag.method;
           m_error_results[index] = diag.error_reason;

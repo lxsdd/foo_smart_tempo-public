@@ -152,6 +152,55 @@ inline bool record_window_plan(int requestedSeconds, int requestedPasses,
   return true;
 }
 
+// Only fixed public CI fixtures may disclose bounded decision enums. The
+// production diagnostic note may contain arbitrary text, so retain only its
+// known measured-policy prefix and an ASCII token; never serialize paths.
+inline std::string bounded_policy_token(const char* value) {
+  if (value == nullptr || value[0] == '\0') return "none";
+  std::string token;
+  for (const unsigned char* p =
+           reinterpret_cast<const unsigned char*>(value); *p != 0; ++p) {
+    if (token.size() >= 96 ||
+        !((*p >= 'a' && *p <= 'z') || (*p >= 'A' && *p <= 'Z') ||
+          (*p >= '0' && *p <= '9') || *p == '_' || *p == '-')) {
+      return "invalid";
+    }
+    token.push_back(static_cast<char>(*p));
+  }
+  return token;
+}
+
+inline bool record_policy(const char* policyReason,
+                          const char* decisionClass,
+                          const char* decisionNote) {
+  const std::wstring fixture = approved_fixture();
+  if (fixture.empty()) return false;
+  constexpr const char* prefix = "Hodgkinson/MIR measured policy: ";
+  const char* measuredReason =
+      decisionNote != nullptr &&
+              std::strncmp(decisionNote, prefix, std::strlen(prefix)) == 0
+          ? decisionNote + std::strlen(prefix)
+          : nullptr;
+  std::string csv =
+      "policy_reason,decision_class,measured_policy_reason\n";
+  csv += bounded_policy_token(policyReason) + "," +
+         bounded_policy_token(decisionClass) + "," +
+         bounded_policy_token(measuredReason) + "\n";
+  const std::wstring path = fixture + L".policy.csv";
+  HANDLE handle = CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr,
+                              CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
+  if (handle == INVALID_HANDLE_VALUE) return false;
+  DWORD written = 0;
+  const BOOL ok = WriteFile(handle, csv.data(), static_cast<DWORD>(csv.size()),
+                            &written, nullptr);
+  CloseHandle(handle);
+  if (!ok || written != csv.size()) {
+    DeleteFileW(path.c_str());
+    return false;
+  }
+  return true;
+}
+
 template <typename CandidateGroups>
 inline bool record(const std::vector<double>& bpm,
                    const std::vector<uint8_t>& withheld,

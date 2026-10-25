@@ -201,6 +201,24 @@ function Run-Case([string]$installer,[string]$root,[string]$inputFile,[string[]]
         throw 'Synthetic-only measured candidate evidence is missing'
       }
       $evidenceRows=@(Import-Csv -LiteralPath $evidenceFile)
+      $policyFile=$inputFile+'.policy.csv'
+      if (-not (Test-Path -LiteralPath $policyFile -PathType Leaf)) {
+        throw 'Public synthetic decision trace is missing'
+      }
+      $policyRows=@(Import-Csv -LiteralPath $policyFile)
+      if ($policyRows.Count -ne 1) { throw 'Invalid public synthetic decision trace' }
+      $policyFields=($policyRows[0].PSObject.Properties.Name -join ',')
+      if ($policyFields -cne 'policy_reason,decision_class,measured_policy_reason' -or
+          $policyRows[0].policy_reason -cnotmatch '^[A-Za-z0-9_-]{1,96}$' -or
+          $policyRows[0].decision_class -cnotmatch '^[A-Za-z0-9_-]{1,96}$' -or
+          $policyRows[0].measured_policy_reason -cnotmatch '^[A-Za-z0-9_-]{1,96}$') {
+        throw 'Invalid public synthetic decision trace'
+      }
+      if ($label -cmatch '^SYNTHETIC_prospective_(four_floor_97_25|breakbeat_96_70|breakbeat_144_20|breakbeat_189_60|poly_three_143_60)$') {
+        Write-Host ("SYNTHETIC_BPM_POLICY id={0} policy={1} class={2} measured_reason={3}" -f
+          $label.Substring(10),$policyRows[0].policy_reason,
+          $policyRows[0].decision_class,$policyRows[0].measured_policy_reason)
+      }
       if ($evidenceRows.Count -gt 32) { throw 'Synthetic candidate evidence cap exceeded' }
       if ($windowSeconds -eq 0) {
         foreach ($candidate in $evidenceRows) {
