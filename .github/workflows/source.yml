@@ -99,6 +99,12 @@ jobs:
           # The full x64 real-host matrix later scores actual MIR outputs;
           # green build/host checks never imply musical accuracy.
 
+      - name: Verify independent complex-rhythm synthetic oracle and scorer
+        shell: pwsh
+        run: |
+          python -m unittest discover -s tests -p 'test_synthetic_complex_challenge.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'Complex synthetic BPM oracle regressions failed' }
+
       - name: Verify BPM oracle scoring and ambiguous/held cases
         shell: pwsh
         run: |
