@@ -1,6 +1,7 @@
 """Complex public synthetic rhythm fixture generation and scoring contracts."""
 from __future__ import annotations
 
+import csv
 import json
 import math
 from pathlib import Path
@@ -13,7 +14,7 @@ import wave
 TOOLS = Path(__file__).resolve().parents[1] / "tools"
 sys.path.insert(0, str(TOOLS))
 from generate_synthetic_complex_challenge import CASES, render  # noqa: E402
-from score_synthetic_complex_challenge import score  # noqa: E402
+from score_synthetic_complex_challenge import load_candidates, score  # noqa: E402
 
 
 class ComplexSyntheticChallengeTests(unittest.TestCase):
@@ -116,6 +117,66 @@ class ComplexSyntheticChallengeTests(unittest.TestCase):
         manifest["cases"][0]["reference_bpm"] = math.inf
         with self.assertRaises(ValueError):
             score(manifest, obs, timing)
+
+
+    def test_complex_classification_and_candidate_gap_audit(self):
+        refs, obs, timing = [], [], []
+        for i, (name, bpm, style) in enumerate(CASES):
+            amb = ("meter_underdetermined" if style in
+                   ("halftrap", "doubletrap") else
+                   "tempo_nonstationary" if style == "switch" else "none")
+            refs.append({"id": name, "reference_bpm": bpm,
+                         "style": "stress_" + style, "ambiguity": amb})
+            obs.append({"index": str(i), "bpm": str(bpm or 0),
+                        "held": "1" if amb != "none" or bpm is None else "0"})
+            timing.append({"index": str(i), "id": name, "analysis_ms": "350"})
+        manifest = {"schema": "synthetic_bpm_reference_v1", "cases": refs}
+        obs[0]["bpm"] = str(CASES[0][1] * 2)
+        obs[4].update(bpm="94.8", held="0")  # metrical ambiguity
+        obs[13].update(bpm="108", held="0")  # tempo switch, not noise
+        obs[14].update(bpm="123", held="0")  # nonrhythmic false accept
+        candidates = {name: [] for name, _, _ in CASES}
+        candidates[CASES[0][0]] = [CASES[0][1], CASES[0][1] * 2]
+        scored = score(manifest, obs, timing, candidates)
+        classes = scored["challenge_classes"]
+        self.assertEqual((classes["clear_correct"], classes["clear_wrong"],
+                          classes["clear_held"]), (10, 1, 0))
+        self.assertEqual(classes["clear_half_double"], 1)
+        self.assertEqual(classes["metrical_accepted"], 1)
+        self.assertEqual(classes["nonstationary_accepted"], 1)
+        self.assertEqual(classes["nonrhythmic_accepted"], 1)
+        self.assertEqual(scored["candidate_audit"]["wrong_with_precise"], 1)
+        self.assertEqual(scored["candidate_audit"]["wrong_without_precise"], 0)
+        candidates[CASES[0][0]] = [CASES[0][1] * 2]
+        gap = score(manifest, obs, timing, candidates)["candidate_audit"]
+        self.assertEqual(gap["wrong_without_precise"], 1)
+        self.assertEqual(gap["wrong_with_precise"], 0)
+        candidates["not_a_public_case"] = [120.0]
+        with self.assertRaises(ValueError):
+            score(manifest, obs, timing, candidates)
+
+    def test_challenge_candidate_csv_rejects_untrusted_or_unbounded(self):
+        fields = ["id", "rank", "bpm", "evidence",
+                  "support", "winner", "local_exact"]
+        good = [CASES[0][0], "1", "73.25", "1.5", "1", "0", ".95"]
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "candidates.csv"
+            def write(rows):
+                with path.open("w", encoding="utf-8", newline="") as f:
+                    writer = csv.writer(f)
+                    writer.writerow(fields)
+                    writer.writerows(rows)
+            write([good, good])  # Duplicate rank is valid evidence.
+            self.assertEqual(len(load_candidates(path)[CASES[0][0]]), 2)
+            write([["unlisted_private_identity", *good[1:]]])
+            with self.assertRaises(ValueError):
+                load_candidates(path)
+            write([[good[0], good[1], "nan", *good[3:]]])
+            with self.assertRaises(ValueError):
+                load_candidates(path)
+            write([good] * 33)
+            with self.assertRaises(ValueError):
+                load_candidates(path)
 
 
 if __name__ == "__main__":
