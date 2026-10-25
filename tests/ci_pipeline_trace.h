@@ -8,7 +8,10 @@
 // This is an observational pool-lineage trace, NOT a claim that every
 // collapsed candidate passed every selector's internal eligibility gate.
 #include <Windows.h>
+#include <Psapi.h>
+#pragma comment(lib, "Psapi.lib")
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -80,6 +83,69 @@ struct WindowObservation {
   unsigned analysis_rate_hz = 0;
 };
 
+// Process-scoped measurements, not attributed per-thread CPU/RSS.
+struct ProcessResourceObservation {
+  bool valid = false;
+  double wall_seconds = 0.0;
+  double process_cpu_seconds = 0.0;
+  std::size_t process_peak_rss_before = 0;
+  std::size_t process_peak_rss_after = 0;
+  std::size_t process_working_set_after = 0;
+};
+struct ProcessResourceStart {
+  std::chrono::steady_clock::time_point started{};
+  uint64_t process_cpu_ticks = 0;
+  std::size_t peak_rss_bytes = 0;
+  bool valid = false;
+};
+inline uint64_t process_cpu_filetime(const FILETIME& a, const FILETIME& b) noexcept {
+  ULARGE_INTEGER x{}, y{};
+  x.LowPart = a.dwLowDateTime; x.HighPart = a.dwHighDateTime;
+  y.LowPart = b.dwLowDateTime; y.HighPart = b.dwHighDateTime;
+  return x.QuadPart + y.QuadPart;
+}
+inline ProcessResourceStart begin_process_resource_observation() noexcept {
+  ProcessResourceStart out;
+  out.started = std::chrono::steady_clock::now();
+  FILETIME created{}, exited{}, kernel{}, user{};
+  PROCESS_MEMORY_COUNTERS counters{};
+  counters.cb = sizeof(counters);
+  if (!GetProcessTimes(GetCurrentProcess(), &created, &exited, &kernel, &user) ||
+      !GetProcessMemoryInfo(GetCurrentProcess(), &counters, sizeof(counters)))
+    return out;
+  out.process_cpu_ticks = process_cpu_filetime(kernel, user);
+  out.peak_rss_bytes = counters.PeakWorkingSetSize;
+  out.valid = true;
+  return out;
+}
+inline ProcessResourceObservation end_process_resource_observation(
+    const ProcessResourceStart& start) noexcept {
+  ProcessResourceObservation out;
+  if (!start.valid) return out;
+  const auto ended = std::chrono::steady_clock::now();
+  FILETIME created{}, exited{}, kernel{}, user{};
+  PROCESS_MEMORY_COUNTERS counters{};
+  counters.cb = sizeof(counters);
+  if (!GetProcessTimes(GetCurrentProcess(), &created, &exited, &kernel, &user) ||
+      !GetProcessMemoryInfo(GetCurrentProcess(), &counters, sizeof(counters)))
+    return out;
+  const uint64_t ticks = process_cpu_filetime(kernel, user);
+  if (ticks < start.process_cpu_ticks ||
+      counters.PeakWorkingSetSize < start.peak_rss_bytes ||
+      counters.PeakWorkingSetSize < counters.WorkingSetSize)
+    return out;
+  out.wall_seconds = std::chrono::duration<double>(ended-start.started).count();
+  out.process_cpu_seconds =
+      static_cast<double>(ticks-start.process_cpu_ticks) / 10000000.0;
+  out.process_peak_rss_before = start.peak_rss_bytes;
+  out.process_peak_rss_after = counters.PeakWorkingSetSize;
+  out.process_working_set_after = counters.WorkingSetSize;
+  out.valid = std::isfinite(out.wall_seconds) && out.wall_seconds > 0.0 &&
+              std::isfinite(out.process_cpu_seconds) &&
+              out.process_cpu_seconds >= 0.0;
+  return out;
+}
+
 struct EventWriter {
   std::string run_id;
   explicit EventWriter(std::string id) : run_id(std::move(id)) {}
@@ -103,6 +169,16 @@ struct EventWriter {
     lines += "],\"metrics\":{\"bpm\":" + safe_num(bpm);
     lines += ",\"score\":" + safe_num(score);
     lines += ",\"support\":" + safe_num(support) + "}}\n";
+  }
+  void push_resource(const ProcessResourceObservation& r) {
+    push("resource_usage", "observed", "process_resource_snapshot",
+         "", {}, 0.0, 0.0, 0.0);
+    lines.insert(lines.size() - 3,
+        ",\"wall_seconds\":" + safe_num(r.wall_seconds) +
+        ",\"process_cpu_seconds\":" + safe_num(r.process_cpu_seconds) +
+        ",\"process_peak_rss_before_bytes\":" + std::to_string(r.process_peak_rss_before) +
+        ",\"process_peak_rss_after_bytes\":" + std::to_string(r.process_peak_rss_after) +
+        ",\"process_working_set_after_bytes\":" + std::to_string(r.process_working_set_after));
   }
   void push_window(const WindowObservation& w) {
     push("decode_window", "observed", "actual_decoded_extent",
@@ -130,10 +206,18 @@ inline bool record(
     mir_pipeline::MirCiPolicyPointerSource policyPointer,
     const MirPrimarySelection& primary,
     const MirPolicyDecision& policy,
-    double final_bpm, bool withheld, bool same_run_measured_witness) {
+    double final_bpm, bool withheld, bool same_run_measured_witness,
+    const ProcessResourceObservation& resource) {
   const std::wstring fixture = permitted_fixture();
   const auto run_id = ci_run_id();
-  if (fixture.empty() || run_id.empty() ||
+  if (fixture.empty() || run_id.empty() || !resource.valid ||
+      !std::isfinite(resource.wall_seconds) || resource.wall_seconds <= 0.0 ||
+      resource.wall_seconds > 7200.0 ||
+      !std::isfinite(resource.process_cpu_seconds) || resource.process_cpu_seconds < 0.0 ||
+      resource.process_cpu_seconds > resource.wall_seconds * 256.0 + 1.0 ||
+      resource.process_peak_rss_before == 0 ||
+      resource.process_peak_rss_after < resource.process_peak_rss_before ||
+      resource.process_peak_rss_after < resource.process_working_set_after ||
       !finite_bpm(final_bpm) || final_bpm > 220.0 ||
       (!withheld && final_bpm > 0.0 && !same_run_measured_witness))
     return false;
@@ -345,10 +429,11 @@ inline bool record(
                !witness_ids.empty() ? "indexed_native_witness" :
                                       "supplemental_witness_unindexed",
            "", witness_ids, final_bpm, 0.0, 0.0);
+  out.push_resource(resource);
   out.push("write_guard", "write_blocked", "ci_dry_run",
            "", {}, 0.0, 0.0, 0.0);
   if (out.sequence != windows.size() + board.raw_candidates.size() + 2 * collapsed.size() +
-                      fullboard.size() + selectorEvents.size() + 7 ||
+                      fullboard.size() + selectorEvents.size() + 8 ||
       out.lines.size() > 2 * 1024 * 1024) return false;
   const std::wstring output = fixture + L".pipeline.jsonl";
   HANDLE h = CreateFileW(output.c_str(), GENERIC_WRITE, 0, nullptr,

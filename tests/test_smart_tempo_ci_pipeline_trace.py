@@ -51,6 +51,26 @@ def trace(held=False):
     return rows
 
 
+def resource_event():
+    item = event("resource_usage", None, [], 0., "observed",
+                 "process_resource_snapshot", 0)
+    item["metrics"] = {
+        "bpm": 0., "score": 0., "support": 0.,
+        "wall_seconds": 4.5, "process_cpu_seconds": 3.75,
+        "process_peak_rss_before_bytes": 35_000_000,
+        "process_peak_rss_after_bytes": 46_000_000,
+        "process_working_set_after_bytes": 42_000_000
+    }
+    return item
+
+
+def with_resource(rows):
+    rows.insert(-1, resource_event())
+    for i, row in enumerate(rows):
+        row["sequence"] = i
+    return rows
+
+
 class NativePipelineTraceTests(unittest.TestCase):
     def test_positive_exact_lineage_and_unknown_gate_reported_not_hidden(self):
         result = validate(trace())
@@ -324,7 +344,7 @@ class NativePipelineTraceTests(unittest.TestCase):
 
 
     def test_actual_decoder_window_coverage_and_overlap(self):
-        rows = trace()
+        rows = with_resource(trace())
         windows = []
         for index, start in enumerate((0.0, 0.5, 1.0)):
             row = event("decode_window", None, [], 0., "observed",
@@ -347,7 +367,7 @@ class NativePipelineTraceTests(unittest.TestCase):
         self.assertEqual(result["repeat_factor"], 2.)
 
     def test_window_capture_missing_partial_and_out_of_order_fail_closed(self):
-        rows = trace()
+        rows = with_resource(trace())
         with self.assertRaises(TraceError):
             validate(rows, require_windows=True)
         row = event("decode_window", None, [], 0., "observed",
@@ -370,7 +390,7 @@ class NativePipelineTraceTests(unittest.TestCase):
             validate(rows)
 
     def test_decoder_window_adversarial_numeric_and_privacy_inputs(self):
-        rows = trace()
+        rows = with_resource(trace())
         row = event("decode_window", None, [], 0., "observed",
                     "actual_decoded_extent", 0)
         row["metrics"] = dict(bpm=0., score=0., support=0.,
@@ -475,6 +495,33 @@ class NativePipelineTraceTests(unittest.TestCase):
         self.assertEqual(validate(rows)["policy_pointer_identity_complete"], 0)
         bad = copy.deepcopy(rows)
         bad[6]["parent_candidate_ids"] = ["c2"]
+        with self.assertRaises(TraceError):
+            validate(bad)
+
+    def test_resource_provenance_is_process_scoped_and_fail_closed(self):
+        rows = with_resource(trace())
+        self.assertEqual(validate(rows)["process_cpu_seconds"], 3.75)
+        with self.assertRaises(TraceError):
+            validate(trace(), require_windows=True)
+        cases = (
+            ("wall_seconds", -1.), ("wall_seconds", float("nan")),
+            ("process_cpu_seconds", float("inf")),
+            ("process_cpu_seconds", 2000.),
+            ("process_peak_rss_after_bytes", 1),
+            ("process_peak_rss_after_bytes", 4.5),
+            ("process_working_set_after_bytes", 47_000_000),
+            ("score", 1.), ("path", "private")
+        )
+        for key, value in cases:
+            with self.subTest(key=key):
+                bad = copy.deepcopy(rows)
+                bad[-2]["metrics"][key] = value
+                with self.assertRaises(TraceError):
+                    validate(bad)
+        bad = copy.deepcopy(rows)
+        bad.insert(-1, resource_event())
+        for i, row in enumerate(bad):
+            row["sequence"] = i
         with self.assertRaises(TraceError):
             validate(bad)
 

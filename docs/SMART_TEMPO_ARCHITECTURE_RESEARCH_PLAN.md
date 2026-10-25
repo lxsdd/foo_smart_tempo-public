@@ -276,3 +276,8 @@ rejects incomplete captures before writing the disposable synthetic JSONL.
 This protects diagnostic integrity only. It does not establish every first
 veto or supplemental source ID, does not change production BPM/metadata and
 does not authorize package C.
+
+
+### 25 Oct 2026: CI-only process resource sampling (prepared, not a speedup claim)
+
+Single-analysis entry/exit snapshots record elapsed wall time, process CPU-time delta, process-lifetime peak working-set before/after and end working-set. The native probe uses Windows process counters under the disposable synthetic fixture gate. The full-process CPU delta may include background host threads and the process-lifetime peak cannot be attributed entirely to the analysis; both limitations are explicit. Neither is a per-pass FFT profile or music-quality evidence. Python requires one bounded resource event on the strict real-host path, rejects nonfinite/non-monotonic/missing/duplicated values and foreign fields, and reports numeric aggregates. Production builds do not compile or emit this observer. No performance policy, candidate, writer or threshold changes; Phase B remains open pending independent host + code qualification.

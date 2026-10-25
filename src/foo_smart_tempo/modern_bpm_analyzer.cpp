@@ -1487,6 +1487,11 @@ double ModernBpmAnalyzer::analyze(metadb_handle_ptr track, threaded_process_stat
                                    const char* trackIdentifier,
                                    const RoutingLogContext* routingContext,
                                    bool captureMeasuredCandidates) {
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+  // Snapshot once per analysis, with no audio/tags/paths in the resource trace.
+  const auto ciResourceStarted =
+      smart_tempo::ci_pipeline_trace::begin_process_resource_observation();
+#endif
   // Fine-grained per-hop/per-chunk timers are intentionally debug-only; they are
   // measurable overhead in large library scans.
   const bool verboseLogs = verbose_console_logging_enabled();
@@ -3019,6 +3024,9 @@ double ModernBpmAnalyzer::analyze(metadb_handle_ptr track, threaded_process_stat
                         ? &partialBarAggregateShadow : nullptr,
                     std::span<const smart_tempo::HodgkinsonPartialBarTopKExactCandidate>(
                         topKExactRows.data(), topKExactRows.size()));
+            const auto ciResource =
+                smart_tempo::ci_pipeline_trace::end_process_resource_observation(
+                    ciResourceStarted);
             const bool traced = !ciWindowCaptureFailed &&
                 mir_ci_primary_selector_trace_complete() &&
                 smart_tempo::ci_pipeline_trace::record(
@@ -3027,7 +3035,7 @@ double ModernBpmAnalyzer::analyze(metadb_handle_ptr track, threaded_process_stat
                 mir_ci_primary_selector_events(), mir_ci_policy_pointer_source(),
                 mirPrimarySelection,
                 mirPolicyDecision, finalBpm, m_diag.suppress_write,
-                measuredWitness);
+                measuredWitness, ciResource);
             FB2K_console_formatter()
                 << (traced ? "SMART_TEMPO_CI_PIPELINE_TRACE=PASS"
                            : "SMART_TEMPO_CI_PIPELINE_TRACE=FAIL");

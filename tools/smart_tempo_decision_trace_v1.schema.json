@@ -20,7 +20,7 @@
         "candidate_filter", "primary_eligibility", "primary_rank",
         "primary_terminal", "primary_select", "primary_hold", "policy_eligibility", "policy_resolution", "policy_pointer",
         "policy_rank", "policy_change", "policy_hold_release",
-        "measured_witness", "final_output", "write_guard"
+        "measured_witness", "final_output", "resource_usage", "write_guard"
       ]
     },
     "outcome": {

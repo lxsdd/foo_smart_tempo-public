@@ -17,6 +17,10 @@ MAX_BYTES, MAX_LINES = 2 * 1024 * 1024, 12300
 FIELDS = frozenset(("schema", "analysis_id", "sequence", "stage", "outcome",
                     "reason_code", "candidate_id", "parent_candidate_ids", "metrics"))
 METRICS = frozenset(("bpm", "score", "support"))
+RESOURCE_METRICS = METRICS | frozenset((
+    "wall_seconds", "process_cpu_seconds",
+    "process_peak_rss_before_bytes", "process_peak_rss_after_bytes",
+    "process_working_set_after_bytes"))
 WINDOW_METRICS = METRICS | frozenset(("pass_index", "pass_total", "start_sec",
     "requested_frames", "decoded_frames", "analysis_frames",
     "source_rate_hz", "analysis_rate_hz"))
@@ -36,6 +40,7 @@ ENUMS = {
     "policy_change": (None, None),
     "final_output": (None, None),
     "measured_witness": (None, None),
+    "resource_usage": ("observed", "process_resource_snapshot"),
     "write_guard": ("write_blocked", "ci_dry_run")
 }
 REASON_PATTERN = re.compile(r"^[a-z][a-z0-9_]{0,95}$")
@@ -89,7 +94,8 @@ def validate(rows: list[dict], *, require_windows: bool = False) -> dict:
         "primary_terminal": 3, "primary_select": 4,
         "policy_resolution": 5, "policy_pointer": 6,
         "policy_change": 7, "final_output": 8,
-        "measured_witness": 9, "write_guard": 10
+        "measured_witness": 9, "resource_usage": 10,
+        "write_guard": 11
     }
     previous_stage_number = -1
     session_id = rows[0].get("analysis_id") if type(rows[0]) is dict else None
@@ -117,7 +123,8 @@ def validate(rows: list[dict], *, require_windows: bool = False) -> dict:
         if (not isinstance(item["reason_code"], str) or
                 not REASON_PATTERN.fullmatch(item["reason_code"])):
             raise TraceError("unbounded reason")
-        expected_metrics = WINDOW_METRICS if stage == "decode_window" else METRICS
+        expected_metrics = (WINDOW_METRICS if stage == "decode_window" else
+                            RESOURCE_METRICS if stage == "resource_usage" else METRICS)
         if type(item["metrics"]) is not dict or set(item["metrics"]) != expected_metrics:
             raise TraceError("non-numeric-only telemetry")
         for key, value in item["metrics"].items():
@@ -135,6 +142,20 @@ def validate(rows: list[dict], *, require_windows: bool = False) -> dict:
             raise TraceError("invalid candidate parents")
         if any(type(p) is not str or p not in ids for p in parents):
             raise TraceError("orphan or forward candidate parent")
+        if stage in ("decode_window", "resource_usage") and (candidate_id is not None or parents):
+            raise TraceError("window/resource must not contain candidate identity")
+        if stage == "resource_usage":
+            m = item["metrics"]
+            for key in ("process_peak_rss_before_bytes",
+                        "process_peak_rss_after_bytes", "process_working_set_after_bytes"):
+                if m[key] != int(m[key]) or not 0 < m[key] <= 2**48:
+                    raise TraceError("invalid process memory counter")
+            if (any(m[key] != 0 for key in METRICS) or
+                not 0 < m["wall_seconds"] <= 7200 or
+                not 0 <= m["process_cpu_seconds"] <= m["wall_seconds"] * 256 + 1 or
+                m["process_peak_rss_after_bytes"] < m["process_peak_rss_before_bytes"] or
+                m["process_peak_rss_after_bytes"] < m["process_working_set_after_bytes"]):
+                raise TraceError("invalid process resource observation")
         if stage == "decode_window" and (candidate_id is not None or parents):
             raise TraceError("window must not contain candidate identity")
         if stage in CREATORS:
@@ -214,6 +235,9 @@ def validate(rows: list[dict], *, require_windows: bool = False) -> dict:
                    "measured_witness", "write_guard"):
         if len(stage_indices[single]) != 1:
             raise TraceError("missing or repeated terminal stage " + single)
+    resources = stage_indices["resource_usage"]
+    if len(resources) > 1 or (require_windows and len(resources) != 1):
+        raise TraceError("native process resource observation missing or duplicated")
     windows = stage_indices["decode_window"]
     if len(windows) > 128:
         raise TraceError("too many observed windows")
@@ -379,6 +403,9 @@ def validate(rows: list[dict], *, require_windows: bool = False) -> dict:
                      for x in primary_pool)
     return {
         "rows": len(rows), "raw": len(raw), "collapsed": len(collapsed),
+        "process_wall_seconds": round(resources[0]["metrics"]["wall_seconds"], 6) if resources else None,
+        "process_cpu_seconds": round(resources[0]["metrics"]["process_cpu_seconds"], 6) if resources else None,
+        "process_peak_rss_bytes": int(resources[0]["metrics"]["process_peak_rss_after_bytes"]) if resources else None,
         "decoded_windows": len(windows), "declared_windows": declared_passes,
         "windows_complete": int(bool(windows) and len(windows) == declared_passes),
         "requested_window_seconds": round(total_requested, 6),
