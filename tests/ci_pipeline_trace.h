@@ -13,6 +13,8 @@
 #include <cstddef>
 #include <cstdint>
 #include <cwchar>
+#include <cstring>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -40,7 +42,9 @@ inline std::wstring permitted_fixture() {
   return fixture;
 }
 
-inline bool finite_bpm(double bpm) { return std::isfinite(bpm) && bpm >= 0.0 && bpm <= 220.0; }
+// Alias expansion can legitimately produce BPM outside the production rail.
+// Only final accepted BPM is constrained by the 40..220 production decision.
+inline bool finite_bpm(double bpm) { return std::isfinite(bpm) && bpm >= 0.0 && bpm <= 2000.0; }
 inline std::string safe_num(double value) {
   return std::to_string(std::isfinite(value) ? value : 0.0);
 }
@@ -73,13 +77,15 @@ inline bool record(
     const mir_pipeline::MirCandidateBoard& board,
     const std::vector<mir_pipeline::MirCandidate>& collapsed,
     const std::vector<mir_pipeline::MirPolicyMeasuredCandidate>& fullboard,
+    std::span<const mir_pipeline::MirCiSelectorEvent> selectorEvents,
     const MirPrimarySelection& primary,
     const MirPolicyDecision& policy,
     double final_bpm, bool withheld) {
   const std::wstring fixture = permitted_fixture();
-  if (fixture.empty() || !finite_bpm(final_bpm)) return false;
+  if (fixture.empty() || !finite_bpm(final_bpm) || final_bpm > 220.0) return false;
   if (board.raw_candidates.size() > 4096 || collapsed.size() > 4096 ||
-      fullboard.size() > 4096 || collapsed.size() != primary.candidate_count)
+      selectorEvents.size() > 4096 || fullboard.size() > 4096 ||
+      collapsed.size() != primary.candidate_count)
     return false;
   EventWriter out;
   std::vector<std::string> raw_ids, cluster_ids, policy_ids;
@@ -122,6 +128,28 @@ inline bool record(
              id, parents, candidate.bpm,
              candidate.local_exact_score, candidate.candidate.support);
   }
+  // Executed selector checks, not a fabricated ranking over the merged
+  // manual-review pool. Provisional exclusions may be rescued by fallback.
+  for (const auto& item : selectorEvents) {
+    if (!finite_bpm(item.bpm) || item.bpm <= 0.0 ||
+        !std::isfinite(item.score)) return false;
+    const std::size_t count = item.raw ? board.raw_candidates.size() : collapsed.size();
+    const auto& ids = item.raw ? raw_ids : cluster_ids;
+    std::size_t match = count;
+    for (std::size_t i = 0; i < count; ++i) {
+      const double bpm = item.raw ? board.raw_candidates[i].bpm : collapsed[i].bpm;
+      if (std::abs(bpm - item.bpm) < 0.001) {
+        match = i;
+        break;
+      }
+    }
+    if (match == count) return false;
+    const bool ranking = std::strcmp(item.reason, "raw_rank_scored") == 0 ||
+                         std::strcmp(item.reason, "harmonic_rank_scored") == 0;
+    out.push(ranking ? "primary_rank" : "candidate_filter",
+             item.included ? "included" : "excluded",
+             item.reason, ids[match], {}, item.bpm, item.score, 0.0);
+  }
   std::vector<std::string> primary_parent;
   for (std::size_t i = 0; i < collapsed.size(); ++i) {
     if (primary.selected_bpm > 0.0 &&
@@ -156,7 +184,7 @@ inline bool record(
   out.push("write_guard", "write_blocked", "ci_dry_run",
            "", {}, 0.0, 0.0, 0.0);
   if (out.sequence != board.raw_candidates.size() + 2 * collapsed.size() +
-                      fullboard.size() + 4 ||
+                      fullboard.size() + selectorEvents.size() + 4 ||
       out.lines.size() > 2 * 1024 * 1024) return false;
   const std::wstring output = fixture + L".pipeline.jsonl";
   HANDLE h = CreateFileW(output.c_str(), GENERIC_WRITE, 0, nullptr,

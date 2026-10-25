@@ -22,6 +22,8 @@ ENUMS = {
     "candidate_create": ("observed", "raw_alias"),
     "candidate_transform": ("observed", "cluster_from_raw"),
     "primary_eligibility": ("observed", "pool_only_gate_unresolved"),
+    "candidate_filter": (None, None),
+    "primary_rank": ("included", None),
     "policy_eligibility": ("included", None),
     "primary_select": (None, None),
     "policy_change": (None, None),
@@ -30,6 +32,15 @@ ENUMS = {
 }
 REASON_PATTERN = re.compile(r"^[a-z][a-z0-9_]{0,95}$")
 ID_PATTERN = re.compile(r"^c(?:0|[1-9][0-9]{0,6})$")
+ALLOWED_FILTER_REASONS = frozenset((
+    "raw_alias_allowed", "raw_alias_provisional_exclusion",
+    "raw_support_allowed", "raw_support_provisional_exclusion",
+    "low_upper_gate_allowed", "low_upper_gate_provisional_exclusion",
+    "low_threshold_allowed", "low_threshold_provisional_exclusion",
+    "harmonic_in_rail", "harmonic_out_of_rail",
+    "general_in_rail", "general_out_of_rail_provisional"
+))
+ALLOWED_RANK_REASONS = frozenset(("raw_rank_scored", "harmonic_rank_scored"))
 
 
 class TraceError(ValueError):
@@ -40,7 +51,15 @@ def validate(rows: list[dict]) -> dict:
     if not isinstance(rows, list) or not 8 <= len(rows) <= MAX_LINES:
         raise TraceError("trace missing or out of row bound")
     ids: dict[str, str] = {}
+    candidate_bpm: dict[str, float] = {}
     stage_indices: dict[str, list[dict]] = {name: [] for name in ENUMS}
+    stage_order = {
+        "candidate_create": 0, "candidate_transform": 1,
+        "primary_eligibility": 1, "policy_eligibility": 2,
+        "candidate_filter": 3, "primary_rank": 3, "primary_select": 4,
+        "policy_change": 5, "final_output": 6, "write_guard": 7
+    }
+    previous_stage_number = -1
     for index, item in enumerate(rows):
         if type(item) is not dict or item.keys() != FIELDS and set(item) != FIELDS:
             raise TraceError("trace fields not exact")
@@ -51,6 +70,9 @@ def validate(rows: list[dict]) -> dict:
         stage = item["stage"]
         if stage not in ENUMS:
             raise TraceError("unknown stage")
+        if stage_order[stage] < previous_stage_number:
+            raise TraceError("native stage reordering")
+        previous_stage_number = stage_order[stage]
         expected_outcome, expected_reason = ENUMS[stage]
         if (expected_outcome is not None and item["outcome"] != expected_outcome or
             expected_reason is not None and item["reason_code"] != expected_reason or
@@ -66,7 +88,7 @@ def validate(rows: list[dict]) -> dict:
             if type(value) not in (float, int) or not math.isfinite(value):
                 raise TraceError("nonfinite or nonnumeric metrics")
         bpm = item["metrics"]["bpm"]
-        if bpm < 0 or bpm > 220:
+        if bpm < 0 or bpm > (220 if stage in ("final_output", "policy_change") else 2000):
             raise TraceError("out-of-rail BPM")
         candidate_id = item["candidate_id"]
         if candidate_id is not None and (type(candidate_id) is not str or
@@ -82,10 +104,26 @@ def validate(rows: list[dict]) -> dict:
                 raise TraceError("duplicated or missing created candidate ID")
             if int(candidate_id[1:]) != len(ids):
                 raise TraceError("noncontiguous candidate lineage IDs")
+            if stage == "candidate_transform" and any(
+                    abs(bpm - candidate_bpm[p]) >= .001 for p in parents):
+                raise TraceError("cluster did not descend from matching raw BPM")
             ids[candidate_id] = stage
+            candidate_bpm[candidate_id] = bpm
         elif stage == "primary_eligibility":
             if candidate_id is None or ids.get(candidate_id) != "candidate_transform":
                 raise TraceError("primary pool includes candidate not transformed")
+        elif stage in ("candidate_filter", "primary_rank"):
+            # Actual executed selector probes, with explicit raw/cluster source.
+            if item["reason_code"] not in (
+                    ALLOWED_FILTER_REASONS if stage == "candidate_filter"
+                    else ALLOWED_RANK_REASONS):
+                raise TraceError("unknown selector-veto/rank reason")
+            expect_raw = item["reason_code"].startswith("raw_")
+            if (candidate_id is None or ids.get(candidate_id) !=
+                    ("candidate_create" if expect_raw else "candidate_transform")):
+                raise TraceError("selector event not linked to correct source board")
+            if stage == "candidate_filter" and item["outcome"] not in ("included", "excluded"):
+                raise TraceError("invalid selector gate outcome")
         elif candidate_id is not None:
             raise TraceError("non-creator stage unexpectedly creates candidate")
         if stage == "candidate_transform" and not parents:
@@ -117,8 +155,10 @@ def validate(rows: list[dict]) -> dict:
     guard = stage_indices["write_guard"][0]
     if (primary["outcome"] == "selected" and
             (not primary["parent_candidate_ids"] or
-             any(ids[p] != "candidate_transform" for p in primary["parent_candidate_ids"]))):
-        raise TraceError("selected primary candidate has no clustered witness")
+             any(ids[p] != "candidate_transform" or
+                 abs(candidate_bpm[p] - primary["metrics"]["bpm"]) >= .001
+                 for p in primary["parent_candidate_ids"]))):
+        raise TraceError("selected primary candidate has no matching clustered witness")
     if primary["reason_code"] not in (
             "primary_auto", "primary_review_hold", "primary_no_candidate"):
         raise TraceError("unapproved primary decision reason")
@@ -146,6 +186,8 @@ def validate(rows: list[dict]) -> dict:
         "rows": len(rows), "raw": len(raw), "collapsed": len(collapsed),
         "primary_pool": len(primary_pool), "policy_board": len(fullboard),
         "primary_veto_reason_unknown": incomplete,
+        "selector_branch_checks": len(stage_indices["candidate_filter"]),
+        "selector_rank_observations": len(stage_indices["primary_rank"]),
         "policy_origin_unknown": sum(x["reason_code"] == "full_board_origin_unknown"
                                      for x in fullboard),
         "primary_auto": int(primary["outcome"] == "selected"),

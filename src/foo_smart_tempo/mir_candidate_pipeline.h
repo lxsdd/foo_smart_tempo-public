@@ -211,6 +211,20 @@ struct MirCandidate {
   std::size_t rows = 0;
 };
 
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+// Actual per-branch selector membership checks. Only the ephemeral CI probe
+// contains this structure: no production ABI, UI, writer or DSP change.
+struct MirCiSelectorEvent {
+  double bpm = 0.0;
+  double score = 0.0;
+  bool raw = false;
+  bool included = false;
+  const char* reason = "unknown";
+};
+[[nodiscard]] std::span<const MirCiSelectorEvent>
+mir_ci_primary_selector_events() noexcept;
+#endif
+
 struct MirCandidateBoard {
   std::vector<MirRawCandidate> raw_candidates;
   std::unordered_map<uint64_t, std::size_t> raw_candidate_index;

@@ -98,7 +98,7 @@ class NativePipelineTraceTests(unittest.TestCase):
                     validate(actual)
 
     def test_numeric_nan_bool_and_out_of_rail_rejected(self):
-        for value in (float("nan"), float("inf"), -2., 221., "128", True):
+        for value in (float("nan"), float("inf"), -2., 2001., "128", True):
             with self.subTest(value=str(value)):
                 actual = trace()
                 actual[0]["metrics"]["bpm"] = value
@@ -118,6 +118,53 @@ class NativePipelineTraceTests(unittest.TestCase):
         r = validate(actual)
         self.assertEqual(r["policy_origin_unknown"], 1)
         self.assertEqual(r["primary_veto_reason_unknown"], 1)
+
+    def test_executed_selector_gate_events_are_joined_to_raw_or_cluster(self):
+        events = trace()
+        gates = [
+            event("candidate_filter", "c0", [], 128., "included",
+                  "raw_alias_allowed", 0),
+            event("candidate_filter", "c0", [], 128., "excluded",
+                  "raw_support_provisional_exclusion", 0),
+            event("primary_rank", "c0", [], 128., "included",
+                  "raw_rank_scored", 0),
+            event("candidate_filter", "c1", [], 128., "included",
+                  "general_in_rail", 0),
+            event("primary_rank", "c1", [], 128., "included",
+                  "harmonic_rank_scored", 0),
+        ]
+        events[4:4] = gates
+        for i, row in enumerate(events):
+            row["sequence"] = i
+        outcome = validate(events)
+        self.assertEqual((outcome["selector_branch_checks"],
+                          outcome["selector_rank_observations"]), (3, 2))
+        self.assertEqual(outcome["primary_veto_reason_unknown"], 1)
+        for broken in ("wrong_source", "unknown_reason", "invalid_outcome"):
+            with self.subTest(broken=broken):
+                rows = copy.deepcopy(events)
+                if broken == "wrong_source":
+                    rows[4]["candidate_id"] = "c1"
+                if broken == "unknown_reason":
+                    rows[4]["reason_code"] = "unvalidated_mir_rescue"
+                if broken == "invalid_outcome":
+                    rows[4]["outcome"] = "review_hold"
+                with self.assertRaises(TraceError):
+                    validate(rows)
+
+    def test_raw_aliased_candidates_can_exceed_output_rail_but_not_safety_limit(self):
+        rows = trace()
+        rows[0]["metrics"]["bpm"] = 512.0
+        # Future lineage validator should also reject this broken parent.
+        with self.assertRaises(TraceError):
+            validate(rows)
+        rows[1]["metrics"]["bpm"] = 512.0
+        rows[2]["metrics"]["bpm"] = 512.0
+        rows[4]["metrics"]["bpm"] = 512.0
+        rows[3]["parent_candidate_ids"] = []
+        rows[3]["reason_code"] = "full_board_origin_unknown"
+        result = validate(rows)
+        self.assertEqual(result["raw"], 1)
 
     def test_strict_file_framing_limits_and_source_id(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -152,6 +199,15 @@ class NativePipelineTraceTests(unittest.TestCase):
         self.assertIn('L"\\synthetic-oracle\\pulse_128.wav"', header.replace('\\\\', '\\'))
         self.assertIn("CREATE_NEW", header)
         self.assertIn("pool_only_gate_unresolved", header)
+        self.assertIn("mir_ci_primary_selector_events()", component)
+        self.assertIn("candidate_filter", header)
+        self.assertIn("primary_rank", header)
+        selector = (ROOT / "src" / "foo_smart_tempo" /
+                    "mir_candidate_pipeline.cpp").read_text(encoding="utf-8")
+        for snippet in ("raw_alias_provisional_exclusion", "raw_support_provisional_exclusion",
+                        "low_upper_gate_provisional_exclusion", "low_threshold_allowed",
+                        "harmonic_rank_scored", "general_out_of_rail_provisional"):
+            self.assertIn(snippet, selector)
         self.assertIn("audit_smart_tempo_ci_pipeline_trace.py --trace", host)
         self.assertIn("test_smart_tempo_ci_pipeline_trace.py", workflow)
         self.assertNotRegex(workflow, r"(?m)^\s*uses:\s*actions/upload-artifact@")

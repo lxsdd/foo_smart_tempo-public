@@ -95,7 +95,18 @@ Only numeric measurements and fixed reason enums appear in the public trace.
 
 **Crucial remaining proof distinction:** a member of the collapsed primary
 *input pool* is not necessarily eligible under that lane's branch-specific
-selector and veto conditions. Therefore the current real observer
+selector and veto conditions. The next CI-only selector instrumentation reads
+**actual executed** raw-alias and minimum-support checks in the conservative
+raw selector; 40–220 BPM rail and rank checks in harmonic/standard selectors;
+and the upper/threshold gates in the low-pulse branch. It records included and
+provisionally excluded candidates (because a fall-back can re-admit them)
+using stable matching raw/cluster candidate IDs; all numeric score values
+are read-only. The native auditor validates reason enums, source membership,
+stage order, raw→cluster BPM parentage and exact primary selected BPM.
+This is strictly non-interfering in production (compile guard excludes
+all event state and logging). Rescue stages, tie-break ranking in other
+branches and auxiliary partial-bar witness paths are still incomplete.
+Therefore the real observer
 **explicitly emits** `pool_only_gate_unresolved`, and the strict scorer
 reports `PHASE_B_CAUSAL_COMPLETENESS=INCOMPLETE_PRIMARY_VETO`.
 This is meaningful empirical pilot evidence, NOT evidence that package B is

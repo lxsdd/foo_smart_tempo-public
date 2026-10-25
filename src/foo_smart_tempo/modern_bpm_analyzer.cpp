@@ -2989,7 +2989,8 @@ double ModernBpmAnalyzer::analyze(metadb_handle_ptr track, threaded_process_stat
             const auto primaryPool = collapse_mir_candidates(mirMeasuredCandidateBoard);
             const bool traced = smart_tempo::ci_pipeline_trace::record(
                 mirMeasuredCandidateBoard, primaryPool,
-                mirPolicyMeasuredCandidates, mirPrimarySelection,
+                mirPolicyMeasuredCandidates,
+                mir_ci_primary_selector_events(), mirPrimarySelection,
                 mirPolicyDecision, finalBpm, m_diag.suppress_write);
             FB2K_console_formatter()
                 << (traced ? "SMART_TEMPO_CI_PIPELINE_TRACE=PASS"

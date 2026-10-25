@@ -13,6 +13,24 @@
 #include <vector>
 
 namespace smart_tempo::mir_pipeline {
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+namespace {
+thread_local std::vector<MirCiSelectorEvent> g_ci_primary_events;
+inline void ci_primary_event(double bpm, double score, bool raw,
+                             bool included, const char* reason) noexcept {
+  if (g_ci_primary_events.size() >= 4096) return;
+  try {
+    g_ci_primary_events.push_back({bpm, score, raw, included, reason});
+  } catch (...) {
+    // CI-only diagnostics must never affect BPM selection or writer behavior.
+  }
+}
+}
+std::span<const MirCiSelectorEvent>
+mir_ci_primary_selector_events() noexcept {
+  return {g_ci_primary_events.data(), g_ci_primary_events.size()};
+}
+#endif
 namespace {
 constexpr double kMirProductionMinBpm = 40.0;
 constexpr double kMirProductionMaxBpm = 220.0;
@@ -926,7 +944,12 @@ evaluate_mir_high_pulse_interval_conflict_shadow(
   std::vector<const MirRawCandidate*> pool;
   pool.reserve(board.raw_candidates.size());
   for (const auto& candidate : board.raw_candidates) {
-    if (mir_raw_alias_allowed(candidate, lane)) {
+    const bool aliasAllowed = mir_raw_alias_allowed(candidate, lane);
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+    ci_primary_event(candidate.bpm, 0.0, true, aliasAllowed,
+                     aliasAllowed ? "raw_alias_allowed" : "raw_alias_provisional_exclusion");
+#endif
+    if (aliasAllowed) {
       pool.push_back(&candidate);
     }
   }
@@ -939,7 +962,12 @@ evaluate_mir_high_pulse_interval_conflict_shadow(
   std::vector<const MirRawCandidate*> supported;
   supported.reserve(pool.size());
   for (const auto* candidate : pool) {
-    if (mir_raw_support(*candidate, board.segment_count) >= supportFloor) {
+    const double support = mir_raw_support(*candidate, board.segment_count);
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+    ci_primary_event(candidate->bpm, support, true, support >= supportFloor,
+                     support >= supportFloor ? "raw_support_allowed" : "raw_support_provisional_exclusion");
+#endif
+    if (support >= supportFloor) {
       supported.push_back(candidate);
     }
   }
@@ -952,6 +980,9 @@ evaluate_mir_high_pulse_interval_conflict_shadow(
   for (const auto* candidate : pool) {
     const double score = score_mir_raw_conservative(
         *candidate, board.segment_count, lane, routeMin, routeMax, routeCenter);
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+    ci_primary_event(candidate->bpm, score, true, true, "raw_rank_scored");
+#endif
     const auto tie = std::make_tuple(
         mir_raw_support(*candidate, board.segment_count),
         mir_raw_winner_support(*candidate, board.segment_count),
@@ -1123,9 +1154,14 @@ evaluate_mir_high_pulse_interval_conflict_shadow(
   // threshold_best -> targeted_rescue_v3 -> targeted_rescue_v4.
   std::vector<const MirCandidate*> upper;
   for (const auto& candidate : candidates) {
-    if (candidate.bpm >= 95.0 && candidate.bpm <= 125.0 &&
+    const bool qualifies = candidate.bpm >= 95.0 && candidate.bpm <= 125.0 &&
         candidate.support >= 0.70 && candidate.pulse_score >= 0.35 &&
-        candidate.pulse_section_support >= 0.35) {
+        candidate.pulse_section_support >= 0.35;
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+    ci_primary_event(candidate.bpm, candidate.pulse_score, false, qualifies,
+                     qualifies ? "low_upper_gate_allowed" : "low_upper_gate_provisional_exclusion");
+#endif
+    if (qualifies) {
       upper.push_back(&candidate);
     }
   }
@@ -1141,7 +1177,12 @@ evaluate_mir_high_pulse_interval_conflict_shadow(
 
   std::vector<const MirCandidate*> thresholdPool;
   for (const auto& candidate : candidates) {
-    if (candidate.bpm >= 45.0 && candidate.bpm <= 90.0) {
+    const bool inRange = candidate.bpm >= 45.0 && candidate.bpm <= 90.0;
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+    ci_primary_event(candidate.bpm, candidate.support, false, inRange,
+                     inRange ? "low_threshold_allowed" : "low_threshold_provisional_exclusion");
+#endif
+    if (inRange) {
       thresholdPool.push_back(&candidate);
     }
   }
@@ -1386,8 +1427,13 @@ select_mir_low_pulse_continuous_center_rescue(
   double routeCenter) noexcept {
   std::vector<const MirCandidate*> pool;
   for (const auto& candidate : candidates) {
-    if (candidate.bpm >= kMirProductionMinBpm &&
-        candidate.bpm <= kMirProductionMaxBpm) {
+    const bool inRail = candidate.bpm >= kMirProductionMinBpm &&
+        candidate.bpm <= kMirProductionMaxBpm;
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+    ci_primary_event(candidate.bpm, candidate.support, false, inRail,
+                     inRail ? "harmonic_in_rail" : "harmonic_out_of_rail");
+#endif
+    if (inRail) {
       pool.push_back(&candidate);
     }
   }
@@ -1416,6 +1462,9 @@ select_mir_low_pulse_continuous_center_rescue(
     if (routeCenter > 0.0 && candidate->bpm > routeCenter + 20.0) {
       score -= 1.2;
     }
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+    ci_primary_event(candidate->bpm, score, false, true, "harmonic_rank_scored");
+#endif
     if (best == nullptr || score > bestScore) {
       best = candidate;
       bestScore = score;
@@ -1432,8 +1481,13 @@ select_mir_low_pulse_continuous_center_rescue(
   double routeCenter) noexcept {
   std::vector<const MirCandidate*> pool;
   for (const auto& candidate : candidates) {
-    if (candidate.bpm >= kMirProductionMinBpm &&
-        candidate.bpm <= kMirProductionMaxBpm) {
+    const bool inRail = candidate.bpm >= kMirProductionMinBpm &&
+        candidate.bpm <= kMirProductionMaxBpm;
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+    ci_primary_event(candidate.bpm, candidate.support, false, inRail,
+                     inRail ? "general_in_rail" : "general_out_of_rail_provisional");
+#endif
+    if (inRail) {
       pool.push_back(&candidate);
     }
   }
@@ -1588,6 +1642,9 @@ compute_mir_primary_selection(
     double routeMin,
     double routeMax,
     bool enabled) {
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+  g_ci_primary_events.clear();
+#endif
   smart_tempo::MirPrimarySelection shadow;
   shadow.enabled = enabled;
   shadow.route_min_bpm = routeMin;
