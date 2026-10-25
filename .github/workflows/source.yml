@@ -105,6 +105,13 @@ jobs:
           python -m unittest discover -s tests -p 'test_synthetic_complex_challenge.py' -v
           if ($LASTEXITCODE -ne 0) { throw 'Complex synthetic BPM oracle regressions failed' }
 
+      - name: Verify read-only soft genre-prior safety counterfactuals
+        shell: pwsh
+        run: |
+          python -m unittest discover -s tests -p 'test_synthetic_genre_prior.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'Synthetic genre-prior counterfactual tests failed' }
+          # This is NOT a real genre-tagged A/B/C host comparison.
+
       - name: Verify BPM oracle scoring and ambiguous/held cases
         shell: pwsh
         run: |
