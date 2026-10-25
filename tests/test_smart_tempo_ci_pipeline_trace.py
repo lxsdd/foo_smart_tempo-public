@@ -1129,7 +1129,15 @@ class NativePipelineTraceTests(unittest.TestCase):
         self.assertIn('L"GITHUB_ACTIONS"', header)
         self.assertIn('L"RUNNER_TEMP"', header)
         self.assertIn('L"SMART_TEMPO_CI_FIXTURE"', header)
-        self.assertIn('L"\\synthetic-oracle\\pulse_128.wav"', header.replace('\\\\', '\\'))
+        # Both CI observers must share the exact fixed synthetic allowlist;
+        # moving the literal to the shared header must not weaken the guard.
+        fixture_guard = (ROOT / "tests" / "ci_fixture_allowlist.h").read_text(
+            encoding="utf-8")
+        self.assertIn('#include "ci_fixture_allowlist.h"', header)
+        self.assertIn("ci_fixture::permitted(fixture, root)", header)
+        for case in ("pulse_60", "pulse_128", "pulse_120_sparse", "silence"):
+            self.assertIn(case + ".wav", fixture_guard)
+        self.assertIn("_wcsnicmp", fixture_guard)
         self.assertIn("CREATE_NEW", header)
         self.assertIn("mir_ci_primary_selector_pool()", component)
         self.assertIn("ci_run_id()", header)
