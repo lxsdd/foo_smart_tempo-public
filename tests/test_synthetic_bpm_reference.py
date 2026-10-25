@@ -122,6 +122,62 @@ class SyntheticBpmReferenceTests(unittest.TestCase):
         self.assertEqual(events(120.0, "sparse", 20),
                          events(60.0, "half_pulse", 20))
 
+    def test_independent_musical_grid_provenance_and_partitions(self):
+        # The beat oracle is declared before synthesis and is not recovered
+        # from the analyzer's chosen BPM or the audible onset list.
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "development"
+            data = self.generate(root)
+            self.assertEqual(data["oracle_metadata_revision"], "musical_grid_v2")
+            self.assertEqual({c["corpus_partition"] for c in data["cases"]},
+                             {"development"})
+            rows = {c["id"]: c for c in data["cases"]}
+            for case in data["cases"]:
+                beats = case["beat_sample_positions"]
+                self.assertEqual(case["generator_seed"] is not None,
+                                 case["seed_recipe"] == "fixed_xorshift32_v1")
+                if case["reference_bpm"] is None:
+                    self.assertEqual(beats, [])
+                    self.assertEqual(case["beat_grid_status"],
+                                     "not_globally_defined")
+                else:
+                    bpm = case["reference_bpm"]
+                    rate = case["sample_rate"]
+                    self.assertGreater(len(beats), 1)
+                    self.assertTrue(all(a < b for a, b in zip(beats, beats[1:])))
+                    for index, sample in enumerate(beats):
+                        expected = round((0.25 + index * 60.0 / bpm) * rate)
+                        self.assertEqual(sample, expected)
+                    self.assertEqual(case["tempo_segments"], [])
+            # Audible pulses do NOT identify all latent musical beats.
+            self.assertLess(len(rows["pulse_128_half_pulse"]["event_sample_positions"]),
+                            len(rows["pulse_128_half_pulse"]["beat_sample_positions"]))
+            self.assertLess(len(rows["pulse_120_sparse"]["event_sample_positions"]),
+                            len(rows["pulse_120_sparse"]["beat_sample_positions"]))
+            self.assertEqual(rows["drum_142_odd_five"]["meter"], "5/4")
+            self.assertEqual(rows["drum_112_poly_three"]["meter"], "4/4")
+            self.assertEqual(rows["pulse_128"]["meter"], "unspecified")
+            switched = rows["tempo_90_128_switch"]
+            self.assertIsNone(switched["reference_bpm"])
+            self.assertEqual([part["bpm"] for part in switched["tempo_segments"]],
+                             [90.0, 128.0])
+            self.assertEqual(switched["beat_sample_positions"], [])
+            for part in switched["tempo_segments"]:
+                self.assertLess(part["start_sample"], part["end_sample"])
+            prospective = Path(temp) / "prospective"
+            subprocess.run(
+                [sys.executable, str(GENERATOR), "--output", str(prospective),
+                 "--prospective-case", "prospective_breakbeat_189_60"],
+                check=True, capture_output=True, text=True,
+            )
+            holdout = json.loads((prospective / "reference.json").read_text(
+                encoding="utf-8"))["cases"]
+            self.assertEqual(len(holdout), 1)
+            self.assertEqual(holdout[0]["corpus_partition"],
+                             "prospective_holdout")
+            self.assertEqual(holdout[0]["reference_bpm"], 189.6)
+            self.assertGreater(len(holdout[0]["beat_sample_positions"]), 20)
+
     def test_byte_reproducibility_and_no_overwrite(self):
         with tempfile.TemporaryDirectory() as temp:
             left = Path(temp) / "a"
