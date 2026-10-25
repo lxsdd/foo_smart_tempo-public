@@ -20,7 +20,11 @@ def event(stage, cid, parents, bpm, outcome, reason, number):
         "sequence": number, "stage": stage, "outcome": outcome,
         "reason_code": reason, "candidate_id": cid,
         "parent_candidate_ids": parents,
-        "metrics": {"bpm": bpm, "score": .95, "support": .85}
+        "metrics": {"bpm": bpm, "score": .95, "support": .85,
+                    **({f"tie_{i}": 0.0 for i in range(4)}
+                       if stage == "primary_compare" and
+                       reason.startswith(("raw_compare_", "general_baseline_compare_"))
+                       else {})}
     }
 
 
@@ -552,6 +556,110 @@ class NativePipelineTraceTests(unittest.TestCase):
                         row["sequence"] = index
                     with self.assertRaises(TraceError):
                         validate(bad)
+
+
+    def test_exact_native_raw_and_baseline_tie_tuple_replay(self):
+        # The independent scorer must reproduce lexicographic tie decisions,
+        # including a slightly lower score within the production epsilon.
+        for family in ("raw", "general_baseline"):
+            with self.subTest(family=family):
+                rows = with_resource(trace())
+                insert_at = next(i for i, row in enumerate(rows)
+                                 if row["stage"] == "primary_terminal")
+                cid = "c0" if family == "raw" else "c1"
+                scenarios = (
+                    (1.0, (.7, .5, .4, -3.), True),
+                    (1.0, (.7, .6, .1, -3.), True),
+                    (1.0, (.7, .6, .0, -3.), False),
+                    (1.0 - 5e-10, (.8, .1, .1, -2.), True),
+                )
+                inserted = []
+                for score, tie, won in scenarios:
+                    rank = event("primary_rank", cid, [], 128., "included",
+                                 family + "_rank_scored", 0)
+                    comp = event("primary_compare", cid, [], 128.,
+                                 "included" if won else "excluded",
+                                 family + ("_compare_won" if won else "_compare_lost"), 0)
+                    rank["metrics"].update(score=score, support=0.)
+                    comp["metrics"].update(score=score, support=0.)
+                    for index, value in enumerate(tie):
+                        comp["metrics"][f"tie_{index}"] = value
+                    inserted.extend((rank, comp))
+                rows[insert_at:insert_at] = inserted
+                for i, row in enumerate(rows):
+                    row["sequence"] = i
+                result = validate(rows)
+                self.assertEqual((result["selector_comparator_wins"],
+                                  result["selector_comparator_losses"]), (3, 1))
+                for mutation in ("wrong_winner_tie", "wrong_loser_tie",
+                                 "missing_tie", "extra_tie", "nonfinite_tie",
+                                 "equal_tuple_promoted", "score_too_low"):
+                    with self.subTest(mutation=mutation):
+                        bad = copy.deepcopy(rows)
+                        comps = [x for x in bad if x["stage"] == "primary_compare"]
+                        if mutation == "wrong_winner_tie":
+                            comps[1]["metrics"]["tie_1"] = .1
+                        elif mutation == "wrong_loser_tie":
+                            comps[2]["metrics"]["tie_2"] = .2
+                        elif mutation == "missing_tie":
+                            del comps[0]["metrics"]["tie_0"]
+                        elif mutation == "extra_tie":
+                            comps[0]["metrics"]["tie_4"] = 1.
+                        elif mutation == "nonfinite_tie":
+                            comps[0]["metrics"]["tie_2"] = math.inf
+                        elif mutation == "equal_tuple_promoted":
+                            comps[1]["metrics"]["tie_1"] = .5
+                            comps[1]["metrics"]["tie_2"] = .4
+                        else:
+                            comps[3]["metrics"]["score"] = .9
+                            bad[bad.index(comps[3]) - 1]["metrics"]["score"] = .9
+                        with self.assertRaises(TraceError):
+                            validate(bad)
+
+    def test_first_executed_cluster_exclusion_is_not_final_veto(self):
+        rows = with_resource(trace())
+        insert_at = next(i for i, row in enumerate(rows)
+                         if row["stage"] == "primary_terminal")
+        events = [
+            event("candidate_filter", "c0", [], 128., "excluded",
+                  "raw_alias_provisional_exclusion", 0),
+            event("candidate_filter", "c1", [], 128., "excluded",
+                  "general_out_of_rail_provisional", 0),
+            event("candidate_filter", "c1", [], 128., "included",
+                  "general_rail_fallback_readmitted", 0),
+            event("primary_rank", "c1", [], 128., "included",
+                  "general_alt_rank_scored", 0),
+            event("primary_compare", "c1", [], 128., "included",
+                  "general_alt_compare_won", 0),
+        ]
+        rows[insert_at:insert_at] = events
+        for i, row in enumerate(rows):
+            row["sequence"] = i
+        result = validate(rows)
+        self.assertEqual(result["selector_cluster_gate_checked"], 1)
+        self.assertEqual(result["selector_cluster_gate_unvisited"], 0)
+        self.assertEqual(result["selector_cluster_first_exclusion_observed"], 1)
+        self.assertEqual(result["selector_cluster_excluded_then_ranked"], 1)
+        self.assertEqual(result["selector_cluster_excluded_then_readmitted"], 1)
+        self.assertEqual(result["selector_cluster_first_exclusion_reasons"],
+                         "general_out_of_rail_provisional:1")
+        self.assertEqual(result["primary_veto_reason_unknown"], 1)
+        self.assertEqual(result["phase_b_causal_completeness"],
+                         "INCOMPLETE_PRIMARY_VETO")
+
+    def test_tie_tuple_source_guard_and_reporter_contract(self):
+        source = (ROOT / "src/foo_smart_tempo/mir_candidate_pipeline.cpp").read_text(
+            encoding="utf-8")
+        reporter = (ROOT / "tests/ci_pipeline_trace.h").read_text(encoding="utf-8")
+        header = (ROOT / "src/foo_smart_tempo/mir_candidate_pipeline.h").read_text(
+            encoding="utf-8")
+        self.assertEqual(source.count("std::get<0>(tie)"), 2)
+        self.assertEqual(source.count("std::get<3>(tie)"), 2)
+        self.assertEqual(source.count("tieMetrics, hasTieMetrics"), 1)
+        self.assertIn("bool has_tie_metrics = false", header)
+        self.assertIn("if (item.has_tie_metrics != tieExpected) return false", reporter)
+        for i in range(4):
+            self.assertIn('"tie_' + str(i), reporter)
 
     def test_ci_comparator_shadow_is_guarded_and_matches_production(self):
         source = (ROOT / "src/foo_smart_tempo/mir_candidate_pipeline.cpp").read_text(

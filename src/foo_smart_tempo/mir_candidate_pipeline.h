@@ -2,6 +2,7 @@
 
 #include "hodgkinson_full_mir.h"
 #include "hodgkinson_tatum_probe.h"
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <span>
@@ -221,6 +222,9 @@ struct MirCiSelectorEvent {
   bool included = false;
   const char* reason = "unknown";
   std::size_t source_index = 0;
+  // CI-only comparator tie tuple; the production selection ABI is unchanged.
+  std::array<double, 4> tie_metrics{};
+  bool has_tie_metrics = false;
 };
 [[nodiscard]] std::span<const MirCiSelectorEvent>
 mir_ci_primary_selector_events() noexcept;

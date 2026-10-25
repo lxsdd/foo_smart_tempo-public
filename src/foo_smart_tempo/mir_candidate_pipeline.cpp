@@ -36,13 +36,16 @@ inline void ci_policy_supplemental(double bpm, MirCiSupplementalKind kind,
 }
 
 inline void ci_primary_event(std::size_t sourceIndex, double bpm, double score,
-                             bool raw, bool included, const char* reason) noexcept {
+                             bool raw, bool included, const char* reason,
+                             std::array<double, 4> tieMetrics = {},
+                             bool hasTieMetrics = false) noexcept {
   if (g_ci_primary_events.size() >= 4096) {
     g_ci_primary_trace_complete = false;
     return;
   }
   try {
-    g_ci_primary_events.push_back({bpm, score, raw, included, reason, sourceIndex});
+    g_ci_primary_events.push_back({bpm, score, raw, included, reason, sourceIndex,
+                                   tieMetrics, hasTieMetrics});
   } catch (...) {
     // CI-only diagnostics never affect selection; incomplete evidence fails the host gate.
     g_ci_primary_trace_complete = false;
@@ -1042,7 +1045,9 @@ evaluate_mir_high_pulse_interval_conflict_shadow(
     ci_primary_event(static_cast<std::size_t>(candidate - board.raw_candidates.data()),
                      candidate->bpm, score, true, ciComparisonWon,
                      ciComparisonWon ? "raw_compare_won" :
-                                     "raw_compare_lost");
+                                     "raw_compare_lost",
+                     {std::get<0>(tie), std::get<1>(tie),
+                      std::get<2>(tie), std::get<3>(tie)}, true);
 #endif
   }
   return best;
@@ -1170,7 +1175,9 @@ evaluate_mir_high_pulse_interval_conflict_shadow(
     ci_primary_event(static_cast<std::size_t>(candidate - candidates.data()),
                      candidate->bpm, score, false, ciComparisonWon,
                      ciComparisonWon ? "general_baseline_compare_won" :
-                                     "general_baseline_compare_lost");
+                                     "general_baseline_compare_lost",
+                     {std::get<0>(tie), std::get<1>(tie),
+                      std::get<2>(tie), std::get<3>(tie)}, true);
 #endif
   }
   return best;

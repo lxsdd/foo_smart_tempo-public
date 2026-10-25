@@ -17,6 +17,7 @@ MAX_BYTES, MAX_LINES = 2 * 1024 * 1024, 12300
 FIELDS = frozenset(("schema", "analysis_id", "sequence", "stage", "outcome",
                     "reason_code", "candidate_id", "parent_candidate_ids", "metrics"))
 METRICS = frozenset(("bpm", "score", "support"))
+TIE_METRICS = METRICS | frozenset(("tie_0", "tie_1", "tie_2", "tie_3"))
 RESOURCE_METRICS = METRICS | frozenset((
     "wall_seconds", "process_cpu_seconds",
     "process_peak_rss_before_bytes", "process_peak_rss_after_bytes",
@@ -148,8 +149,12 @@ def validate(rows: list[dict], *, require_windows: bool = False) -> dict:
         if (not isinstance(item["reason_code"], str) or
                 not REASON_PATTERN.fullmatch(item["reason_code"])):
             raise TraceError("unbounded reason")
+        has_native_tie = (stage == "primary_compare" and
+                          item["reason_code"].startswith(("raw_compare_",
+                                                          "general_baseline_compare_")))
         expected_metrics = (WINDOW_METRICS if stage == "decode_window" else
-                            RESOURCE_METRICS if stage == "resource_usage" else METRICS)
+                            RESOURCE_METRICS if stage == "resource_usage" else
+                            TIE_METRICS if has_native_tie else METRICS)
         if type(item["metrics"]) is not dict or set(item["metrics"]) != expected_metrics:
             raise TraceError("non-numeric-only telemetry")
         for key, value in item["metrics"].items():
@@ -290,7 +295,8 @@ def validate(rows: list[dict], *, require_windows: bool = False) -> dict:
                         comp["reason_code"] not in (prefix + "_compare_won",
                                                      prefix + "_compare_lost") or
                         comp["candidate_id"] != row["candidate_id"] or
-                        comp["metrics"] != row["metrics"]):
+                        any(comp["metrics"][key] != row["metrics"][key]
+                            for key in METRICS)):
                     raise TraceError("native rank/comparator identity or score mismatch")
             if row["stage"] != "primary_compare":
                 continue
@@ -301,18 +307,21 @@ def validate(rows: list[dict], *, require_windows: bool = False) -> dict:
                 raise TraceError("unknown comparator family")
             score = row["metrics"]["score"]
             won = row["outcome"] == "included"
+            uses_tie = prefix in ("raw", "general_baseline")
+            tie = tuple(row["metrics"][f"tie_{i}"] for i in range(4)) if uses_tie else ()
             previous = current_best.get(prefix)
-            if previous is None and not won:
-                raise TraceError("first comparator challenger cannot lose")
-            # Multi-field tie tuples are not captured; no inferred tie-veto.
-            if previous is not None:
-                epsilon = 1e-9 if prefix in ("raw", "general_baseline") else 0.0
-                if won and score < previous - epsilon:
-                    raise TraceError("comparator promoted lower-scoring challenger")
-                if not won and score > previous + epsilon:
-                    raise TraceError("comparator rejected higher-scoring challenger")
+            if previous is None:
+                expected_win = True
+            else:
+                prior_score, prior_tie = previous
+                expected_win = (
+                    score > prior_score + 1e-9 or
+                    (abs(score - prior_score) <= 1e-9 and tie > prior_tie)
+                ) if uses_tie else score > prior_score
+            if won != expected_win:
+                raise TraceError("native comparator score/tie chronology contradicted")
             if won:
-                current_best[prefix] = score
+                current_best[prefix] = (score, tie)
     for single in ("primary_select", "policy_resolution",
                    "policy_pointer", "policy_change", "final_output",
                    "measured_witness", "write_guard"):
@@ -548,8 +557,27 @@ def validate(rows: list[dict], *, require_windows: bool = False) -> dict:
             guard["reason_code"] != "ci_dry_run" or
             any(guard["metrics"][name] != 0 for name in METRICS)):
         raise TraceError("media write safety drift")
-    # A pool candidate's presence is NEVER evidence it cleared branch-specific
-    # selector vetoes. This remains an explicit *known* gap until instrumented.
+    # FIRST observed cluster-level exclusions are actual source-indexed gate
+    # events, NOT terminal vetoes. Later fallbacks may re-admit a candidate;
+    # raw-only lanes need not check every collapsed cluster.
+    cluster_gates = [
+        row for row in stage_indices["candidate_filter"]
+        if ids[row["candidate_id"]] == "candidate_transform"
+    ]
+    checked_cluster_ids = {row["candidate_id"] for row in cluster_gates}
+    first_exclusion = {}
+    for row in cluster_gates:
+        cid = row["candidate_id"]
+        if row["outcome"] == "excluded" and cid not in first_exclusion:
+            first_exclusion[cid] = row["reason_code"]
+    ranked_cluster_ids = {
+        row["candidate_id"] for row in stage_indices["primary_rank"]
+        if ids[row["candidate_id"]] == "candidate_transform"
+    }
+    readmitted_cluster_ids = {
+        row["candidate_id"] for row in cluster_gates
+        if row["reason_code"].endswith("_fallback_readmitted")
+    }
     incomplete = sum(x["reason_code"] == "pool_only_gate_unresolved"
                      for x in primary_pool)
     return {
@@ -565,6 +593,16 @@ def validate(rows: list[dict], *, require_windows: bool = False) -> dict:
         "repeat_factor": round(total_decoded / covered, 6) if covered else 0.0,
         "primary_pool": len(primary_pool), "policy_board": len(fullboard),
         "primary_veto_reason_unknown": incomplete,
+        "selector_cluster_gate_checked": len(checked_cluster_ids),
+        "selector_cluster_gate_unvisited": len(collapsed) - len(checked_cluster_ids),
+        "selector_cluster_first_exclusion_observed": len(first_exclusion),
+        "selector_cluster_excluded_then_ranked": sum(
+            cid in ranked_cluster_ids for cid in first_exclusion),
+        "selector_cluster_excluded_then_readmitted": sum(
+            cid in readmitted_cluster_ids for cid in first_exclusion),
+        "selector_cluster_first_exclusion_reasons": ",".join(
+            f"{reason}:{sum(r == reason for r in first_exclusion.values())}"
+            for reason in sorted(set(first_exclusion.values()))),
         "selector_branch_checks": len(stage_indices["candidate_filter"]),
         "selector_fallback_readmissions": sum(
             x["reason_code"].endswith("_fallback_readmitted")

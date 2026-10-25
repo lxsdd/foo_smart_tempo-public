@@ -353,3 +353,25 @@ for each of raw, harmonic, general-baseline and general-alternative families.
 These are **executed comparisons**, not proof that a different lane or a
 supplementary Policy source was selectable. A tie is still not independently
 reconstructed from the full ordered tuple, and package B remains incomplete.
+
+
+### Phase B: exact executed tie comparison and observed first exclusion (CI-only)
+
+The CI-only selector observer now captures all four ordered production tie
+components (support, winner support, cumulative score, negative route-center
+distance) on the **raw** and **general-baseline** executed comparisons. The
+strict Python auditor replays the original epsilon-sensitive score predicate
+and lexicographic tuple, including equal-score wins/losses; harmonic and
+general-alt comparisons retain their original score-only ordering. Extra,
+missing, nonfinite, reordered or contradictory tuple values fail closed.
+Source parity guards continue to require the original production predicates.
+
+Separately, the auditor computes **the first actually observed exclusion**
+for each source-ID-linked collapsed candidate from ordered native filter events,
+with denominators for checked/unvisited candidates, later ranking and fallback
+readmission. Raw-only exclusions remain distinct from collapsed candidates.
+An observed exclusion is **not** proof of final ineligibility: fallbacks can
+readmit, and uninstrumented lane decisions cannot be inferred. The native
+pilot's existing `pool_only_gate_unresolved` remains explicitly unresolved;
+this package does not declare Phase B complete, unlock C, modify production
+DSP/Selector/Policy/Writer, or qualify musical BPM accuracy.

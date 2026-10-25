@@ -49,6 +49,7 @@
     "Every final nonzero BPM must reference a measured same-analysis candidate",
     "One candidate may have several origin markers; origin is not eligibility",
     "Every exclusion must name its exact stage and reason",
+    "CI-only raw and general-baseline executed comparator ties preserve the four ordered numeric tie fields",
     "Review Hold is a first-class outcome, not counted as a wrong BPM",
     "Window geometry and decoding costs must be independently measured",
     "Ground-truth labels never flow into candidate creation or production selection"

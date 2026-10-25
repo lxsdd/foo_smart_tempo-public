@@ -366,6 +366,21 @@ inline bool record(
              terminal ? "selected" :
                  item.included ? "included" : "excluded",
              item.reason, ids[item.source_index], {}, item.bpm, item.score, 0.0);
+    // Only the two native tie-based comparator families carry four ordered
+    // tie fields. All fields are numeric and generated from executed C++.
+    const bool tieExpected = comparison &&
+        (std::strncmp(item.reason, "raw_compare_", 12) == 0 ||
+         std::strncmp(item.reason, "general_baseline_compare_", 25) == 0);
+    if (item.has_tie_metrics != tieExpected) return false;
+    if (tieExpected) {
+      for (const double value : item.tie_metrics)
+        if (!std::isfinite(value)) return false;
+      out.lines.insert(out.lines.size() - 3,
+          ",\"tie_0\":" + safe_num(item.tie_metrics[0]) +
+          ",\"tie_1\":" + safe_num(item.tie_metrics[1]) +
+          ",\"tie_2\":" + safe_num(item.tie_metrics[2]) +
+          ",\"tie_3\":" + safe_num(item.tie_metrics[3]));
+    }
   }
   // Every collapsed candidate receives a purely observational disposition.
   // A temporary filter veto may be reversed later: never label it terminal.
