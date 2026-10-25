@@ -76,7 +76,7 @@ def validate(rows: list[dict]) -> dict:
         expected_outcome, expected_reason = ENUMS[stage]
         if (expected_outcome is not None and item["outcome"] != expected_outcome or
             expected_reason is not None and item["reason_code"] != expected_reason or
-            item["outcome"] not in ("observed","included","selected","rejected",
+            item["outcome"] not in ("observed","included","excluded","selected","rejected",
                                     "review_hold","no_candidate","write_blocked")):
             raise TraceError("unapproved outcome/reason")
         if (not isinstance(item["reason_code"], str) or
