@@ -598,8 +598,8 @@ class NativePipelineTraceTests(unittest.TestCase):
         mutations = (
             source.replace("const bool ciComparisonWon = best == nullptr || score > bestScore;",
                            "const bool ciComparisonWon = best == nullptr || score < bestScore;", 1),
-            source.replace("if (best == nullptr || score > bestScore) {",
-                           "if (best == nullptr || score < bestScore) {", 1),
+            source.replace("#endif\n    if (best == nullptr || score > bestScore) {",
+                           "#endif\n    if (best == nullptr || score < bestScore) {", 1),
             source.replace("#if defined(SMART_TEMPO_CI_ORACLE_PROBE)\n    const bool ciComparisonWon",
                            "#if 0\n    const bool ciComparisonWon", 1),
             source.replace('ciComparisonWon ? "harmonic_compare_won"',
