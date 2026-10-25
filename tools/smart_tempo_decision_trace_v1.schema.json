@@ -49,6 +49,8 @@
     "Every final nonzero BPM must reference a measured same-analysis candidate",
     "One candidate may have several origin markers; origin is not eligibility",
     "Every exclusion must name its exact stage and reason",
+    "Raw-to-cluster parentage must be the exact ordered first-match partition, never an approximate many-to-many BPM join",
+    "Every policy FullBoard row must have exactly one unique indexed cluster source; missing sources fail closed",
     "CI-only raw and general-baseline executed comparator ties preserve the four ordered numeric tie fields",
     "Review Hold is a first-class outcome, not counted as a wrong BPM",
     "Window geometry and decoding costs must be independently measured",

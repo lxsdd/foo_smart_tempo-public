@@ -60,6 +60,44 @@ def trace(held=False):
     return rows
 
 
+def lineage_trace(raw_bpms, cluster_bpms, cluster_sources):
+    """Independent source-only raw/cluster/FullBoard lineage fixture."""
+    if not raw_bpms or len(cluster_bpms) != len(cluster_sources):
+        raise ValueError("invalid synthetic lineage fixture")
+    raw_count = len(raw_bpms)
+    cluster_count = len(cluster_bpms)
+    policy_id = f"c{raw_count + cluster_count}"
+    primary_id = f"c{raw_count}"
+    rows = [
+        event("candidate_create", f"c{i}", [], bpm,
+              "observed", "raw_alias", 0)
+        for i, bpm in enumerate(raw_bpms)
+    ]
+    rows += [
+        event("candidate_transform", f"c{raw_count+i}",
+              [f"c{j}" for j in sources], bpm,
+              "observed", "cluster_from_raw", 0)
+        for i, (bpm, sources) in enumerate(zip(cluster_bpms, cluster_sources))
+    ]
+    rows += [
+        event("primary_eligibility", f"c{raw_count+i}", [], bpm,
+              "observed", "pool_only_gate_unresolved", 0)
+        for i, bpm in enumerate(cluster_bpms)
+    ]
+    rows.append(event("policy_eligibility", policy_id, [primary_id],
+                      127.99, "included", "full_board_member", 0))
+    tail = copy.deepcopy(trace()[4:])
+    for row in tail:
+        row["parent_candidate_ids"] = [
+            primary_id if p == "c1" else policy_id if p == "c2" else p
+            for p in row["parent_candidate_ids"]
+        ]
+    rows += tail
+    for i, row in enumerate(rows):
+        row["sequence"] = i
+    return rows
+
+
 def resource_event():
     item = event("resource_usage", None, [], 0., "observed",
                  "process_resource_snapshot", 0)
@@ -264,9 +302,8 @@ class NativePipelineTraceTests(unittest.TestCase):
         self.assertEqual(validate(actual)["policy_board"], 1)
         actual[3]["parent_candidate_ids"] = []
         actual[3]["reason_code"] = "full_board_origin_unknown"
-        r = validate(actual)
-        self.assertEqual(r["policy_origin_unknown"], 1)
-        self.assertEqual(r["primary_veto_reason_unknown"], 1)
+        with self.assertRaises(TraceError):
+            validate(actual)
 
     def test_executed_selector_gate_events_are_joined_to_raw_or_cluster(self):
         events = trace()
@@ -386,18 +423,78 @@ class NativePipelineTraceTests(unittest.TestCase):
             validate(rows)
 
     def test_raw_aliased_candidates_can_exceed_output_rail_but_not_safety_limit(self):
-        rows = trace()
-        rows[0]["metrics"]["bpm"] = 512.0
-        # Future lineage validator should also reject this broken parent.
+        # A 512 BPM raw alias may be present without becoming a 40-220 BPM
+        # policy candidate. Never launder it through an unknown source.
+        rows = lineage_trace([128., 512.], [128., 512.], [[0], [1]])
+        result = validate(rows)
+        self.assertEqual(result["raw"], 2)
+        self.assertEqual(result["policy_board_filtered_clusters"], 1)
+        rows[1]["metrics"]["bpm"] = 2001.
         with self.assertRaises(TraceError):
             validate(rows)
-        rows[1]["metrics"]["bpm"] = 512.0
-        rows[2]["metrics"]["bpm"] = 512.0
-        rows[4]["metrics"]["bpm"] = 512.0
-        rows[3]["parent_candidate_ids"] = []
-        rows[3]["reason_code"] = "full_board_origin_unknown"
+
+    def test_native_first_match_raw_cluster_partition_and_overlap(self):
+        # c2 lies within 0.001 BPM of BOTH clusters. Actual native collapse
+        # assigns it to the first, never to both by approximate join.
+        rows = lineage_trace([128., 128.0015, 128.0008],
+                             [128., 128.0015], [[0, 2], [1]])
         result = validate(rows)
-        self.assertEqual(result["raw"], 1)
+        self.assertEqual(result["raw_cluster_partition_verified"], 3)
+        self.assertEqual(result["raw_lineage_overlap_disambiguated"], 1)
+        self.assertEqual(result["policy_board_unique_cluster_sources"], 1)
+        for mutation in ("wrong_parent", "missing_parent", "duplicate_parent",
+                         "reordered_parent", "wrong_representative"):
+            bad = copy.deepcopy(rows)
+            cluster = bad[3]
+            if mutation == "wrong_parent":
+                cluster["parent_candidate_ids"] = ["c0", "c1"]
+            elif mutation == "missing_parent":
+                cluster["parent_candidate_ids"] = ["c0"]
+            elif mutation == "duplicate_parent":
+                cluster["parent_candidate_ids"] = ["c0", "c2", "c2"]
+            elif mutation == "reordered_parent":
+                cluster["parent_candidate_ids"] = ["c2", "c0"]
+            else:
+                cluster["metrics"]["bpm"] = 128.0005
+            with self.subTest(mutation=mutation), self.assertRaises(TraceError):
+                validate(bad)
+
+    def test_fullboard_source_bijection_and_no_fabricated_unknown_origin(self):
+        rows = lineage_trace([128., 140.], [128., 140.], [[0], [1]])
+        position = next(i for i, row in enumerate(rows)
+                        if row["stage"] == "primary_select")
+        rows.insert(position, event("policy_eligibility", "c5", ["c3"],
+                                    140., "included", "full_board_member", 0))
+        for i, row in enumerate(rows):
+            row["sequence"] = i
+        result = validate(rows)
+        self.assertEqual(result["policy_board_unique_cluster_sources"], 2)
+        self.assertEqual(result["policy_board_filtered_clusters"], 0)
+        for mutation in ("duplicate_source", "unknown_source", "orphan_source",
+                         "missing_source"):
+            bad = copy.deepcopy(rows)
+            second = next(x for x in bad if x["candidate_id"] == "c5")
+            if mutation == "duplicate_source":
+                second["parent_candidate_ids"] = ["c2"]
+            elif mutation == "unknown_source":
+                second["reason_code"] = "full_board_origin_unknown"
+            elif mutation == "orphan_source":
+                second["parent_candidate_ids"] = ["c99"]
+            else:
+                second["parent_candidate_ids"] = []
+            with self.subTest(mutation=mutation), self.assertRaises(TraceError):
+                validate(bad)
+
+    def test_native_first_match_source_contract_is_ci_only(self):
+        header = (ROOT / "tests" / "ci_pipeline_trace.h").read_text(encoding="utf-8")
+        source = (ROOT / "src" / "foo_smart_tempo" /
+                  "mir_candidate_pipeline.cpp").read_text(encoding="utf-8")
+        self.assertIn("raw_cluster_sources", header)
+        self.assertIn("raw_cluster_sources[assigned].push_back(raw_index)", header)
+        self.assertIn("fullboard_source_seen", header)
+        self.assertIn("if (parents.size() != 1) return false;", header)
+        self.assertIn("collapse_mir_candidates(", source)
+        self.assertIn("#ifndef SMART_TEMPO_CI_ORACLE_PROBE", header)
 
     def test_strict_file_framing_limits_and_source_id(self):
         with tempfile.TemporaryDirectory() as temp:

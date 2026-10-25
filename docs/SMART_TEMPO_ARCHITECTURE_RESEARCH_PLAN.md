@@ -207,6 +207,36 @@ authorize a numeric final output. The existing native production measured
 witness guard and no-write checks are unchanged. Audio windows, CPU/RSS,
 first-veto exhaustiveness and independent blind review remain separate gates.
 
+### Package B – exact source-identity conservation across raw, cluster and FullBoard
+
+Independent source review found a causal identity hazard in the CI observer:
+the original raw→cluster reporter assigned **every** raw row within 0.001 BPM
+to **every** nearby cluster. Actual `collapse_mir_candidates` instead uses
+**ordered first-match assignment**. For three nearby raw BPMs, one raw row can
+be within tolerance of two distinct cluster centers, making a naive proximity
+join duplicate its ancestry and falsely imply two independently supported
+sources. The observer now replays the native first-match partition, rejects
+orphan/empty/reordered clusters, and the independent Python auditor verifies
+every raw ID belongs to **exactly one** ordered cluster with the original
+representative BPM. Positive overlapping-neighbor and adversarial missing,
+reordered, duplicated and misattributed-source tests protect this invariant.
+
+The policy FullBoard is a filtered, re-ordered transform of the same collapsed
+objects. It may omit out-of-rail clusters, but **each surviving row must have
+exactly one unique indexed cluster parent**. Both native capture and independent
+validator reject unknown, repeated, orphan or missing FullBoard source IDs;
+the former `full_board_origin_unknown` success path is no longer accepted.
+A synthetic out-of-rail raw alias remains valid when it is *not* laundered
+into an unrelated FullBoard row. Reports expose exact partition coverage,
+overlap disambiguations, unique policy origins and filtered-cluster counts,
+not personal audio information.
+
+This is a **single end-to-end source-conservation gate**, not a claim of
+complete branch-specific selector eligibility or music accuracy. Full native
+Win32/x64 qualification and independent source audit remain required;
+`pool_only_gate_unresolved` remains explicitly **INCOMPLETE** and package C
+is still blocked. Productive MIR, policy, writer and user media are untouched.
+
 ## Candidate architecture candidates: all compared under identical evidence
 
 - **A:** unchanged current MIR + primary + policy baseline.

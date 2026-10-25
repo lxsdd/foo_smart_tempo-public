@@ -265,17 +265,39 @@ inline bool record(
     out.push("candidate_create", "observed", "raw_alias", id, {},
              raw.bpm, raw.score_sum, raw.synthetic_support);
   }
-  for (const auto& cluster : collapsed) {
+  // Reproduce the ACTUAL first-match collapse partition, not a many-to-many
+  // near-BPM join. A raw BPM can lie within 0.001 of TWO cluster centers,
+  // but collapse_mir_candidates assigns it only to the first matching one.
+  std::vector<std::vector<std::size_t>> raw_cluster_sources(collapsed.size());
+  for (std::size_t raw_index = 0; raw_index < board.raw_candidates.size();
+       ++raw_index) {
+    std::size_t assigned = collapsed.size();
+    for (std::size_t cluster_index = 0; cluster_index < collapsed.size();
+         ++cluster_index) {
+      if (std::abs(board.raw_candidates[raw_index].bpm -
+                   collapsed[cluster_index].bpm) < 0.001) {
+        assigned = cluster_index;
+        break;
+      }
+    }
+    if (assigned == collapsed.size()) return false;
+    raw_cluster_sources[assigned].push_back(raw_index);
+  }
+  for (std::size_t cluster_index = 0; cluster_index < collapsed.size();
+       ++cluster_index) {
+    const auto& cluster = collapsed[cluster_index];
     if (!finite_bpm(cluster.bpm) || cluster.bpm == 0.0 ||
         !std::isfinite(cluster.score_sum) || !std::isfinite(cluster.support) ||
         !std::isfinite(cluster.best_combined_score))
       return false;
+    const auto& sources = raw_cluster_sources[cluster_index];
+    if (sources.empty() || sources.size() > 128 ||
+        board.raw_candidates[sources.front()].bpm != cluster.bpm)
+      return false;
     std::vector<std::string> parents;
-    for (std::size_t i = 0; i < board.raw_candidates.size(); ++i) {
-      if (std::abs(board.raw_candidates[i].bpm - cluster.bpm) < 0.001)
-        parents.push_back(raw_ids[i]);
-    }
-    if (parents.empty() || parents.size() > 128) return false;
+    parents.reserve(sources.size());
+    for (const auto raw_index : sources)
+      parents.push_back(raw_ids[raw_index]);
     const auto id = out.create_id();
     cluster_ids.push_back(id);
     out.push("candidate_transform", "observed", "cluster_from_raw", id,
@@ -283,6 +305,10 @@ inline bool record(
     out.push("primary_eligibility", "observed", "pool_only_gate_unresolved",
              id, {}, cluster.bpm, cluster.best_combined_score, cluster.support);
   }
+  // FullBoard is a filtered/reordered exact-BPM transform of collapsed
+  // candidates. Each surviving source must occur at most once, even when
+  // multiple transformed BPMs are numerically equal.
+  std::vector<uint8_t> fullboard_source_seen(collapsed.size(), 0);
   for (const auto& candidate : fullboard) {
     if (!finite_bpm(candidate.bpm) || candidate.bpm == 0.0 ||
         !std::isfinite(candidate.local_exact_score) ||
@@ -290,9 +316,13 @@ inline bool record(
       return false;
     std::vector<std::string> parents;
     for (std::size_t i = 0; i < collapsed.size(); ++i) {
-      if (std::abs(collapsed[i].bpm - candidate.cluster_bpm) < 0.001)
+      if (std::abs(collapsed[i].bpm - candidate.cluster_bpm) < 0.001) {
+        if (fullboard_source_seen[i] != 0) return false;
+        fullboard_source_seen[i] = 1;
         parents.push_back(cluster_ids[i]);
+      }
     }
+    if (parents.size() != 1) return false;
     const auto id = out.create_id();
     policy_ids.push_back(id);
     out.push("policy_eligibility", "included",

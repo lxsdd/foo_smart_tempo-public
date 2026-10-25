@@ -380,13 +380,37 @@ def validate(rows: list[dict], *, require_windows: bool = False) -> dict:
         raise TraceError("multiple selected supplemental objects")
     if not raw or not collapsed:
         raise TraceError("missing raw/collapsed MIR")
+    # Independently replay collapse_mir_candidates' ordered first-match
+    # partition. Numeric proximity alone is NOT a valid many-to-many lineage
+    # proof: one raw candidate can be close to two distinct cluster centers.
+    expected_sources = [[] for _ in collapsed]
+    overlapping_raw = 0
+    for source in raw:
+        bpm = source["metrics"]["bpm"]
+        matches = [i for i, cluster in enumerate(collapsed)
+                   if abs(cluster["metrics"]["bpm"] - bpm) < .001]
+        if not matches:
+            raise TraceError("raw candidate orphaned by native collapse")
+        overlapping_raw += len(matches) > 1
+        expected_sources[matches[0]].append(source["candidate_id"])
+    for cluster, parents in zip(collapsed, expected_sources):
+        if (not parents or cluster["parent_candidate_ids"] != parents or
+                cluster["metrics"]["bpm"] != candidate_bpm[parents[0]]):
+            raise TraceError("raw-to-cluster first-match partition drift")
     if len(primary_pool) != len(collapsed) or not all(
             left["candidate_id"] == right["candidate_id"]
             for left, right in zip(primary_pool, collapsed)):
         raise TraceError("primary input pool not fully represented")
-    if any(row["reason_code"] not in ("full_board_member","full_board_origin_unknown")
-           for row in fullboard):
-        raise TraceError("policy board source unknown")
+    # FullBoard may legitimately exclude out-of-rail clusters, but cannot
+    # invent, omit or duplicate a surviving candidate's source identity.
+    seen_policy_sources = set()
+    for row in fullboard:
+        parents = row["parent_candidate_ids"]
+        if (row["reason_code"] != "full_board_member" or len(parents) != 1 or
+                parents[0] in seen_policy_sources or
+                ids[parents[0]] != "candidate_transform"):
+            raise TraceError("policy FullBoard source is not unique and indexed")
+        seen_policy_sources.add(parents[0])
     dispositions = stage_indices["primary_disposition"]
     if (require_windows and len(dispositions) != len(collapsed)) or (
             dispositions and len(dispositions) != len(collapsed)):
@@ -582,6 +606,10 @@ def validate(rows: list[dict], *, require_windows: bool = False) -> dict:
                      for x in primary_pool)
     return {
         "rows": len(rows), "raw": len(raw), "collapsed": len(collapsed),
+        "raw_cluster_partition_verified": len(raw),
+        "raw_lineage_overlap_disambiguated": overlapping_raw,
+        "policy_board_unique_cluster_sources": len(seen_policy_sources),
+        "policy_board_filtered_clusters": len(collapsed) - len(seen_policy_sources),
         "process_wall_seconds": round(resources[0]["metrics"]["wall_seconds"], 6) if resources else None,
         "process_cpu_seconds": round(resources[0]["metrics"]["process_cpu_seconds"], 6) if resources else None,
         "process_peak_rss_bytes": int(resources[0]["metrics"]["process_peak_rss_after_bytes"]) if resources else None,
