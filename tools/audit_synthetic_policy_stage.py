@@ -40,7 +40,8 @@ def source_measured_reason_allowlist() -> frozenset[str]:
     literals = frozenset(SOURCE_LITERAL.findall(path.read_text(encoding="utf-8")))
     if "measured_half_pulse_recovery" not in literals or "frozen_writer_override_gate" not in literals:
         raise ValueError("public measured-policy source allowlist missing")
-    return literals | {"none"}
+    # The source also contains the sentinel "invalid"; never whitelist it.
+    return (literals - {"invalid"}) | {"none"}
 
 
 def load_policy(path: Path, expected_ids: list[str],
