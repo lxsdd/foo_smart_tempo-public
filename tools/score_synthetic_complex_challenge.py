@@ -217,11 +217,16 @@ def audit_frozen_shadow(scored: dict, signals: dict[str, list[dict]]) -> dict:
 
 
 
-# Fixed tag scenarios independent of generator BPM. These never reach MIR.
+# Fixed synthetic tag scenarios; never passed to MIR as reference labels.
+# These C-only bounds snapshot the DEFAULT matched routes in
+# src/foo_smart_tempo/preferences.cpp: House 127 +/-14, Techno 134 +/-14,
+# Downtempo 90 +/-22. Installed users may configure different bounds.
+# The source-snapshot regression below fails if these defaults drift.
+# B is still UNMEASURED: these numbers do NOT emulate the C++ host route.
 GENRE_SCENARIOS = {
-    "none": (), "house": ((118., 135.),), "techno": ((125., 155.),),
-    "slow": ((65., 105.),),
-    "conflicting": ((118., 135.), (65., 105.)),
+    "none": (), "house": ((113., 141.),), "techno": ((120., 148.),),
+    "slow": ((68., 112.),),  # specifically default Downtempo
+    "conflicting": ((113., 141.), (68., 112.)),
 }
 
 
@@ -390,6 +395,7 @@ def main() -> None:
         shown = "held" if proposal is None else f"{proposal:.6f}"
         print(f"CHALLENGE_FROZEN_CASE id={name} proposal={shown}")
     print("CHALLENGE_GENRE_B=UNMEASURED")
+    print("CHALLENGE_GENRE_C_PROFILE=production_default_routes_snapshot_v1")
     for scenario, stats in result["genre_counterfactual"]["scenarios"].items():
         for key, value in stats.items():
             print(f"CHALLENGE_GENRE_{scenario.upper()}_{key.upper()}={value}")

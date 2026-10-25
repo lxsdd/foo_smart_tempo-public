@@ -299,6 +299,50 @@ class ComplexSyntheticChallengeTests(unittest.TestCase):
 
 
 
+    def test_genre_scenarios_match_actual_cpp_default_routes(self):
+        """Guard test-only C labels against C++ default-config drift.
+
+        This is a source-snapshot check, NOT a simulated real-host B result.
+        No private genre tags, audio or oracle values feed any selector.
+        """
+        import re
+        from score_synthetic_complex_challenge import GENRE_SCENARIOS
+
+        source = (TOOLS.parent / "src" / "foo_smart_tempo" /
+                  "preferences.cpp").read_text(encoding="utf-8")
+        default_blob = source.split("static const char* kDefaultGenreRules =", 1)[1]
+        default_blob = default_blob.split('R"(', 1)[1].split(')"', 1)[0]
+        mapping = {"house": "House", "techno": "Techno",
+                   "slow": "Downtempo"}
+        self.assertEqual(set(GENRE_SCENARIOS),
+                         {"none", "house", "techno", "slow", "conflicting"})
+        self.assertEqual(GENRE_SCENARIOS["none"], ())
+        for scenario, tag in mapping.items():
+            matches = [
+                line for line in default_blob.splitlines()
+                if tag in [piece.strip()
+                           for piece in line.partition("=")[0].split(";")]
+            ]
+            self.assertEqual(len(matches), 1, tag)
+            found = re.search(
+                r"=\s*center\s+(\d+(?:\.\d+)?),\s*spread\s+(\d+(?:\.\d+)?)\s*$",
+                matches[0])
+            self.assertIsNotNone(found, tag)
+            center, spread = (float(value) for value in found.groups())
+            self.assertEqual(GENRE_SCENARIOS[scenario],
+                             ((center - spread, center + spread),))
+        self.assertEqual(
+            GENRE_SCENARIOS["conflicting"],
+            GENRE_SCENARIOS["house"] + GENRE_SCENARIOS["slow"])
+        # Techno-default 120..148 excludes frozen 151.25-BPM test case,
+        # though the earlier exploratory 125..155 range included it.
+        self.assertFalse(
+            any(lo <= 151.25 <= hi
+                for lo, hi in GENRE_SCENARIOS["techno"]))
+        self.assertTrue(
+            all(lo <= 143.60 <= hi
+                for lo, hi in GENRE_SCENARIOS["techno"]))
+
     def test_genre_counterfactual_uses_actual_board_and_preserves_denominators(self):
         from score_synthetic_complex_challenge import audit_genre_counterfactual
         signals = {name: [] for name, _, _ in CASES}
@@ -324,6 +368,10 @@ class ComplexSyntheticChallengeTests(unittest.TestCase):
         slow = result["scenarios"]["slow"]
         self.assertEqual((slow["clear_correct"], slow["clear_wrong"],
                           slow["clear_held"]), (10, 0, 1))
+        # Frozen reference labels must match the source-defined default bounds.
+        self.assertEqual(result["scenarios"]["techno"]["reference_in_range"], 2)
+        self.assertEqual(result["scenarios"]["techno"]["reference_out_of_range"], 9)
+        self.assertEqual(result["scenarios"]["techno"]["out_of_range_wrong"], 1)
         self.assertEqual(result["scenarios"]["conflicting"], base)
         self.assertEqual(house["reference_in_range"] +
                          house["reference_out_of_range"], 11)
