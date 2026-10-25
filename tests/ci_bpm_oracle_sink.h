@@ -68,7 +68,7 @@ inline std::wstring approved_fixture() {
       L"challenge_143_60_ghostswing", L"challenge_118_75_phasehats",
       L"challenge_103_30_sparsekick", L"challenge_151_25_humanized",
       L"challenge_84_60_masked", L"challenge_212_50_fast",
-      L"challenge_57_35_slow", L"challenge_90_147_switch",
+      L"challenge_57_35_slow", L"challenge_108_142_switch",
       L"challenge_nonperiodic", L"challenge_steady_tone",
       L"window_128_four_floor", L"window_175_breakbeat", L"window_110_shuffle",
       L"window_100_odd_five", L"window_90_128_switch",
