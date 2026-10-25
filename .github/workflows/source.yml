@@ -118,6 +118,13 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Stage-shadow join regressions failed' }
           # Observational read-only cross-tab; no new production BPM decisions.
 
+      - name: Verify independent exported-board rank versus final-stage attribution
+        shell: pwsh
+        run: |
+          python -m unittest discover -s tests -p 'test_synthetic_export_rank.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'Exported-board rank attribution regressions failed' }
+          # Evidence rank is NOT hidden MIR candidate provenance or selector reachability.
+
       - name: Verify read-only soft genre-prior safety counterfactuals
         shell: pwsh
         run: |

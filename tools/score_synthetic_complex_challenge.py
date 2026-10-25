@@ -15,6 +15,7 @@ from score_prospective_bpm_reference import PROFILE_MIN_LOCAL, PROFILE_HARMONIC_
 from audit_synthetic_genre_prior import compare_audio_and_genre
 from audit_synthetic_policy_stage import load_policy, audit_policy_stages
 from audit_synthetic_stage_shadow import audit_stage_shadow
+from audit_synthetic_export_rank import audit_export_rank
 
 
 
@@ -338,6 +339,8 @@ def score(manifest: dict, observed: list[dict], timing: list[dict],
         result["stage_shadow"] = audit_stage_shadow(
             result, result["policy_stages"], result["frozen_shadow"], CASES,
             candidate_signals)
+        result["export_rank"] = audit_export_rank(
+            result, candidate_signals, result["policy_stages"], CASES)
     millis = [float(row["analysis_ms"]) for row in timing]
     result["host_response_ms_median"] = statistics.median(millis)
     result["host_response_ms_p95"] = sorted(millis)[
@@ -417,6 +420,17 @@ def main() -> None:
     for name, stage_name, production, shadow in shadow_join["details"]:
         print(f"CHALLENGE_STAGE_SHADOW_CASE id={name} final_path={stage_name} "
               f"production={production} shadow={shadow}")
+    rank_audit = result["export_rank"]
+    print("CHALLENGE_EXPORT_RANK_INTERPRETATION=" + rank_audit["interpretation"])
+    for key, value in rank_audit["totals"].items():
+        print(f"CHALLENGE_EXPORT_RANK_TOTAL_{key.upper()}={value}")
+    for stage_name, stats in rank_audit["stages"].items():
+        for key, value in stats.items():
+            print(f"CHALLENGE_EXPORT_RANK_{stage_name.upper()}_{key.upper()}={value}")
+    for name, stage_name, outcome, precise_rank, output_rank in rank_audit["details"]:
+        print(f"CHALLENGE_EXPORT_RANK_CASE id={name} final_path={stage_name} "
+              f"outcome={outcome} precise_rank_class={precise_rank} "
+              f"output_rank_class={output_rank}")
     frozen = result["frozen_shadow"]
     print("CHALLENGE_FROZEN_PROFILE=min_local_0.95,harmonic_margin_0.10")
     for key, value in frozen["counts"].items():
