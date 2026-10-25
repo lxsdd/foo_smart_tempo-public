@@ -141,6 +141,8 @@ class MeterChallengeTests(unittest.TestCase):
         self.assertIn("SYNTHETIC_METER_HOST_RESPONSE_MS_P95", host)
         self.assertIn("SYNTHETIC_METER_POLICY id={0}", host)
         self.assertIn("Invalid public meter policy trace", host)
+        self.assertNotIn("-cjoin", host)
+        self.assertIn("($meterIds -join ',') -cne ($meterFixed -join ',')", host)
         scorer = (root / "tools" / "score_synthetic_meter_challenge.py").read_text(
             encoding="utf-8")
         self.assertIn("METER_CHALLENGE_CASE id=", scorer)

@@ -317,7 +317,7 @@ try {
       'meter_3_4_150_quarter','meter_6_8_100_dotted',
       'meter_ambiguous_120q_80dq')
     if ($LASTEXITCODE -ne 0 -or $meterIds.Count -ne 5 -or
-        ($meterIds -cjoin ',') -cne ($meterFixed -cjoin ',')) {
+        ($meterIds -join ',') -cne ($meterFixed -join ',')) {
       throw 'CI meter allowlist inventory or order changed'
     }
     $meterReferences=[System.Collections.Generic.List[object]]::new()
