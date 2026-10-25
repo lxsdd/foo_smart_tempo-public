@@ -8,6 +8,7 @@
 // This is an observational pool-lineage trace, NOT a claim that every
 // collapsed candidate passed every selector's internal eligibility gate.
 #include <Windows.h>
+#include "ci_fixture_allowlist.h"
 #include <Psapi.h>
 #pragma comment(lib, "Psapi.lib")
 #include <algorithm>
@@ -39,11 +40,7 @@ inline std::wstring permitted_fixture() {
   root += L"\\";
   if (fixture.size() <= root.size() ||
       _wcsnicmp(root.c_str(), fixture.c_str(), root.size()) != 0) return {};
-  constexpr wchar_t suffix[] = L"\\synthetic-oracle\\pulse_128.wav";
-  constexpr std::size_t count = (sizeof(suffix)/sizeof(suffix[0])) - 1;
-  if (fixture.size() < count ||
-      _wcsicmp(fixture.c_str() + fixture.size() - count, suffix) != 0)
-    return {};
+  if (!smart_tempo::ci_fixture::permitted(fixture, root)) return {};
   return fixture;
 }
 

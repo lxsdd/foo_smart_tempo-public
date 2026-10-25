@@ -405,3 +405,28 @@ readmit, and uninstrumented lane decisions cannot be inferred. The native
 pilot's existing `pool_only_gate_unresolved` remains explicitly unresolved;
 this package does not declare Phase B complete, unlock C, modify production
 DSP/Selector/Policy/Writer, or qualify musical BPM accuracy.
+
+
+### 26 October 2026: four-case dual-architecture Phase-B host pilot
+
+One shared, compiled-only allowlist now permits exactly four predeclared
+public synthetic cases: pulse_60, pulse_128, pulse_120_sparse and silence.
+Each has a one-case immutable generated reference manifest and its own
+isolated original foobar Win32 or x64 host process. The same four cases
+run in BOTH architectures, with media and manifest SHA-256/size/mtime
+no-write checks, a disabled Update control and strict native lineage
+validation where a candidate trace exists. No media, traces or binaries
+are uploaded.
+
+The scorer now reports explicit rhythmic reference/accepted/held
+denominators, accepted absolute errors <=0.05 and <=0.20 BPM, accepted
+outside 0.20 BPM, and negative falseaccepts. Any positive accepted BPM
+on silence is a technical safety failure. The sparse case is metrically
+underdetermined and cannot establish a musical correctness PASS.
+
+This is a *Phase-B branch/negative-path pilot*, not the frozen large
+Phase-C campaign. The no-candidate silence path may have no native
+candidate trace and is reported INCOMPLETE_NO_CANDIDATES, never causal
+completeness. All first-veto and supplemental-witness gates remain
+unresolved; musical GO, genre-B, unseen music and production writes
+remain blocked pending independent proof.

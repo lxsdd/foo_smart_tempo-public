@@ -166,7 +166,7 @@ function Run-Case([string]$installer,[string]$root,[string]$inputFile,[string[]]
     Start-Sleep -Seconds 2
     if (-not [STUI]::IsWindow($dialog)) { throw 'Secondary no-write guard failed' }
     foreach ($file in $files) { if ((Stamp $file) -cne $baseline[$file]) { throw 'File changed after blocked Update handler' } }
-    if ($label -eq 'SYNTHETIC') {
+    if ($label.StartsWith('SYNTHETIC_')) {
       # Compiled only in CI probe binaries; the engine values are captured
       # after worker join, not scraped through unreliable headless UIA.
       $observed=$inputFile+'.results.csv'
@@ -174,17 +174,23 @@ function Run-Case([string]$installer,[string]$root,[string]$inputFile,[string[]]
       if (-not (Test-Path -LiteralPath $observed -PathType Leaf)) {
         throw 'Real foobar numeric BPM oracle observer is not available'
       }
-      python ./tools/score_synthetic_bpm_reference.py --manifest $reference --observed $observed
-      if ($LASTEXITCODE -ne 0) { throw 'Real foobar synthetic BPM evaluation failed' }
+      $scoreOutput=@(python ./tools/score_synthetic_bpm_reference.py --manifest $reference --observed $observed 2>&1)
+      if ($LASTEXITCODE -ne 0) { throw ('Real foobar synthetic BPM evaluation failed: '+($scoreOutput -join '; ')) }
+      $scoreOutput | ForEach-Object { Write-Host $_ }
       $trace=$inputFile+'.pipeline.jsonl'
-      if (-not (Test-Path -LiteralPath $trace -PathType Leaf)) {
-        throw 'Real foobar native primary/policy lineage observer is missing'
+      if ($label -eq 'SYNTHETIC_silence' -and
+          -not ($scoreOutput -contains 'SYNTHETIC_BPM_NEGATIVE_FALSEACCEPTS=0')) {
+        throw 'Safety negative control auto-accepted an unmeasured BPM'
       }
-      python ./tools/audit_smart_tempo_ci_pipeline_trace.py --trace $trace --require-windows
-      if ($LASTEXITCODE -ne 0) { throw 'Real foobar native BPM lineage contract failed' }
-      Write-Host 'SMART_TEMPO_NATIVE_POOL_PROVENANCE=PASS'
-      Write-Host 'SMART_TEMPO_NATIVE_RAW_CLUSTER_PARTITION=PASS'
-      Write-Host 'SMART_TEMPO_NATIVE_FULLBOARD_SOURCE_UNIQUENESS=PASS'
+      if (Test-Path -LiteralPath $trace -PathType Leaf) {
+        python ./tools/audit_smart_tempo_ci_pipeline_trace.py --trace $trace --require-windows
+        if ($LASTEXITCODE -ne 0) { throw 'Real foobar native BPM lineage contract failed' }
+        Write-Host ("SMART_TEMPO_NATIVE_B_PILOT_TRACE_{0}_{1}=PASS" -f $Architecture,$label)
+      } elseif ($label -eq 'SYNTHETIC_silence') {
+        Write-Host ("SMART_TEMPO_NATIVE_B_NEGATIVE_TRACE_{0}=INCOMPLETE_NO_CANDIDATES" -f $Architecture)
+      } else {
+        throw "Missing native B-pilot lineage for $label"
+      }
       Write-Host 'SMART_TEMPO_PRIMARY_VETO_INDIVIDUAL_REASONS=UNMEASURED'
     }
     Write-Host ("DIAGNOSTIC_MENU_{0}_{1}=PASS" -f $Architecture,$label)
@@ -234,21 +240,20 @@ try {
   [IO.File]::WriteAllLines($cue,@('FILE "rhythm.wav" WAVE','  TRACK 01 AUDIO','    INDEX 01 00:00:00','  TRACK 02 AUDIO','    INDEX 01 00:20:00'),[Text.Encoding]::ASCII)
   Run-Case $installer $root $wav @($wav) 1 'WAV'
   Run-Case $installer $root $cue @($wav,$cue) 2 'CUE'
-  if ($Architecture -eq 'x64') {
-    # Run the real engine only on fully generated public synthetic PCM,
-    # with deterministic reference truth fixed before observing any results.
-    $syntheticRoot=Join-Path $root 'synthetic-oracle'
-    # Qualify one WAV using the same proven direct-file host dispatch as WAV smoke.
-    # The eleven-track case is deferred to the slower, separate matrix.
-    python ./tools/generate_synthetic_bpm_reference.py --output $syntheticRoot --case pulse_128
-    if ($LASTEXITCODE -ne 0) { throw 'Synthetic oracle WAV creation failed' }
+  # Fixed, small Phase-B causal-coverage pilot, NOT the frozen Phase-C
+  # campaign. One fresh original foobar process per synthetic WAV/architecture.
+  $pilotCases=@('pulse_60','pulse_128','pulse_120_sparse','silence')
+  foreach ($caseId in $pilotCases) {
+    $syntheticRoot=Join-Path (Join-Path $root ('pilot-'+$caseId)) 'synthetic-oracle'
+    python ./tools/generate_synthetic_bpm_reference.py --output $syntheticRoot --case $caseId
+    if ($LASTEXITCODE -ne 0) { throw "Synthetic B-pilot WAV creation failed: $caseId" }
     $reference=Join-Path $syntheticRoot 'reference.json'
     $cases=@((Get-Content -LiteralPath $reference -Raw | ConvertFrom-Json).cases)
-    if ($cases.Count -ne 1 -or $cases[0].id -ne 'pulse_128') {
-      throw 'Unexpected one-track oracle identity'
+    if ($cases.Count -ne 1 -or $cases[0].id -cne $caseId) {
+      throw "Unexpected B-pilot oracle identity: $caseId"
     }
-    $wavFile=Join-Path $syntheticRoot 'pulse_128.wav'
-    Run-Case $installer $root $wavFile @($wavFile,$reference) 1 'SYNTHETIC'
+    $wavFile=Join-Path $syntheticRoot ($caseId+'.wav')
+    Run-Case $installer $root $wavFile @($wavFile,$reference) 1 ('SYNTHETIC_'+$caseId)
   }
   Write-Host ("SMART_TEMPO_DIAGNOSTIC_RUNTIME_{0}=PASS" -f $Architecture)
 } finally { if (Test-Path $root) { Remove-Item $root -Recurse -Force -ErrorAction SilentlyContinue } }
