@@ -48,6 +48,10 @@ def trace(held=False):
     rows[5]["metrics"]["support"] = 0.
     rows[6]["metrics"]["score"] = 0.
     rows[6]["metrics"]["support"] = 0.
+    # The real CI recorder emits a zero-valued write_guard; do not let the
+    # generic event helper's placeholder score/support pollute positive fixtures.
+    rows[-1]["metrics"]["score"] = 0.
+    rows[-1]["metrics"]["support"] = 0.
     return rows
 
 
