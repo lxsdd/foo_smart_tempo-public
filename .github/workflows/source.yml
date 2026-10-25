@@ -99,6 +99,20 @@ jobs:
           # The full x64 real-host matrix later scores actual MIR outputs;
           # green build/host checks never imply musical accuracy.
 
+      - name: Verify independently frozen synthetic WAV and beat-grid anchors
+        shell: pwsh
+        run: |
+          python -m unittest discover -s tests -p 'test_synthetic_frozen_oracle_anchors.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'Independent frozen synthetic oracle anchors failed' }
+          # Seen public fixtures, not a blind holdout. Literal independent hashes.
+
+      - name: Verify distinct 3/4 versus 6/8 musical beat-unit challenges
+        shell: pwsh
+        run: |
+          python -m unittest discover -s tests -p 'test_synthetic_meter_challenge.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'Separate synthetic meter challenge regressions failed' }
+          # Generator/scorer only; host-BPM measurement has NOT yet run.
+
       - name: Verify BPM oracle scoring and ambiguous/held cases
         shell: pwsh
         run: |
