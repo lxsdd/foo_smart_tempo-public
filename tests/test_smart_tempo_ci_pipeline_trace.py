@@ -927,18 +927,27 @@ class NativePipelineTraceTests(unittest.TestCase):
         self.assertEqual(result["policy_output_source_comparison"], "policy_one_same_bpm")
         self.assertEqual(result["policy_pointer_identity_complete"], 0)
         self.assertEqual(baseline[6]["parent_candidate_ids"], [])
-        doubled = copy.deepcopy(baseline)
-        doubled.insert(4, event("policy_eligibility", "c3", ["c1"], 127.99,
-                                "included", "full_board_member", 4))
+        # Two distinct collapsed sources may independently refine to the
+        # SAME exact BPM. A duplicated FullBoard row from one cluster cannot
+        # simulate this genuine ambiguity under the stricter identity gate.
+        doubled = lineage_trace([128., 140.], [128., 140.], [[0], [1]])
+        position = next(i for i, row in enumerate(doubled)
+                        if row["stage"] == "primary_select")
+        doubled.insert(position, event("policy_eligibility", "c5", ["c3"], 127.99,
+                                       "included", "full_board_member", 0))
         for i, row in enumerate(doubled):
             row["sequence"] = i
-        doubled[6]["reason_code"] = "policy_multiple_same_bpm"
-        doubled[6]["parent_candidate_ids"] = []
+        resolution = next(row for row in doubled
+                          if row["stage"] == "policy_resolution")
+        resolution["reason_code"] = "policy_multiple_same_bpm"
+        resolution["parent_candidate_ids"] = []
         self.assertEqual(validate(doubled)["policy_output_source_comparison"],
                          "policy_multiple_same_bpm")
         bad = copy.deepcopy(doubled)
-        bad[6]["reason_code"] = "policy_one_same_bpm"
-        bad[6]["parent_candidate_ids"] = ["c2"]
+        forged = next(row for row in bad
+                      if row["stage"] == "policy_resolution")
+        forged["reason_code"] = "policy_one_same_bpm"
+        forged["parent_candidate_ids"] = ["c4"]
         with self.assertRaises(TraceError):
             validate(bad)
         bad = trace()
