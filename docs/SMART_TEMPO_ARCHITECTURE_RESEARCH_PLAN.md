@@ -256,3 +256,11 @@ observed decode extents, **not** a measured CPU speedup, per-frame ODF reuse,
 peak RSS or proof of independent musical evidence. This work neither changes
 production window planning nor authorizes Phase C: first-veto selector and
 supplemental policy/witness identities are still incomplete.
+
+
+### 25 Oct 2026: actual executed low/rescue trace extension (CI-only; Phase B still open)
+
+- Low-pulse bestBy emits source-indexed score comparisons across ordinary and nested rescue selections; this is executed ranking, not a definitive first-veto verdict.
+- Threshold and general-rail fallbacks emit separate source-indexed readmission events only when those paths execute. The strict validator requires a preceding actual provisional exclusion of the same candidate, rejecting fabricated readmissions and duplicate-BPM identity substitutions.
+- High-pulse and harmonic residual rescue predicates, and the harmonic direct-protection gate, now emit their executed candidate checks. Gate admission may still lose in the original ranking/tie logic; rejection is marked provisional rather than a final exclusion.
+- All native additions are under SMART_TEMPO_CI_ORACLE_PROBE. None changes production selector/DSP/Policy/Writer behavior. Full nested first-veto semantics, supplemental source IDs, CPU/RSS and independent Phase-B approval remain absent. Phase C and musical GO stay closed.

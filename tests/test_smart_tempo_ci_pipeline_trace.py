@@ -166,6 +166,41 @@ class NativePipelineTraceTests(unittest.TestCase):
                 with self.assertRaises(TraceError):
                     validate(rows)
 
+    def test_executed_fallback_readmission_requires_prior_exclusion(self):
+        rows = trace()
+        first = event("candidate_filter", "c1", [], 128., "excluded",
+                      "low_threshold_provisional_exclusion", 0)
+        second = event("candidate_filter", "c1", [], 128., "included",
+                       "low_threshold_fallback_readmitted", 0)
+        rescue = event("candidate_filter", "c1", [], 128., "included",
+                       "residual_high_gate_allowed", 0)
+        rank = event("primary_rank", "c1", [], 128., "included",
+                     "low_rank_scored", 0)
+        rows[4:4] = [first, second, rescue, rank]
+        for i, row in enumerate(rows):
+            row["sequence"] = i
+        report = validate(rows)
+        self.assertEqual(report["selector_fallback_readmissions"], 1)
+        self.assertEqual(report["selector_nested_rescue_checks"], 1)
+        for kind in ("missing_exclusion", "wrong_order", "wrong_readmission_outcome",
+                     "foreign_readmission_candidate", "unknown_rescue"):
+            with self.subTest(kind=kind):
+                broken = copy.deepcopy(rows)
+                if kind == "missing_exclusion":
+                    broken.pop(4)
+                elif kind == "wrong_order":
+                    broken[4], broken[5] = broken[5], broken[4]
+                elif kind == "wrong_readmission_outcome":
+                    broken[5]["outcome"] = "excluded"
+                elif kind == "foreign_readmission_candidate":
+                    broken[5]["candidate_id"] = "c0"
+                else:
+                    broken[6]["reason_code"] = "residual_unverified_guess"
+                for i, row in enumerate(broken):
+                    row["sequence"] = i
+                with self.assertRaises(TraceError):
+                    validate(broken)
+
     def test_actual_lane_residual_final_terminal_chain(self):
         rows = trace()
         terminal = [

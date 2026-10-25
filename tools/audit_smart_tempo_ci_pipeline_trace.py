@@ -47,10 +47,14 @@ ALLOWED_FILTER_REASONS = frozenset((
     "low_threshold_allowed", "low_threshold_provisional_exclusion",
     "harmonic_in_rail", "harmonic_out_of_rail",
     "general_in_rail", "general_out_of_rail_provisional",
-    "low_continuous_allowed", "low_continuous_provisional_exclusion"
+    "low_continuous_allowed", "low_continuous_provisional_exclusion",
+    "low_threshold_fallback_readmitted", "general_rail_fallback_readmitted",
+    "residual_high_gate_allowed", "residual_high_gate_provisional_exclusion",
+    "residual_harmonic_gate_allowed", "residual_harmonic_gate_provisional_exclusion",
+    "harmonic_direct_gate_allowed", "harmonic_direct_gate_provisional_exclusion"
 ))
 ALLOWED_RANK_REASONS = frozenset((
-    "raw_rank_scored", "harmonic_rank_scored",
+    "raw_rank_scored", "harmonic_rank_scored", "low_rank_scored",
     "general_baseline_rank_scored", "general_alt_rank_scored"
 ))
 ALLOWED_TERMINAL_REASONS = frozenset((
@@ -185,6 +189,17 @@ def validate(rows: list[dict], *, require_windows: bool = False) -> dict:
                 raise TraceError("selector event not linked to correct source board")
             if stage == "candidate_filter" and item["outcome"] not in ("included", "excluded"):
                 raise TraceError("invalid selector gate outcome")
+            if item["reason_code"] in ("low_threshold_fallback_readmitted",
+                                       "general_rail_fallback_readmitted"):
+                predecessor = ("low_threshold_provisional_exclusion" if
+                               item["reason_code"].startswith("low_") else
+                               "general_out_of_rail_provisional")
+                if (item["outcome"] != "included" or
+                    not any(previous["candidate_id"] == candidate_id and
+                            previous["reason_code"] == predecessor and
+                            previous["outcome"] == "excluded"
+                            for previous in stage_indices["candidate_filter"])):
+                    raise TraceError("readmission without executed exclusion")
         elif candidate_id is not None:
             raise TraceError("non-creator stage unexpectedly creates candidate")
         if stage == "candidate_transform" and not parents:
@@ -373,6 +388,12 @@ def validate(rows: list[dict], *, require_windows: bool = False) -> dict:
         "primary_pool": len(primary_pool), "policy_board": len(fullboard),
         "primary_veto_reason_unknown": incomplete,
         "selector_branch_checks": len(stage_indices["candidate_filter"]),
+        "selector_fallback_readmissions": sum(
+            x["reason_code"].endswith("_fallback_readmitted")
+            for x in stage_indices["candidate_filter"]),
+        "selector_nested_rescue_checks": sum(
+            x["reason_code"].startswith(("residual_high_", "residual_harmonic_", "harmonic_direct_"))
+            for x in stage_indices["candidate_filter"]),
         "selector_rank_observations": len(stage_indices["primary_rank"]),
         "selector_terminal_observations": len(stage_indices["primary_terminal"]),
         "policy_origin_unknown": sum(x["reason_code"] == "full_board_origin_unknown"

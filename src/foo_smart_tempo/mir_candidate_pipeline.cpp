@@ -1173,6 +1173,12 @@ evaluate_mir_high_pulse_interval_conflict_shadow(
     double bestScore = -std::numeric_limits<double>::infinity();
     for (const auto* candidate : pool) {
       const double score = scoreFn(candidate);
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+      // Actual low-pulse score comparison, including nested rescues.
+      // Ranking is not an executed terminal veto.
+      ci_primary_event(static_cast<std::size_t>(candidate - candidates.data()),
+                       candidate->bpm, score, false, true, "low_rank_scored");
+#endif
       if (best == nullptr || score > bestScore) {
         best = candidate;
         bestScore = score;
@@ -1221,6 +1227,11 @@ evaluate_mir_high_pulse_interval_conflict_shadow(
   }
   if (thresholdPool.empty()) {
     for (const auto& candidate : candidates) {
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+      ci_primary_event(static_cast<std::size_t>(&candidate - candidates.data()),
+                       candidate.bpm, candidate.support, false, true,
+                       "low_threshold_fallback_readmitted");
+#endif
       thresholdPool.push_back(&candidate);
     }
   }
@@ -1540,6 +1551,11 @@ select_mir_low_pulse_continuous_center_rescue(
   }
   if (pool.empty()) {
     for (const auto& candidate : candidates) {
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+      ci_primary_event(static_cast<std::size_t>(&candidate - candidates.data()),
+                       candidate.bpm, candidate.support, false, true,
+                       "general_rail_fallback_readmitted");
+#endif
       pool.push_back(&candidate);
     }
   }
@@ -1635,6 +1651,16 @@ select_mir_low_pulse_continuous_center_rescue(
     double bestEvidence = 0.0;
     for (const auto& candidate : candidates) {
       const double evidence = mir_evidence_score(candidate);
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+      const bool eligible = candidate.bpm >= 126.0 && candidate.bpm <= 130.5 &&
+          candidate.support >= 0.60 && candidate.best_combined_score >= 0.18 &&
+          candidate.pulse_section_support >= 0.55 &&
+          evidence >= selectedEvidence * 1.25;
+      ci_primary_event(static_cast<std::size_t>(&candidate - candidates.data()),
+                       candidate.bpm, evidence, false, eligible,
+                       eligible ? "residual_high_gate_allowed" :
+                                  "residual_high_gate_provisional_exclusion");
+#endif
       if (candidate.bpm >= 126.0 && candidate.bpm <= 130.5 &&
           candidate.support >= 0.60 &&
           candidate.best_combined_score >= 0.18 &&
@@ -1660,6 +1686,21 @@ select_mir_low_pulse_continuous_center_rescue(
     double lowerEvidence = 0.0;
     for (const auto& candidate : candidates) {
       const double evidence = mir_evidence_score(candidate);
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+      const bool eligible = candidate.bpm >= 84.0 &&
+          mir_pulse_ratio_in_range(candidate.bpm, selected->bpm, 0.64, 0.69) &&
+          candidate.support >= 0.85 && candidate.winner_support >= 0.25 &&
+          candidate.best_combined_score >= 0.08 &&
+          evidence >= selectedEvidence * 0.55 &&
+          selected->pulse_section_support < 0.60 && selectedHarmonic &&
+          (mir_has_alias(candidate.alias_bits, MirAlias::two_thirds) ||
+           mir_has_alias(candidate.alias_bits, MirAlias::four_thirds) ||
+           mir_has_alias(candidate.alias_bits, MirAlias::three_quarters));
+      ci_primary_event(static_cast<std::size_t>(&candidate - candidates.data()),
+                       candidate.bpm, evidence, false, eligible,
+                       eligible ? "residual_harmonic_gate_allowed" :
+                                  "residual_harmonic_gate_provisional_exclusion");
+#endif
       if (candidate.bpm >= 84.0 &&
           mir_pulse_ratio_in_range(candidate.bpm, selected->bpm, 0.64,
                                    0.69) &&
@@ -1802,6 +1843,16 @@ compute_mir_primary_selection(
        mir_has_alias(selected->alias_bits, MirAlias::three_halves))) {
     const MirCandidate* direct = nullptr;
     for (const auto& candidate : candidates) {
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+      const bool eligible = candidate.bpm >= 128.0 && candidate.bpm <= 132.0 &&
+          mir_has_alias(candidate.alias_bits, MirAlias::direct) &&
+          candidate.support >= 0.70 &&
+          candidate.support >= selected->support * 0.70;
+      ci_primary_event(static_cast<std::size_t>(&candidate - candidates.data()),
+                       candidate.bpm, candidate.support, false, eligible,
+                       eligible ? "harmonic_direct_gate_allowed" :
+                                  "harmonic_direct_gate_provisional_exclusion");
+#endif
       if (candidate.bpm >= 128.0 && candidate.bpm <= 132.0 &&
           mir_has_alias(candidate.alias_bits, MirAlias::direct) &&
           candidate.support >= 0.70 &&

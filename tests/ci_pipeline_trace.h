@@ -229,6 +229,7 @@ inline bool record(
     // same-BPM alias rows no longer collapse onto the first matching raw ID.
     const bool ranking = std::strcmp(item.reason, "raw_rank_scored") == 0 ||
                          std::strcmp(item.reason, "harmonic_rank_scored") == 0 ||
+                         std::strcmp(item.reason, "low_rank_scored") == 0 ||
                          std::strcmp(item.reason, "general_baseline_rank_scored") == 0 ||
                          std::strcmp(item.reason, "general_alt_rank_scored") == 0;
     const bool terminal = std::strncmp(item.reason, "terminal_", 9) == 0;
