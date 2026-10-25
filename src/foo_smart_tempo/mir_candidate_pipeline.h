@@ -245,6 +245,18 @@ struct MirPolicyMeasuredCandidate {
   std::string alias_classes;
 };
 
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+// Observes the last ACTUALLY chosen object passed to the Policy candidate
+// selector. A coincident BPM alone is explicitly insufficient evidence.
+struct MirCiPolicyPointerSource {
+  bool observed = false;
+  bool in_fullboard = false;
+  std::size_t index = 0;
+  double bpm = 0.0;
+};
+[[nodiscard]] MirCiPolicyPointerSource mir_ci_policy_pointer_source() noexcept;
+#endif
+
 struct MirManualReviewCandidate {
   double bpm = 0.0;
   double evidence_score = 0.0;

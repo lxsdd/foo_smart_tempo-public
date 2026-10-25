@@ -32,6 +32,7 @@ ENUMS = {
     "policy_eligibility": ("included", None),
     "primary_select": (None, None),
     "policy_resolution": ("observed", None),
+    "policy_pointer": ("observed", None),
     "policy_change": (None, None),
     "final_output": (None, None),
     "measured_witness": (None, None),
@@ -60,6 +61,10 @@ ALLOWED_POLICY_COMPARISONS = frozenset((
     "policy_no_output", "policy_one_same_bpm",
     "policy_no_fullboard_match", "policy_multiple_same_bpm"
 ))
+ALLOWED_POINTER_REASONS = frozenset((
+    "pointer_no_output", "pointer_native_fullboard_consistent",
+    "pointer_supplemental_or_changed", "pointer_not_observed"
+))
 
 
 class TraceError(ValueError):
@@ -78,8 +83,9 @@ def validate(rows: list[dict], *, require_windows: bool = False) -> dict:
         "primary_eligibility": 1, "policy_eligibility": 2,
         "candidate_filter": 3, "primary_rank": 3,
         "primary_terminal": 3, "primary_select": 4,
-        "policy_resolution": 5, "policy_change": 6, "final_output": 7,
-        "measured_witness": 8, "write_guard": 9
+        "policy_resolution": 5, "policy_pointer": 6,
+        "policy_change": 7, "final_output": 8,
+        "measured_witness": 9, "write_guard": 10
     }
     previous_stage_number = -1
     session_id = rows[0].get("analysis_id") if type(rows[0]) is dict else None
@@ -153,6 +159,19 @@ def validate(rows: list[dict], *, require_windows: bool = False) -> dict:
                 raise TraceError("policy output presence mismatch")
             if item["metrics"]["score"] not in (0, 1) or item["metrics"]["support"] not in (0, 1):
                 raise TraceError("policy source flags must be booleans")
+        elif stage == "policy_pointer":
+            if (candidate_id is not None or
+                    item["reason_code"] not in ALLOWED_POINTER_REASONS or
+                    len(parents) > 1 or
+                    any(ids[p] != "policy_eligibility" for p in parents) or
+                    item["metrics"]["score"] not in (0, 1) or
+                    item["metrics"]["support"] not in (0, 1)):
+                raise TraceError("malformed native policy pointer evidence")
+            pointer_consistent = item["reason_code"] == "pointer_native_fullboard_consistent"
+            if (pointer_consistent != (len(parents) == 1) or
+                    (pointer_consistent and
+                     abs(candidate_bpm[parents[0]] - bpm) > 0.001)):
+                raise TraceError("policy pointer identity not verified")
         elif stage in ("candidate_filter", "primary_rank", "primary_terminal"):
             # Actual executed selector probes, with explicit raw/cluster source.
             reason_set = (ALLOWED_FILTER_REASONS if stage == "candidate_filter"
@@ -176,7 +195,7 @@ def validate(rows: list[dict], *, require_windows: bool = False) -> dict:
             raise TraceError("policy candidate parent not collapsed")
         stage_indices[stage].append(item)
     for single in ("primary_select", "policy_resolution",
-                   "policy_change", "final_output",
+                   "policy_pointer", "policy_change", "final_output",
                    "measured_witness", "write_guard"):
         if len(stage_indices[single]) != 1:
             raise TraceError("missing or repeated terminal stage " + single)
@@ -236,6 +255,7 @@ def validate(rows: list[dict], *, require_windows: bool = False) -> dict:
         raise TraceError("policy board source unknown")
     primary = stage_indices["primary_select"][0]
     policy_origin = stage_indices["policy_resolution"][0]
+    policy_pointer = stage_indices["policy_pointer"][0]
     policy = stage_indices["policy_change"][0]
     final = stage_indices["final_output"][0]
     witness = stage_indices["measured_witness"][0]
@@ -263,8 +283,25 @@ def validate(rows: list[dict], *, require_windows: bool = False) -> dict:
     if policy["reason_code"] not in (
             "writer_override", "hold_release", "keep_primary", "no_policy_write"):
         raise TraceError("unapproved policy decision reason")
-    if policy["parent_candidate_ids"]:
-        raise TraceError("policy chosen object inferred from BPM proximity")
+    if policy["parent_candidate_ids"] != policy_pointer["parent_candidate_ids"]:
+        raise TraceError("policy chosen pointer must be independently witnessed")
+    if abs(policy_pointer["metrics"]["bpm"] - policy["metrics"]["bpm"]) > 0.001:
+        raise TraceError("policy pointer/output BPM mismatch")
+    pointer_reason = policy_pointer["reason_code"]
+    pointer_native = pointer_reason == "pointer_native_fullboard_consistent"
+    pointer_seen = int(policy_pointer["metrics"]["score"])
+    pointer_in_board = int(policy_pointer["metrics"]["support"])
+    if (pointer_native and
+        (not pointer_seen or not pointer_in_board or
+         policy["metrics"]["bpm"] <= 0)):
+        raise TraceError("unsupported native policy selected pointer")
+    if (pointer_reason == "pointer_not_observed" and pointer_seen):
+        raise TraceError("policy pointer marked not observed yet seen")
+    if (pointer_reason == "pointer_no_output") != (
+            policy["metrics"]["bpm"] == 0):
+        raise TraceError("policy pointer output absence inconsistent")
+    if pointer_in_board and not pointer_seen:
+        raise TraceError("policy pointer cannot be in board if unobserved")
     if abs(policy_origin["metrics"]["bpm"] - policy["metrics"]["bpm"]) > 0.001:
         raise TraceError("policy output/compare drift")
     # Source comparison is not chosen-pointer identity. Recompute the exact
@@ -339,7 +376,8 @@ def validate(rows: list[dict], *, require_windows: bool = False) -> dict:
         "policy_output_source_comparison": policy_origin["reason_code"],
         "policy_override_active": int(override),
         "policy_hold_release_active": int(release),
-        "policy_pointer_identity_complete": 0,
+        "policy_pointer_identity_complete": int(pointer_native),
+        "policy_pointer_reason": pointer_reason,
         "primary_auto": int(primary["outcome"] == "selected"),
         "final_accept": int(final["outcome"] == "selected"),
         "indexed_native_final_witness": int(

@@ -32,18 +32,22 @@ def trace(held=False):
         event("primary_select", None, ["c1"], 128., "selected", "primary_auto", 4),
         event("policy_resolution", None, ["c2"], 127.99, "observed",
               "policy_one_same_bpm", 5),
-        event("policy_change", None, [], 127.99, "selected", "keep_primary", 6),
+        event("policy_pointer", None, [], 127.99, "observed",
+              "pointer_not_observed", 6),
+        event("policy_change", None, [], 127.99, "selected", "keep_primary", 7),
         event("final_output", None, [], 0. if held else 127.99,
               "review_hold" if held else "selected",
-              "final_abstained" if held else "final_numeric", 7),
+              "final_abstained" if held else "final_numeric", 8),
         event("measured_witness", None, [] if held else ["c2"],
               0. if held else 127.99,
               "rejected" if held else "included",
-              "not_accepted" if held else "indexed_native_witness", 8),
-        event("write_guard", None, [], 0., "write_blocked", "ci_dry_run", 9)
+              "not_accepted" if held else "indexed_native_witness", 9),
+        event("write_guard", None, [], 0., "write_blocked", "ci_dry_run", 10)
     ]
     rows[5]["metrics"]["score"] = 0.
     rows[5]["metrics"]["support"] = 0.
+    rows[6]["metrics"]["score"] = 0.
+    rows[6]["metrics"]["support"] = 0.
     return rows
 
 
@@ -60,7 +64,7 @@ class NativePipelineTraceTests(unittest.TestCase):
     def test_held_result_preserves_no_write_semantics(self):
         actual = trace(held=True)
         self.assertEqual(validate(actual)["final_accept"], 0)
-        actual[7]["outcome"] = "selected"
+        actual[8]["outcome"] = "selected"
         with self.assertRaises(TraceError):
             validate(actual)
 
@@ -71,9 +75,9 @@ class NativePipelineTraceTests(unittest.TestCase):
                 if edit == "missing":
                     actual.pop()
                 elif edit == "duplicate":
-                    actual.insert(8, copy.deepcopy(actual[7]))
+                    actual.insert(9, copy.deepcopy(actual[8]))
                 else:
-                    actual[7], actual[8] = actual[8], actual[7]
+                    actual[8], actual[9] = actual[9], actual[8]
                 with self.assertRaises(TraceError):
                     validate(actual)
 
@@ -97,8 +101,8 @@ class NativePipelineTraceTests(unittest.TestCase):
             (2, "reason_code", "primary_gate_passed"),
             (3, "reason_code", "tag_from_owner"),
             (4, "stage", "metadata_source"),
-            (7, "reason_code", "oracle_label"),
-            (9, "reason_code", "write_permitted"),
+            (8, "reason_code", "oracle_label"),
+            (10, "reason_code", "write_permitted"),
         ):
             with self.subTest(field=field):
                 actual = trace()
@@ -120,7 +124,7 @@ class NativePipelineTraceTests(unittest.TestCase):
 
     def test_numeric_policy_class_and_supplement_must_not_invent_witness(self):
         actual = trace()
-        actual[6]["reason_code"] = "writer_override"
+        actual[7]["reason_code"] = "writer_override"
         actual[5]["metrics"]["score"] = 1.
         self.assertEqual(validate(actual)["policy_board"], 1)
         actual[3]["parent_candidate_ids"] = []
@@ -206,7 +210,7 @@ class NativePipelineTraceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             p = Path(temp) / "pipeline.jsonl"
             p.write_bytes("".join(json.dumps(x) + "\n" for x in trace()).encode("utf-8"))
-            self.assertEqual(validate(load(p))["rows"], 10)
+            self.assertEqual(validate(load(p))["rows"], 11)
             raw = p.read_text(encoding="utf-8")
             p.write_bytes(raw.rstrip("\n").encode("utf-8"))
             with self.assertRaises(TraceError):
@@ -226,23 +230,23 @@ class NativePipelineTraceTests(unittest.TestCase):
             with self.subTest(mutation=mutation):
                 modified = copy.deepcopy(rows)
                 if mutation == "missing":
-                    modified.pop(8)
+                    modified.pop(9)
                 elif mutation == "unrelated_value":
-                    modified[7]["metrics"]["bpm"] = 167.9
+                    modified[8]["metrics"]["bpm"] = 167.9
                 elif mutation == "orphan":
-                    modified[8]["parent_candidate_ids"] = ["c99"]
+                    modified[9]["parent_candidate_ids"] = ["c99"]
                 elif mutation == "fake_indexed":
-                    modified[8]["parent_candidate_ids"] = ["c0"]
+                    modified[9]["parent_candidate_ids"] = ["c0"]
                 elif mutation == "fake_unindexed":
-                    modified[8]["reason_code"] = "supplemental_witness_unindexed"
+                    modified[9]["reason_code"] = "supplemental_witness_unindexed"
                 else:
-                    modified[8]["outcome"] = "rejected"
+                    modified[9]["outcome"] = "rejected"
                 with self.assertRaises(TraceError):
                     validate(modified)
         # A genuine supplemental candidate is not assigned a fake FullBoard
         # candidate ID: preserve explicit incomplete causal attribution.
-        rows[8]["parent_candidate_ids"] = []
-        rows[8]["reason_code"] = "supplemental_witness_unindexed"
+        rows[9]["parent_candidate_ids"] = []
+        rows[9]["reason_code"] = "supplemental_witness_unindexed"
         result = validate(rows)
         self.assertEqual(result["indexed_native_final_witness"], 0)
         self.assertEqual(result["unindexed_supplemental_final_witness"], 1)
@@ -371,7 +375,7 @@ class NativePipelineTraceTests(unittest.TestCase):
                 rows = trace()
                 rows[5]["metrics"]["score"] = override
                 rows[5]["metrics"]["support"] = release
-                rows[6]["reason_code"] = "writer_override" if override else "hold_release"
+                rows[7]["reason_code"] = "writer_override" if override else "hold_release"
                 measured = validate(rows)
                 self.assertEqual(measured["policy_override_active"], int(override))
                 self.assertEqual(measured["policy_hold_release_active"], int(release))
@@ -379,6 +383,42 @@ class NativePipelineTraceTests(unittest.TestCase):
         invalid[5]["metrics"]["score"] = 2.
         with self.assertRaises(TraceError):
             validate(invalid)
+
+    def test_native_policy_object_pointer_distinguishes_numeric_coincidence(self):
+        rows = trace()
+        self.assertEqual(validate(rows)["policy_pointer_identity_complete"], 0)
+        rows[6]["reason_code"] = "pointer_native_fullboard_consistent"
+        rows[6]["parent_candidate_ids"] = ["c2"]
+        rows[6]["metrics"]["score"] = 1.
+        rows[6]["metrics"]["support"] = 1.
+        rows[7]["parent_candidate_ids"] = ["c2"]
+        qualified = validate(rows)
+        self.assertEqual(qualified["policy_pointer_identity_complete"], 1)
+        self.assertEqual(qualified["policy_pointer_reason"],
+                         "pointer_native_fullboard_consistent")
+        for change in ("bad_parent", "invented_pointer", "different_policy", "foreign_id"):
+            with self.subTest(change=change):
+                bad = copy.deepcopy(rows)
+                if change == "bad_parent":
+                    bad[6]["parent_candidate_ids"] = ["c0"]
+                elif change == "invented_pointer":
+                    bad[6]["metrics"]["score"] = 0.
+                elif change == "different_policy":
+                    bad[7]["parent_candidate_ids"] = []
+                else:
+                    bad[6]["parent_candidate_ids"] = ["c99"]
+                with self.assertRaises(TraceError):
+                    validate(bad)
+
+    def test_unobserved_supplemental_policy_cannot_invent_fullboard_pointer(self):
+        rows = trace()
+        rows[6]["reason_code"] = "pointer_supplemental_or_changed"
+        rows[6]["metrics"]["score"] = 1.
+        self.assertEqual(validate(rows)["policy_pointer_identity_complete"], 0)
+        bad = copy.deepcopy(rows)
+        bad[6]["parent_candidate_ids"] = ["c2"]
+        with self.assertRaises(TraceError):
+            validate(bad)
 
     def test_ci_only_compilation_and_host_provenance_chain(self):
         component = (ROOT / "src" / "foo_smart_tempo" /
@@ -406,6 +446,13 @@ class NativePipelineTraceTests(unittest.TestCase):
         self.assertIn("same_run_measured_witness", header)
         self.assertIn('out.push("measured_witness"', header)
         self.assertIn('out.push("policy_resolution"', header)
+        self.assertIn('out.push("policy_pointer"', header)
+        self.assertIn("mir_ci_policy_pointer_source()", component)
+        source = (ROOT / "src" / "foo_smart_tempo" /
+                  "mir_candidate_pipeline.cpp").read_text(encoding="utf-8")
+        self.assertIn("ci_policy_selected(selected)", source)
+        self.assertIn("g_ci_policy_board = candidates", source)
+        self.assertIn("ci_policy_supplemental(selected->local_exact_bpm)", source)
         schema = json.loads((ROOT / "tools" /
             "smart_tempo_decision_trace_v1.schema.json").read_text(encoding="utf-8"))
         self.assertTrue(set(ENUMS).issubset(set(schema["properties"]["stage"]["enum"])))

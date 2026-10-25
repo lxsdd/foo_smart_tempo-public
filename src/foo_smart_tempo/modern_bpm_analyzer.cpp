@@ -3023,7 +3023,8 @@ double ModernBpmAnalyzer::analyze(metadb_handle_ptr track, threaded_process_stat
                 smart_tempo::ci_pipeline_trace::record(
                 mirMeasuredCandidateBoard, ciWindows, primaryPool,
                 mirPolicyMeasuredCandidates,
-                mir_ci_primary_selector_events(), mirPrimarySelection,
+                mir_ci_primary_selector_events(), mir_ci_policy_pointer_source(),
+                mirPrimarySelection,
                 mirPolicyDecision, finalBpm, m_diag.suppress_write,
                 measuredWitness);
             FB2K_console_formatter()

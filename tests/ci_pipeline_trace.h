@@ -127,6 +127,7 @@ inline bool record(
     const std::vector<mir_pipeline::MirCandidate>& collapsed,
     const std::vector<mir_pipeline::MirPolicyMeasuredCandidate>& fullboard,
     std::span<const mir_pipeline::MirCiSelectorEvent> selectorEvents,
+    mir_pipeline::MirCiPolicyPointerSource policyPointer,
     const MirPrimarySelection& primary,
     const MirPolicyDecision& policy,
     double final_bpm, bool withheld, bool same_run_measured_witness) {
@@ -276,13 +277,36 @@ inline bool record(
            policy.output_bpm,
            static_cast<double>(policy.writer_override_candidate),
            static_cast<double>(policy.review_hold_promotion_candidate));
+  // Capture ACTUAL selected candidate reference when the native Policy
+  // selector passed a FullBoard object, retaining explicit uncertainty for
+  // supplemental TopK/partial-bar/micro-upgrade output changes.
+  std::vector<std::string> selected_policy_pointer;
+  const bool actualFullBoardObject =
+      policyPointer.observed && policyPointer.in_fullboard &&
+      policyPointer.index < fullboard.size() &&
+      std::isfinite(policyPointer.bpm) && policy.output_bpm > 0.0 &&
+      std::abs(policyPointer.bpm - policy.output_bpm) <= 0.001 &&
+      std::abs(fullboard[policyPointer.index].bpm - policyPointer.bpm) <= 0.001;
+  if (actualFullBoardObject)
+    selected_policy_pointer.push_back(policy_ids[policyPointer.index]);
+  const char* pointerReason = policy.output_bpm <= 0.0
+                                 ? "pointer_no_output"
+                                 : actualFullBoardObject
+                                       ? "pointer_native_fullboard_consistent"
+                                       : policyPointer.observed
+                                             ? "pointer_supplemental_or_changed"
+                                             : "pointer_not_observed";
+  out.push("policy_pointer", "observed", pointerReason, "",
+           selected_policy_pointer, policy.output_bpm,
+           static_cast<double>(policyPointer.observed),
+           static_cast<double>(policyPointer.in_fullboard));
   out.push("policy_change",
            policy.output_would_write ? "selected" :
            policy.output_would_review_hold ? "review_hold" : "rejected",
            policy.writer_override_candidate ? "writer_override" :
            policy.review_hold_promotion_candidate ? "hold_release" :
            policy.output_would_write ? "keep_primary" : "no_policy_write",
-           "", {}, policy.output_bpm,
+           "", selected_policy_pointer, policy.output_bpm,
            policy.candidate_local_exact_score, policy.candidate_support);
   out.push("final_output",
            withheld || final_bpm <= 0.0 ? "review_hold" : "selected",
@@ -313,7 +337,7 @@ inline bool record(
   out.push("write_guard", "write_blocked", "ci_dry_run",
            "", {}, 0.0, 0.0, 0.0);
   if (out.sequence != windows.size() + board.raw_candidates.size() + 2 * collapsed.size() +
-                      fullboard.size() + selectorEvents.size() + 6 ||
+                      fullboard.size() + selectorEvents.size() + 7 ||
       out.lines.size() > 2 * 1024 * 1024) return false;
   const std::wstring output = fixture + L".pipeline.jsonl";
   HANDLE h = CreateFileW(output.c_str(), GENERIC_WRITE, 0, nullptr,

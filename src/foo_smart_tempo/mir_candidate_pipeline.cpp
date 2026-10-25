@@ -17,6 +17,21 @@ namespace smart_tempo::mir_pipeline {
 namespace {
 thread_local std::vector<MirCiSelectorEvent> g_ci_primary_events;
 thread_local std::vector<MirCandidate> g_ci_primary_pool;
+thread_local std::span<const MirPolicyMeasuredCandidate> g_ci_policy_board;
+thread_local MirCiPolicyPointerSource g_ci_policy_source;
+inline void ci_policy_selected(const MirPolicyMeasuredCandidate& selected) noexcept {
+  g_ci_policy_source = {true, false, 0, selected.bpm};
+  for (std::size_t i = 0; i < g_ci_policy_board.size(); ++i) {
+    if (&g_ci_policy_board[i] == &selected) {
+      g_ci_policy_source.in_fullboard = true;
+      g_ci_policy_source.index = i;
+      return;
+    }
+  }
+}
+inline void ci_policy_supplemental(double bpm) noexcept {
+  g_ci_policy_source = {true, false, 0, bpm};
+}
 
 inline void ci_primary_event(std::size_t sourceIndex, double bpm, double score,
                              bool raw, bool included, const char* reason) noexcept {
@@ -34,6 +49,9 @@ mir_ci_primary_selector_events() noexcept {
 }
 const std::vector<MirCandidate>& mir_ci_primary_selector_pool() noexcept {
   return g_ci_primary_pool;
+}
+MirCiPolicyPointerSource mir_ci_policy_pointer_source() noexcept {
+  return g_ci_policy_source;
 }
 #endif
 namespace {
@@ -4156,6 +4174,9 @@ struct MirPolicyQualificationStage {
 void select_mir_policy_candidate(
     smart_tempo::MirPolicyDecision& shadow,
     const MirPolicyMeasuredCandidate& selected) noexcept {
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+  ci_policy_selected(selected);
+#endif
   shadow.candidate_bpm = selected.bpm;
   shadow.candidate_cluster_bpm = selected.cluster_bpm;
   shadow.candidate_base_score = selected.base_score;
@@ -4827,7 +4848,10 @@ void set_mir_policy_candidate_resolution(
           } else if (mir_policy_partial_bar_family_conflict_release(
                          partialBarAggregate, priorCenterBpm,
                          priorSpreadBpm, routeMatched, genericRoute)) {
-            shadow.candidate_bpm = partialBarAggregate->local_exact_bpm;
+          #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+  ci_policy_supplemental(partialBarAggregate->local_exact_bpm);
+#endif
+  shadow.candidate_bpm = partialBarAggregate->local_exact_bpm;
             shadow.candidate_cluster_bpm = partialBarAggregate->coarse_bpm;
             shadow.candidate_base_score = partialBarAggregate->score_sum;
             shadow.candidate_support =
@@ -4867,7 +4891,10 @@ void set_mir_policy_candidate_resolution(
       if (mir_policy_partial_bar_dominant_octave_release(
               partialBarAggregate, measured, priorCenterBpm,
               priorSpreadBpm, routeMatched, genericRoute)) {
-        shadow.candidate_bpm = partialBarAggregate->local_exact_bpm;
+      #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+  ci_policy_supplemental(partialBarAggregate->local_exact_bpm);
+#endif
+  shadow.candidate_bpm = partialBarAggregate->local_exact_bpm;
         shadow.candidate_cluster_bpm = partialBarAggregate->coarse_bpm;
         shadow.candidate_base_score = partialBarAggregate->score_sum;
         shadow.candidate_support =
@@ -4921,7 +4948,10 @@ void set_mir_policy_candidate_resolution(
     if (std::strcmp(shadow.reason, "writer_override_gate_veto") == 0 &&
         mir_policy_partial_bar_exact_half_recovery(
             partialBarAggregate, shadow.current_bpm)) {
-      shadow.candidate_bpm = partialBarAggregate->local_exact_bpm;
+    #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+  ci_policy_supplemental(partialBarAggregate->local_exact_bpm);
+#endif
+  shadow.candidate_bpm = partialBarAggregate->local_exact_bpm;
       shadow.candidate_cluster_bpm = partialBarAggregate->coarse_bpm;
       shadow.candidate_base_score = partialBarAggregate->score_sum;
       shadow.candidate_support =
@@ -4968,7 +4998,10 @@ void set_mir_policy_candidate_resolution(
       materialRiskProbe != nullptr &&
       is_mir_policy_material_risk_local_exact_release_candidate(
           *materialRiskProbe)) {
-    shadow.candidate_bpm = materialRiskProbe->best_bpm;
+  #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+  ci_policy_supplemental(materialRiskProbe->best_bpm);
+#endif
+  shadow.candidate_bpm = materialRiskProbe->best_bpm;
     shadow.candidate_cluster_bpm = materialRiskProbe->best_anchor_bpm;
     shadow.candidate_base_score = materialRiskProbe->best_score;
     shadow.candidate_local_exact_score = materialRiskProbe->best_score;
@@ -5351,6 +5384,10 @@ compute_mir_policy_decision(
     bool routeMatched,
     bool genericRoute,
     bool enabled) {
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+  g_ci_policy_board = candidates;
+  g_ci_policy_source = {};
+#endif
   // Ordered policy stages. Their sequence is part of the release contract.
   MirPolicyQualificationStage qualification = qualify_mir_policy_board(
       candidates, current, priorCenterBpm, priorSpreadBpm, routeMatched,
@@ -5477,6 +5514,9 @@ bool try_apply_mir_policy_partial_bar_topk_exact_release(
   }
   const double totalSegments =
       static_cast<double>(selected->total_segment_count);
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+  ci_policy_supplemental(selected->local_exact_bpm);
+#endif
   decision.candidate_bpm = selected->local_exact_bpm;
   decision.candidate_cluster_bpm = selected->coarse_bpm;
   decision.candidate_base_score = selected->score_sum;

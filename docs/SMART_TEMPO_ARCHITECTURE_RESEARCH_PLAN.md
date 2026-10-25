@@ -179,6 +179,34 @@ candidate lineage, nested per-branch veto causes, CPU/RSS performance and
 an independent pilot audit remain Phase-B gates. No Phase-C study until
 causal completeness is genuinely achieved.
 
+### Package B – capture actual Policy-selected object, not BPM proximity
+
+A new **CI-only** observer records the *actual candidate reference* handed
+to `select_mir_policy_candidate`. Its thread-local FullBoard span is set at
+entry to `compute_mir_policy_decision`, and the observer matches pointer
+identity by address equality to exactly one FullBoard array element. Thus
+multiple candidates with identical BPM remain distinct. Direct material-risk,
+partial-bar aggregate and TopK exact releases which bypass that selector
+explicitly invalidate the FullBoard attribution and are reported as
+supplemental/unindexed. If the final policy output BPM differs from the last
+native-selected object, pointer evidence is also withheld.
+
+The dedicated `policy_pointer` event distinguishes native same-output
+FullBoard pointer, supplemental/changed pointer, unavailable observation and
+zero policy output. When exact pointer identity is available, only that
+candidate ID is attached to `policy_change`; otherwise there is **no
+invented parent**. The original `policy_resolution` same-BPM-multiplicity
+comparison remains separate from actual object identity. The validator
+cross-checks pointer ID, exact BPM, 0/1 status and decision links; adversarial
+tests reject forged, orphan, contradictory and stale IDs.
+
+This measures the chosen **policy helper** object, not proof of the *entire*
+writer pipeline: later residual micro-upgrades and supplementary rescue
+stages may still alter the final BPM. Only an actual same-run witness can
+authorize a numeric final output. The existing native production measured
+witness guard and no-write checks are unchanged. Audio windows, CPU/RSS,
+first-veto exhaustiveness and independent blind review remain separate gates.
+
 ## Candidate architecture candidates: all compared under identical evidence
 
 - **A:** unchanged current MIR + primary + policy baseline.
