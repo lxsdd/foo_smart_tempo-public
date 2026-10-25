@@ -478,6 +478,24 @@ class NativePipelineTraceTests(unittest.TestCase):
         with self.assertRaises(TraceError):
             validate(bad)
 
+    def test_native_selector_capture_fails_closed_on_loss(self):
+        """CI capture overflow/OOM must never be reported as complete provenance."""
+        source = (ROOT / "src" / "foo_smart_tempo" /
+                  "mir_candidate_pipeline.cpp").read_text(encoding="utf-8")
+        header = (ROOT / "src" / "foo_smart_tempo" /
+                  "mir_candidate_pipeline.h").read_text(encoding="utf-8")
+        component = (ROOT / "src" / "foo_smart_tempo" /
+                     "modern_bpm_analyzer.cpp").read_text(encoding="utf-8")
+        self.assertIn("mir_ci_primary_selector_trace_complete() noexcept", header)
+        self.assertIn("g_ci_primary_events.size() >= 4096", source)
+        self.assertEqual(source.count("g_ci_primary_trace_complete = false;"), 3)
+        self.assertEqual(source.count("g_ci_primary_trace_complete = true;"), 2)
+        self.assertIn("g_ci_primary_events.clear();\n  g_ci_primary_pool.clear();\n  g_ci_primary_trace_complete = true;", source)
+        self.assertIn("mir_ci_primary_selector_trace_complete() &&", component)
+        self.assertLess(component.index("mir_ci_primary_selector_trace_complete() &&"),
+                        component.index("smart_tempo::ci_pipeline_trace::record("))
+        self.assertIn("#if defined(SMART_TEMPO_CI_ORACLE_PROBE)", source)
+
     def test_ci_only_compilation_and_host_provenance_chain(self):
         component = (ROOT / "src" / "foo_smart_tempo" /
                      "modern_bpm_analyzer.cpp").read_text(encoding="utf-8")

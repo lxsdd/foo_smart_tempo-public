@@ -264,3 +264,15 @@ supplemental policy/witness identities are still incomplete.
 - Threshold and general-rail fallbacks emit separate source-indexed readmission events only when those paths execute. The strict validator requires a preceding actual provisional exclusion of the same candidate, rejecting fabricated readmissions and duplicate-BPM identity substitutions.
 - High-pulse and harmonic residual rescue predicates, and the harmonic direct-protection gate, now emit their executed candidate checks. Gate admission may still lose in the original ranking/tie logic; rejection is marked provisional rather than a final exclusion.
 - All native additions are under SMART_TEMPO_CI_ORACLE_PROBE. None changes production selector/DSP/Policy/Writer behavior. Full nested first-veto semantics, supplemental source IDs, CPU/RSS and independent Phase-B approval remain absent. Phase C and musical GO stay closed.
+
+### 25 Oct 2026: fail-closed native trace capture saturation (prepared CI-only package)
+
+The ephemeral selector recorder formerly discarded events silently at 4096
+observations or on allocation failure, while an incomplete JSONL could still
+look well formed. A failed snapshot of the executed primary input pool could
+also lose provenance. The CI-only per-analysis capture-complete flag now
+tracks overflow, event-allocation and pool-copy failures; the host trace gate
+rejects incomplete captures before writing the disposable synthetic JSONL.
+This protects diagnostic integrity only. It does not establish every first
+veto or supplemental source ID, does not change production BPM/metadata and
+does not authorize package C.

@@ -3020,6 +3020,7 @@ double ModernBpmAnalyzer::analyze(metadb_handle_ptr track, threaded_process_stat
                     std::span<const smart_tempo::HodgkinsonPartialBarTopKExactCandidate>(
                         topKExactRows.data(), topKExactRows.size()));
             const bool traced = !ciWindowCaptureFailed &&
+                mir_ci_primary_selector_trace_complete() &&
                 smart_tempo::ci_pipeline_trace::record(
                 mirMeasuredCandidateBoard, ciWindows, primaryPool,
                 mirPolicyMeasuredCandidates,

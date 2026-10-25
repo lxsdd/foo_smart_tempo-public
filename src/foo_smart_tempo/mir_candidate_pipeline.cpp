@@ -17,6 +17,7 @@ namespace smart_tempo::mir_pipeline {
 namespace {
 thread_local std::vector<MirCiSelectorEvent> g_ci_primary_events;
 thread_local std::vector<MirCandidate> g_ci_primary_pool;
+thread_local bool g_ci_primary_trace_complete = true;
 thread_local std::span<const MirPolicyMeasuredCandidate> g_ci_policy_board;
 thread_local MirCiPolicyPointerSource g_ci_policy_source;
 inline void ci_policy_selected(const MirPolicyMeasuredCandidate& selected) noexcept {
@@ -35,17 +36,24 @@ inline void ci_policy_supplemental(double bpm) noexcept {
 
 inline void ci_primary_event(std::size_t sourceIndex, double bpm, double score,
                              bool raw, bool included, const char* reason) noexcept {
-  if (g_ci_primary_events.size() >= 4096) return;
+  if (g_ci_primary_events.size() >= 4096) {
+    g_ci_primary_trace_complete = false;
+    return;
+  }
   try {
     g_ci_primary_events.push_back({bpm, score, raw, included, reason, sourceIndex});
   } catch (...) {
-    // CI-only diagnostics must never affect BPM selection or writer behavior.
+    // CI-only diagnostics never affect selection; incomplete evidence fails the host gate.
+    g_ci_primary_trace_complete = false;
   }
 }
 }
 std::span<const MirCiSelectorEvent>
 mir_ci_primary_selector_events() noexcept {
   return {g_ci_primary_events.data(), g_ci_primary_events.size()};
+}
+bool mir_ci_primary_selector_trace_complete() noexcept {
+  return g_ci_primary_trace_complete;
 }
 const std::vector<MirCandidate>& mir_ci_primary_selector_pool() noexcept {
   return g_ci_primary_pool;
@@ -1738,6 +1746,7 @@ compute_mir_primary_selection(
 #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
   g_ci_primary_events.clear();
   g_ci_primary_pool.clear();
+  g_ci_primary_trace_complete = true;
 #endif
   smart_tempo::MirPrimarySelection shadow;
   shadow.enabled = enabled;
@@ -1762,6 +1771,7 @@ compute_mir_primary_selection(
     g_ci_primary_pool = candidates;
   } catch (...) {
     g_ci_primary_pool.clear();
+    g_ci_primary_trace_complete = false;
   }
 #endif
   shadow.candidate_count = candidates.size();
