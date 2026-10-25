@@ -156,6 +156,32 @@ class NativePipelineTraceTests(unittest.TestCase):
                 with self.assertRaises(TraceError):
                     validate(rows)
 
+    def test_actual_lane_residual_final_terminal_chain(self):
+        rows = trace()
+        terminal = [
+            event("primary_terminal", "c1", [], 128., "selected",
+                  "terminal_lane_choice", 0),
+            event("primary_terminal", "c1", [], 128., "selected",
+                  "terminal_residual_choice", 0),
+            event("primary_terminal", "c1", [], 128., "selected",
+                  "terminal_final_choice", 0),
+        ]
+        rows[4:4] = terminal
+        for i, row in enumerate(rows):
+            row["sequence"] = i
+        self.assertEqual(validate(rows)["selector_terminal_observations"], 3)
+        for corruption in ("missing", "reordered", "wrong_identity"):
+            with self.subTest(corruption=corruption):
+                bad = copy.deepcopy(rows)
+                if corruption == "missing":
+                    bad.pop(5)
+                elif corruption == "reordered":
+                    bad[4], bad[5] = bad[5], bad[4]
+                else:
+                    bad[4]["candidate_id"] = "c0"
+                with self.assertRaises(TraceError):
+                    validate(bad)
+
     def test_raw_aliased_candidates_can_exceed_output_rail_but_not_safety_limit(self):
         rows = trace()
         rows[0]["metrics"]["bpm"] = 512.0
@@ -255,6 +281,8 @@ class NativePipelineTraceTests(unittest.TestCase):
         self.assertIn("primary_rank", header)
         self.assertIn("item.source_index >= count", header)
         self.assertIn("ids[item.source_index]", header)
+        self.assertIn('"primary_terminal"', header)
+        self.assertIn("general_baseline_rank_scored", header)
         self.assertNotIn("std::size_t match = count", header)
         selector_header = (ROOT / "src" / "foo_smart_tempo" /
                            "mir_candidate_pipeline.h").read_text(encoding="utf-8")
@@ -265,7 +293,10 @@ class NativePipelineTraceTests(unittest.TestCase):
         self.assertIn("&candidate - candidates.data()", selector)
         for snippet in ("raw_alias_provisional_exclusion", "raw_support_provisional_exclusion",
                         "low_upper_gate_provisional_exclusion", "low_threshold_allowed",
-                        "harmonic_rank_scored", "general_out_of_rail_provisional"):
+                        "harmonic_rank_scored", "general_out_of_rail_provisional",
+                        "general_alt_rank_scored", "low_continuous_allowed",
+                        "terminal_lane_choice", "terminal_residual_choice",
+                        "terminal_final_choice"):
             self.assertIn(snippet, selector)
         self.assertIn("audit_smart_tempo_ci_pipeline_trace.py --trace", host)
         self.assertIn("test_smart_tempo_ci_pipeline_trace.py", workflow)

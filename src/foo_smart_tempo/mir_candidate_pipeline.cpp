@@ -1104,6 +1104,11 @@ evaluate_mir_high_pulse_interval_conflict_shadow(
   for (const auto* candidate : *searchPool) {
     const double score = score_mir_cluster_conservative(
         *candidate, lane, routeMin, routeMax, routeCenter);
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+    ci_primary_event(static_cast<std::size_t>(candidate - candidates.data()),
+                     candidate->bpm, score, false, true,
+                     "general_baseline_rank_scored");
+#endif
     const auto tie = std::make_tuple(candidate->support, candidate->winner_support,
                                      candidate->score_sum,
                                      -std::abs(candidate->bpm - routeCenter));
@@ -1406,6 +1411,17 @@ select_mir_low_pulse_continuous_center_rescue(
                                             : 99.0;
   const MirCandidate* best = nullptr;
   for (const auto& candidate : candidates) {
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+    const bool excluded = !(candidate.bpm >= 95.0 && candidate.bpm <= 102.0) ||
+        std::abs(candidate.bpm - selected->bpm) < 10.0 ||
+        candidate.continuous_score_ratio < 1.50 ||
+        candidate.continuous_section_support < 0.80 ||
+        candidate.continuous_section_stability < 0.70;
+    ci_primary_event(static_cast<std::size_t>(&candidate - candidates.data()),
+                     candidate.bpm, candidate.continuous_score_ratio, false,
+                     !excluded, excluded ? "low_continuous_provisional_exclusion" :
+                                           "low_continuous_allowed");
+#endif
     if (!(candidate.bpm >= 95.0 && candidate.bpm <= 102.0) ||
         std::abs(candidate.bpm - selected->bpm) < 10.0 ||
         candidate.continuous_score_ratio < 1.50 ||
@@ -1556,6 +1572,11 @@ select_mir_low_pulse_continuous_center_rescue(
     if (routeCenter > 0.0) {
       score -= std::abs(candidate->bpm - routeCenter) * 0.025;
     }
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+    ci_primary_event(static_cast<std::size_t>(candidate - candidates.data()),
+                     candidate->bpm, score, false, true,
+                     "general_alt_rank_scored");
+#endif
     const double evidence =
         candidate->best_combined_score + candidate->pulse_section_support * 0.12;
     const bool candidate144 =
@@ -1744,7 +1765,19 @@ compute_mir_primary_selection(
                    ? find_mir_cluster(candidates, rawSelected->bpm)
                    : nullptr;
   }
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+  if (selected != nullptr)
+    ci_primary_event(static_cast<std::size_t>(selected - candidates.data()),
+                     selected->bpm, selected->best_combined_score, false,
+                     true, "terminal_lane_choice");
+#endif
   selected = apply_mir_residual_rescue(candidates, selected, lane, routeMin);
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+  if (selected != nullptr)
+    ci_primary_event(static_cast<std::size_t>(selected - candidates.data()),
+                     selected->bpm, selected->best_combined_score, false,
+                     true, "terminal_residual_choice");
+#endif
   if (std::strcmp(lane, "harmonic_conflict") == 0 && selected != nullptr &&
       selected->bpm >= 143.0 && selected->bpm <= 145.0 &&
       (mir_has_alias(selected->alias_bits, MirAlias::four_thirds) ||
@@ -1768,6 +1801,12 @@ compute_mir_primary_selection(
       shadow.lane_variant = "harmonic_direct_protection";
     }
   }
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+  if (selected != nullptr)
+    ci_primary_event(static_cast<std::size_t>(selected - candidates.data()),
+                     selected->bpm, selected->best_combined_score, false,
+                     true, "terminal_final_choice");
+#endif
   if (selected == nullptr) {
     shadow.decision_class = "no_candidate";
     shadow.reason = "selector_returned_no_candidate";

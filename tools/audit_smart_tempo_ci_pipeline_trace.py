@@ -24,6 +24,7 @@ ENUMS = {
     "primary_eligibility": ("observed", "pool_only_gate_unresolved"),
     "candidate_filter": (None, None),
     "primary_rank": ("included", None),
+    "primary_terminal": ("selected", None),
     "policy_eligibility": ("included", None),
     "primary_select": (None, None),
     "policy_change": (None, None),
@@ -39,9 +40,17 @@ ALLOWED_FILTER_REASONS = frozenset((
     "low_upper_gate_allowed", "low_upper_gate_provisional_exclusion",
     "low_threshold_allowed", "low_threshold_provisional_exclusion",
     "harmonic_in_rail", "harmonic_out_of_rail",
-    "general_in_rail", "general_out_of_rail_provisional"
+    "general_in_rail", "general_out_of_rail_provisional",
+    "low_continuous_allowed", "low_continuous_provisional_exclusion"
 ))
-ALLOWED_RANK_REASONS = frozenset(("raw_rank_scored", "harmonic_rank_scored"))
+ALLOWED_RANK_REASONS = frozenset((
+    "raw_rank_scored", "harmonic_rank_scored",
+    "general_baseline_rank_scored", "general_alt_rank_scored"
+))
+ALLOWED_TERMINAL_REASONS = frozenset((
+    "terminal_lane_choice", "terminal_residual_choice",
+    "terminal_final_choice"
+))
 
 
 class TraceError(ValueError):
@@ -57,7 +66,8 @@ def validate(rows: list[dict]) -> dict:
     stage_order = {
         "candidate_create": 0, "candidate_transform": 1,
         "primary_eligibility": 1, "policy_eligibility": 2,
-        "candidate_filter": 3, "primary_rank": 3, "primary_select": 4,
+        "candidate_filter": 3, "primary_rank": 3,
+        "primary_terminal": 3, "primary_select": 4,
         "policy_change": 5, "final_output": 6,
         "measured_witness": 7, "write_guard": 8
     }
@@ -117,11 +127,12 @@ def validate(rows: list[dict]) -> dict:
         elif stage == "primary_eligibility":
             if candidate_id is None or ids.get(candidate_id) != "candidate_transform":
                 raise TraceError("primary pool includes candidate not transformed")
-        elif stage in ("candidate_filter", "primary_rank"):
+        elif stage in ("candidate_filter", "primary_rank", "primary_terminal"):
             # Actual executed selector probes, with explicit raw/cluster source.
-            if item["reason_code"] not in (
-                    ALLOWED_FILTER_REASONS if stage == "candidate_filter"
-                    else ALLOWED_RANK_REASONS):
+            reason_set = (ALLOWED_FILTER_REASONS if stage == "candidate_filter"
+                          else ALLOWED_RANK_REASONS if stage == "primary_rank"
+                          else ALLOWED_TERMINAL_REASONS)
+            if item["reason_code"] not in reason_set:
                 raise TraceError("unknown selector-veto/rank reason")
             expect_raw = item["reason_code"].startswith("raw_")
             if (candidate_id is None or ids.get(candidate_id) !=
@@ -166,6 +177,17 @@ def validate(rows: list[dict]) -> dict:
                  abs(candidate_bpm[p] - primary["metrics"]["bpm"]) >= .001
                  for p in primary["parent_candidate_ids"]))):
         raise TraceError("selected primary candidate has no matching clustered witness")
+    terminal = stage_indices["primary_terminal"]
+    if terminal:
+        actual = [row["reason_code"] for row in terminal]
+        allowed = ("terminal_lane_choice", "terminal_residual_choice",
+                   "terminal_final_choice")
+        if actual != list(allowed):
+            raise TraceError("selector terminal order/count incomplete")
+        if any(ids[x["candidate_id"]] != "candidate_transform" for x in terminal):
+            raise TraceError("selector terminal missing clustered candidate ID")
+        if not primary["metrics"]["bpm"] and primary["outcome"] == "selected":
+            raise TraceError("selector selected without terminal BPM")
     if primary["reason_code"] not in (
             "primary_auto", "primary_review_hold", "primary_no_candidate"):
         raise TraceError("unapproved primary decision reason")
@@ -212,6 +234,7 @@ def validate(rows: list[dict]) -> dict:
         "primary_veto_reason_unknown": incomplete,
         "selector_branch_checks": len(stage_indices["candidate_filter"]),
         "selector_rank_observations": len(stage_indices["primary_rank"]),
+        "selector_terminal_observations": len(stage_indices["primary_terminal"]),
         "policy_origin_unknown": sum(x["reason_code"] == "full_board_origin_unknown"
                                      for x in fullboard),
         "primary_auto": int(primary["outcome"] == "selected"),

@@ -175,9 +175,14 @@ inline bool record(
     // Source index is preserved from the ACTUAL executed selector vector:
     // same-BPM alias rows no longer collapse onto the first matching raw ID.
     const bool ranking = std::strcmp(item.reason, "raw_rank_scored") == 0 ||
-                         std::strcmp(item.reason, "harmonic_rank_scored") == 0;
-    out.push(ranking ? "primary_rank" : "candidate_filter",
-             item.included ? "included" : "excluded",
+                         std::strcmp(item.reason, "harmonic_rank_scored") == 0 ||
+                         std::strcmp(item.reason, "general_baseline_rank_scored") == 0 ||
+                         std::strcmp(item.reason, "general_alt_rank_scored") == 0;
+    const bool terminal = std::strncmp(item.reason, "terminal_", 9) == 0;
+    out.push(terminal ? "primary_terminal" :
+             ranking ? "primary_rank" : "candidate_filter",
+             terminal ? "selected" :
+                 item.included ? "included" : "excluded",
              item.reason, ids[item.source_index], {}, item.bpm, item.score, 0.0);
   }
   if (!std::isfinite(primary.selected_local_exact_score) ||

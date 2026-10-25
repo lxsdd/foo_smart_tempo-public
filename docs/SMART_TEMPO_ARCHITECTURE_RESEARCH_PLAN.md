@@ -140,8 +140,17 @@ selection, confidence threshold, write policy or user files are changed.
 Adversarial regressions cover orphan/mismatched final witness, mixed-session
 IDs, unindexed supplement flags, branch lineage and loss of the no-write gate.
 
-**Gate remains incomplete:** low-pulse nested rescues, general-144 scoring
-and fallback, residual rescue, partial-bar/TopK origin identity, real audio
+**Additional queued native trace stage:** instrument the executed general
+baseline and alternate-144 ranking functions and the actual continuous-rescue
+qualification check. Publish three indexed terminal transitions *before
+residual rescue*, *after residual rescue* and *after harmonic direct protection*.
+These permit exact comparisons of how the primary choice changes through
+rescue stages without rerunning audio. Their presence does **not** prove
+complete per-candidate veto causality, nor does a provisional excluded state
+mean final ineligibility when fallback re-admits a candidate.
+
+**Gate remains incomplete:** low-pulse nested rescues, remaining general-144 scoring
+and fallback, residual rescue candidate vetoes, partial-bar/TopK origin identity, real audio
 window extents and independently measured CPU/RSS require full runtime capture
 and a distinct audit before the large C campaign.
 
