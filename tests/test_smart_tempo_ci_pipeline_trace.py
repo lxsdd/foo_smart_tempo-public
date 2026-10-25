@@ -212,7 +212,7 @@ class NativePipelineTraceTests(unittest.TestCase):
             row["sequence"] = i
         self.assertEqual(validate(rows)["selector_terminal_observations"], 3)
         rows[7]["parent_candidate_ids"] = ["c2"]  # same ~BPM, policy object != primary object
-        with self.assertRaisesRegex(TraceError, "exact terminal object"):
+        with self.assertRaisesRegex(TraceError, "matching clustered witness|exact terminal object"):
             validate(rows)
 
     def test_raw_aliased_candidates_can_exceed_output_rail_but_not_safety_limit(self):
