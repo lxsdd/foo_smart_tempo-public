@@ -608,7 +608,9 @@ class NativePipelineTraceTests(unittest.TestCase):
                   "mir_candidate_pipeline.cpp").read_text(encoding="utf-8")
         self.assertIn("ci_policy_selected(selected)", source)
         self.assertIn("g_ci_policy_board = candidates", source)
-        self.assertIn("ci_policy_supplemental(selected->local_exact_bpm)", source)
+        self.assertIn("MirCiSupplementalKind::partial_bar_topk, selected);", source)
+        self.assertIn("MirCiSupplementalKind::material_risk, materialRiskProbe);", source)
+        self.assertIn("MirCiSupplementalKind::partial_bar_aggregate, partialBarAggregate);", source)
         schema = json.loads((ROOT / "tools" /
             "smart_tempo_decision_trace_v1.schema.json").read_text(encoding="utf-8"))
         self.assertTrue(set(ENUMS).issubset(set(schema["properties"]["stage"]["enum"])))
