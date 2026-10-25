@@ -16,6 +16,7 @@ from audit_synthetic_genre_prior import compare_audio_and_genre
 from audit_synthetic_policy_stage import load_policy, audit_policy_stages
 from audit_synthetic_stage_shadow import audit_stage_shadow
 from audit_synthetic_export_rank import audit_export_rank
+from audit_synthetic_source_bits import audit_source_bits, load_source_bits
 
 
 
@@ -299,7 +300,8 @@ def audit_genre_counterfactual(scored: dict, signals: dict[str, list[dict]]) -> 
 def score(manifest: dict, observed: list[dict], timing: list[dict],
           candidates: dict[str, list[float]] | None = None,
           candidate_signals: dict[str, list[dict]] | None = None,
-          policies: dict[str, dict[str, str]] | None = None) -> dict:
+          policies: dict[str, dict[str, str]] | None = None,
+          source_bits: dict[str, list[int]] | None = None) -> dict:
     expected = list(CASES)
     rows = manifest.get("cases")
     if (manifest.get("schema") != "synthetic_bpm_reference_v1" or
@@ -341,6 +343,11 @@ def score(manifest: dict, observed: list[dict], timing: list[dict],
             candidate_signals)
         result["export_rank"] = audit_export_rank(
             result, candidate_signals, result["policy_stages"], CASES)
+    if source_bits is not None:
+        if policies is None or candidate_signals is None:
+            raise ValueError("source bits require actual candidate and stage joins")
+        result["source_bits"] = audit_source_bits(
+            result, candidate_signals, result["policy_stages"], source_bits, CASES)
     millis = [float(row["analysis_ms"]) for row in timing]
     result["host_response_ms_median"] = statistics.median(millis)
     result["host_response_ms_p95"] = sorted(millis)[
@@ -355,6 +362,7 @@ def main() -> None:
     parser.add_argument("--timing", type=Path, required=True)
     parser.add_argument("--candidates", type=Path, required=True)
     parser.add_argument("--policy", type=Path, required=True)
+    parser.add_argument("--source-bits", type=Path, required=True)
     args = parser.parse_args()
     with args.manifest.open(encoding="utf-8-sig") as f:
         manifest = json.load(f)
@@ -367,7 +375,8 @@ def main() -> None:
     candidates = load_candidates(args.candidates)
     signals = load_candidate_signals(args.candidates)
     policies = load_policy(args.policy, [name for name, _, _ in CASES])
-    result = score(manifest, observed, timing, candidates, signals, policies)
+    bits = load_source_bits(args.source_bits, [name for name, _, _ in CASES], signals)
+    result = score(manifest, observed, timing, candidates, signals, policies, bits)
     print(f"CHALLENGE_REAL_CASES={result['n']}")
     print(f"CHALLENGE_CLEAR_CASES={result['precision']['clear_reference_n']}")
     print(f"CHALLENGE_ACCEPTED_CLEAR={result['precision']['accepted_reference_n']}")
@@ -431,6 +440,17 @@ def main() -> None:
         print(f"CHALLENGE_EXPORT_RANK_CASE id={name} final_path={stage_name} "
               f"outcome={outcome} precise_rank_class={precise_rank} "
               f"output_rank_class={output_rank}")
+    origin = result["source_bits"]
+    print("CHALLENGE_SOURCE_BITS_INTERPRETATION=" + origin["interpretation"])
+    for key, value in origin["totals"].items():
+        print(f"CHALLENGE_SOURCE_BITS_TOTAL_{key.upper()}={value}")
+    for name, values in origin["stages"].items():
+        for key, value in values.items():
+            print(f"CHALLENGE_SOURCE_BITS_{name.upper()}_{key.upper()}={value}")
+    for name, stage, outcome, precise, output in origin["details"]:
+        print(f"CHALLENGE_SOURCE_BITS_CASE id={name} final_path={stage} "
+              f"outcome={outcome} precise_origin_mask={precise} "
+              f"output_origin_mask={output}")
     frozen = result["frozen_shadow"]
     print("CHALLENGE_FROZEN_PROFILE=min_local_0.95,harmonic_margin_0.10")
     for key, value in frozen["counts"].items():

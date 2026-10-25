@@ -125,6 +125,13 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Exported-board rank attribution regressions failed' }
           # Evidence rank is NOT hidden MIR candidate provenance or selector reachability.
 
+      - name: Verify bounded CI-only candidate origin-bit stage join
+        shell: pwsh
+        run: |
+          python -m unittest discover -s tests -p 'test_synthetic_source_bits.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'Public candidate source-bit provenance regressions failed' }
+          # Observational merged-review source masks; not selector eligibility.
+
       - name: Verify read-only soft genre-prior safety counterfactuals
         shell: pwsh
         run: |
