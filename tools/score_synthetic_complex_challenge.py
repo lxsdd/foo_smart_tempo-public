@@ -10,7 +10,8 @@ from pathlib import Path
 import statistics
 
 from generate_synthetic_complex_challenge import CASES
-from score_synthetic_bpm_reference import evaluate, load_observed
+from score_synthetic_bpm_reference import evaluate, load_observed, shadow_candidate_choice
+from score_prospective_bpm_reference import PROFILE_MIN_LOCAL, PROFILE_HARMONIC_MARGIN
 
 
 
@@ -38,6 +39,21 @@ def load_candidates(path: Path) -> dict[str, list[float]]:
                 raise ValueError("invalid or unbounded challenge candidate")
             grouped[row["id"]].append(values[0])
     return grouped
+
+
+def load_candidate_signals(path: Path) -> dict[str, list[dict[str, str]]]:
+    """Reuse bounded public-only validation before retaining audio evidence."""
+    numeric = load_candidates(path)
+    signals: dict[str, list[dict[str, str]]] = {name: [] for name in numeric}
+    with path.open(encoding="utf-8-sig", newline="") as f:
+        for row in csv.DictReader(f):
+            if row["id"] not in signals:
+                raise ValueError("challenge signal identity mismatch")
+            signals[row["id"]].append(row)
+    if any([float(row["bpm"]) for row in signals[name]] != values
+           for name, values in numeric.items()):
+        raise ValueError("challenge candidate signal drift")
+    return signals
 
 
 def audit_candidates(scored: dict, grouped: dict[str, list[float]]) -> dict:
@@ -93,8 +109,49 @@ def classify_challenge(scored: dict) -> dict:
     return counts
 
 
+def audit_frozen_shadow(scored: dict, signals: dict[str, list[dict]]) -> dict:
+    """Evaluate PRE-FROZEN audio-only abstention on the independent challenge.
+
+    Compute every proposal BEFORE consulting oracle BPMs or classifications.
+    This is diagnostic only; no production candidate or writer is modified.
+    """
+    known = {name for name, _, _ in CASES}
+    if set(signals) != known:
+        raise ValueError("frozen challenge signal identity mismatch")
+    proposals = {
+        name: shadow_candidate_choice(
+            signals[name], PROFILE_MIN_LOCAL, PROFILE_HARMONIC_MARGIN)
+        for name in known
+    }
+    counts = dict(clear_correct=0, clear_wrong=0, clear_held=0,
+                  metrical_accepted=0, nonstationary_accepted=0,
+                  nonrhythmic_accepted=0)
+    cases = []
+    for (name, _, style), row in zip(CASES, scored["results"]):
+        if row["id"] != name:
+            raise ValueError("frozen challenge result identity mismatch")
+        proposed = proposals[name]
+        cases.append((name, proposed))
+        if style in ("halftrap", "doubletrap"):
+            counts["metrical_accepted"] += proposed is not None
+        elif style == "switch":
+            counts["nonstationary_accepted"] += proposed is not None
+        elif style in ("nonperiodic", "tone"):
+            counts["nonrhythmic_accepted"] += proposed is not None
+        elif proposed is None:
+            counts["clear_held"] += 1
+        elif abs(proposed - row["reference_bpm"]) <= .20 + 1e-9:
+            counts["clear_correct"] += 1
+        else:
+            counts["clear_wrong"] += 1
+    if sum(counts[k] for k in ("clear_correct", "clear_wrong", "clear_held")) != 11:
+        raise ValueError("frozen challenge clear denominator mismatch")
+    return {"counts": counts, "cases": cases}
+
+
 def score(manifest: dict, observed: list[dict], timing: list[dict],
-          candidates: dict[str, list[float]] | None = None) -> dict:
+          candidates: dict[str, list[float]] | None = None,
+          candidate_signals: dict[str, list[dict]] | None = None) -> dict:
     expected = list(CASES)
     rows = manifest.get("cases")
     if (manifest.get("schema") != "synthetic_bpm_reference_v1" or
@@ -123,6 +180,8 @@ def score(manifest: dict, observed: list[dict], timing: list[dict],
     result["challenge_classes"] = classify_challenge(result)
     if candidates is not None:
         result["candidate_audit"] = audit_candidates(result, candidates)
+    if candidate_signals is not None:
+        result["frozen_shadow"] = audit_frozen_shadow(result, candidate_signals)
     millis = [float(row["analysis_ms"]) for row in timing]
     result["host_response_ms_median"] = statistics.median(millis)
     result["host_response_ms_p95"] = sorted(millis)[
@@ -146,7 +205,8 @@ def main() -> None:
             raise ValueError("unexpected timing CSV header")
         timing = list(reader)
     candidates = load_candidates(args.candidates)
-    result = score(manifest, observed, timing, candidates)
+    signals = load_candidate_signals(args.candidates)
+    result = score(manifest, observed, timing, candidates, signals)
     print(f"CHALLENGE_REAL_CASES={result['n']}")
     print(f"CHALLENGE_CLEAR_CASES={result['precision']['clear_reference_n']}")
     print(f"CHALLENGE_ACCEPTED_CLEAR={result['precision']['accepted_reference_n']}")
@@ -166,6 +226,13 @@ def main() -> None:
     for name, near, closest in audit["wrong_details"]:
         value = "none" if closest is None else f"{closest:.6f}"
         print(f"CHALLENGE_WRONG_CASE id={name} precise_board={near} nearest_error_bpm={value}")
+    frozen = result["frozen_shadow"]
+    print("CHALLENGE_FROZEN_PROFILE=min_local_0.95,harmonic_margin_0.10")
+    for key, value in frozen["counts"].items():
+        print(f"CHALLENGE_FROZEN_{key.upper()}={value}")
+    for name, proposal in frozen["cases"]:
+        shown = "held" if proposal is None else f"{proposal:.6f}"
+        print(f"CHALLENGE_FROZEN_CASE id={name} proposal={shown}")
     print(f"CHALLENGE_MEDIAN_HOST_RESPONSE_MS={result['host_response_ms_median']:.0f}")
     print(f"CHALLENGE_P95_HOST_RESPONSE_MS={result['host_response_ms_p95']:.0f}")
     print(f"CHALLENGE_QUALITY_VERDICT={result['quality_verdict']}")

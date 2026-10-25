@@ -14,7 +14,9 @@ import wave
 TOOLS = Path(__file__).resolve().parents[1] / "tools"
 sys.path.insert(0, str(TOOLS))
 from generate_synthetic_complex_challenge import CASES, render  # noqa: E402
-from score_synthetic_complex_challenge import load_candidates, score  # noqa: E402
+from score_synthetic_complex_challenge import (  # noqa: E402
+    load_candidates, load_candidate_signals, score,
+)
 
 
 class ComplexSyntheticChallengeTests(unittest.TestCase):
@@ -177,6 +179,78 @@ class ComplexSyntheticChallengeTests(unittest.TestCase):
             write([good] * 33)
             with self.assertRaises(ValueError):
                 load_candidates(path)
+
+
+    def test_frozen_policy_never_uses_reference_to_select(self):
+        refs, observed, timing = [], [], []
+        signals = {name: [] for name, _, _ in CASES}
+        for i, (name, bpm, style) in enumerate(CASES):
+            ambiguity = ("meter_underdetermined" if style in
+                         ("halftrap", "doubletrap") else
+                         "tempo_nonstationary" if style == "switch" else "none")
+            refs.append({"id": name, "reference_bpm": bpm,
+                         "style": "stress_" + style, "ambiguity": ambiguity})
+            observed.append({"index": str(i), "bpm": str(bpm or 0),
+                             "held": "1" if ambiguity != "none" or bpm is None else "0"})
+            timing.append({"index": str(i), "id": name, "analysis_ms": "350"})
+            if ambiguity == "none" and bpm is not None:
+                signals[name] = [{"rank": "1", "bpm": str(bpm),
+                                  "local_exact": "0.98"}]
+        signals[CASES[4][0]] = [
+            {"rank": "1", "bpm": "94.8", "local_exact": "0.99"},
+            {"rank": "2", "bpm": "189.6", "local_exact": "0.95"}]
+        signals[CASES[5][0]] = [
+            {"rank": "1", "bpm": "134.8", "local_exact": "0.94"}]
+        signals[CASES[13][0]] = [
+            {"rank": "1", "bpm": "142", "local_exact": "0.60"}]
+        signals[CASES[14][0]] = [
+            {"rank": "1", "bpm": "123", "local_exact": "0.40"}]
+        signals[CASES[15][0]] = [
+            {"rank": "1", "bpm": "123", "local_exact": "0.20"}]
+        manifest = {"schema": "synthetic_bpm_reference_v1", "cases": refs}
+        good = score(manifest, observed, timing, candidate_signals=signals)
+        counts = good["frozen_shadow"]["counts"]
+        self.assertEqual((counts["clear_correct"], counts["clear_wrong"],
+                          counts["clear_held"]), (11, 0, 0))
+        self.assertEqual((counts["metrical_accepted"],
+                          counts["nonstationary_accepted"],
+                          counts["nonrhythmic_accepted"]), (0, 0, 0))
+        # High-scoring but wrong audio candidate stays WRONG, not corrected
+        # by the post-hoc reference: this is deliberately NOT an oracle.
+        signals[CASES[0][0]] = [
+            {"rank": "1", "bpm": str(CASES[0][1] * 2),
+             "local_exact": "0.99"}]
+        wrong = score(manifest, observed, timing, candidate_signals=signals)
+        self.assertEqual(wrong["frozen_shadow"]["counts"]["clear_wrong"], 1)
+        # A close octave competitor forces a safe hold using audio alone.
+        signals[CASES[0][0]].append(
+            {"rank": "2", "bpm": str(CASES[0][1]),
+             "local_exact": "0.95"})
+        held = score(manifest, observed, timing, candidate_signals=signals)
+        self.assertEqual(held["frozen_shadow"]["counts"]["clear_held"], 1)
+        self.assertEqual(held["frozen_shadow"]["counts"]["clear_wrong"], 0)
+        signals["not_a_public_case"] = []
+        with self.assertRaises(ValueError):
+            score(manifest, observed, timing, candidate_signals=signals)
+
+    def test_signal_loader_preserves_strict_bounded_validation(self):
+        fields = ["id", "rank", "bpm", "evidence",
+                  "support", "winner", "local_exact"]
+        row = [CASES[0][0], "1", "73.25", "1.5", "1", "0", ".98"]
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "candidates.csv"
+            def write():
+                with path.open("w", encoding="utf-8", newline="") as f:
+                    writer = csv.writer(f)
+                    writer.writerow(fields)
+                    writer.writerow(row)
+            write()
+            signals = load_candidate_signals(path)
+            self.assertEqual(signals[CASES[0][0]][0]["local_exact"], ".98")
+            row[-1] = "nan"
+            write()
+            with self.assertRaises(ValueError):
+                load_candidate_signals(path)
 
 
 if __name__ == "__main__":
