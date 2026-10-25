@@ -119,6 +119,14 @@ def validate(rows: list[dict]) -> dict:
             (not primary["parent_candidate_ids"] or
              any(ids[p] != "candidate_transform" for p in primary["parent_candidate_ids"]))):
         raise TraceError("selected primary candidate has no clustered witness")
+    if primary["reason_code"] not in (
+            "primary_auto", "primary_review_hold", "primary_no_candidate"):
+        raise TraceError("unapproved primary decision reason")
+    if policy["reason_code"] not in (
+            "writer_override", "hold_release", "keep_primary", "no_policy_write"):
+        raise TraceError("unapproved policy decision reason")
+    if final["reason_code"] not in ("final_numeric", "final_abstained"):
+        raise TraceError("unapproved final decision reason")
     if (policy["outcome"] == "selected" and
             policy["reason_code"] not in ("writer_override", "hold_release",
                                           "keep_primary")):

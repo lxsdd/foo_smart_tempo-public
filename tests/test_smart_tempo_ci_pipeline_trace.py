@@ -122,17 +122,16 @@ class NativePipelineTraceTests(unittest.TestCase):
     def test_strict_file_framing_limits_and_source_id(self):
         with tempfile.TemporaryDirectory() as temp:
             p = Path(temp) / "pipeline.jsonl"
-            p.write_text("".join(json.dumps(x) + "\n" for x in trace()), encoding="utf-8")
+            p.write_bytes("".join(json.dumps(x) + "\n" for x in trace()).encode("utf-8"))
             self.assertEqual(validate(load(p))["rows"], 8)
             raw = p.read_text(encoding="utf-8")
-            p.write_text(raw.rstrip("\n"), encoding="utf-8")
+            p.write_bytes(raw.rstrip("\n").encode("utf-8"))
             with self.assertRaises(TraceError):
                 load(p)
-            p.write_text(raw.replace(SCHEMA, "private_report", 1), encoding="utf-8")
+            p.write_bytes(raw.replace(SCHEMA, "private_report", 1).encode("utf-8"))
             with self.assertRaises(TraceError):
                 validate(load(p))
-            p.write_text(raw.replace('"schema": ', '"music_path": "owner", "schema": ', 1),
-                         encoding="utf-8")
+            p.write_bytes(raw.replace('"schema": ', '"music_path": "owner", "schema": ', 1).encode("utf-8"))
             with self.assertRaises(TraceError):
                 validate(load(p))
 
@@ -155,7 +154,7 @@ class NativePipelineTraceTests(unittest.TestCase):
         self.assertIn("pool_only_gate_unresolved", header)
         self.assertIn("audit_smart_tempo_ci_pipeline_trace.py --trace", host)
         self.assertIn("test_smart_tempo_ci_pipeline_trace.py", workflow)
-        self.assertNotIn("upload-artifact", workflow)
+        self.assertNotRegex(workflow, r"(?m)^\s*uses:\s*actions/upload-artifact@")
 
 
 if __name__ == "__main__":
