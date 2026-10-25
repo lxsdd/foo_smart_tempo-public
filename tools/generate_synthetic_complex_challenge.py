@@ -35,7 +35,7 @@ CASES = (
     ("challenge_84_60_masked", 84.60, "masked"),
     ("challenge_212_50_fast", 212.50, "fast"),
     ("challenge_57_35_slow", 57.35, "slow"),
-    ("challenge_90_147_switch", None, "switch"),
+    ("challenge_108_142_switch", None, "switch"),
     ("challenge_nonperiodic", None, "nonperiodic"),
     ("challenge_steady_tone", None, "tone"),
 )
