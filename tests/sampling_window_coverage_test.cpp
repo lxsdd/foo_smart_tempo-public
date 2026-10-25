@@ -5,6 +5,7 @@
 #include "../src/foo_smart_tempo/analysis_window_config.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdlib>
 #include <iostream>
@@ -89,6 +90,32 @@ int main() {
               single_pass.distinct_starts == 1 &&
               std::abs(single_pass.redundancy - 1.0) < 1e-9,
           "SINGLE_PASS");
+  // Same 20-second synthetic fixture versus a 120-second independent span.
+  // Repeated starts are NOT independent evidence; this is pure scheduler
+  // geometry, not measured CPU/RAM or an accuracy-based deduplication gate.
+  for (const int n : std::array<int, 4>{1, 5, 20, 50}) {
+    const auto brief = measure(20.0, 20, n);
+    require(brief.passes == n && brief.distinct_starts == 1,
+            "SHORT_PASS_SWEEP_STARTS");
+    require(std::abs(brief.processed_seconds - 19.0 * n) < 0.0001 &&
+                std::abs(brief.unique_seconds - 19.0) < 0.0001,
+            "SHORT_PASS_SWEEP_SECONDS");
+    const auto longer = measure(120.0, 20, n);
+    require(longer.passes == n && longer.distinct_starts == n,
+            "LONG_PASS_SWEEP_STARTS");
+    const double expectedUnique = n == 1 ? 20.0 : 92.0;
+    require(std::abs(longer.processed_seconds - 20.0 * n) < 0.0001 &&
+                std::abs(longer.unique_seconds - expectedUnique) < 0.001,
+            "LONG_PASS_SWEEP_SECONDS");
+    std::cout << "SAMPLING_20S_" << n << "P_DISTINCT_STARTS="
+              << brief.distinct_starts << '\n';
+    std::cout << "SAMPLING_20S_" << n << "P_DUPLICATE_START_FRACTION="
+              << 1.0 - static_cast<double>(brief.distinct_starts) / n << '\n';
+    std::cout << "SAMPLING_120S_" << n << "P_DISTINCT_STARTS="
+              << longer.distinct_starts << '\n';
+    std::cout << "SAMPLING_120S_" << n << "P_DUPLICATE_START_FRACTION="
+              << 1.0 - static_cast<double>(longer.distinct_starts) / n << '\n';
+  }
   std::cout << "SAMPLING_20S_50P_UNIQUE_WINDOWS="
             << short_track.distinct_starts << '\n';
   std::cout << "SAMPLING_20S_50P_AUDIO_OVERLAP_FACTOR="
