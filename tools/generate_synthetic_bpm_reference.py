@@ -319,6 +319,54 @@ def render_tempo_switch(samples: bytearray, duration: float,
     return positions
 
 
+
+def oracle_beat_grid(bpm: float | None, style: str, duration: int,
+                     sample_rate: int) -> list[int]:
+    """Latent quarter-note grid, specified before synthesis (not DSP output).
+
+    Silent implied beats remain present for sparse/half-pulse/dropout styles.
+    Swing displaces some *sounded clicks*, not the underlying quarter grid.
+    Nonstationary and no-tempo cases intentionally have no global beat grid.
+    """
+    if bpm is None:
+        return []
+    count = 0
+    positions = []
+    while True:
+        sample = round((0.25 + count * 60.0 / bpm) * sample_rate)
+        if sample >= round((duration - 0.025) * sample_rate):
+            break
+        positions.append(sample)
+        count += 1
+    return positions
+
+
+def oracle_tempo_segments(style: str, duration: int,
+                          sample_rate: int) -> list[dict]:
+    """Explicit local BPMs for a switch; never fabricate one global BPM."""
+    if not style.startswith("tempo_switch"):
+        return []
+    early, late = ((108.0, 142.0) if style.endswith("_alt")
+                   else (90.0, 128.0))
+    return [
+        {"start_sample": round(start * sample_rate),
+         "end_sample": round(end * sample_rate), "bpm": bpm}
+        for start, end, bpm in (
+            (0.25, duration / 2, early),
+            (duration / 2 + 0.25, duration, late),
+        )
+    ]
+
+
+def fixture_seed(style: str) -> int | None:
+    """Record fixed initial PRNG seeds; drum hits use indexed voice seeds."""
+    return {
+        "noise": 0x12345678, "noise_alt": 0x87654321,
+        "nonperiodic_percussion": 0x64136F23,
+        "nonperiodic_percussion_alt": 0x4A2B7C31,
+    }.get(style)
+
+
 def render(name: str, bpm: float | None, style: str, target: Path) -> dict:
     duration, sample_rate, channels = CASE_VARIANTS.get(
         name, (DURATION_SECONDS, SAMPLE_RATE, 1))
@@ -377,6 +425,24 @@ def render(name: str, bpm: float | None, style: str, target: Path) -> dict:
                       "tempo_nonstationary" if style.startswith("tempo_switch") else "none"),
         "duration_sec": duration, "sample_rate": sample_rate,
         "channels": channels, "event_sample_positions": positions,
+        # Distinguish the predeclared *musical* grid from audible onsets.
+        "beat_sample_positions": oracle_beat_grid(bpm, style, duration, sample_rate),
+        "beat_grid_status": ("not_globally_defined" if bpm is None else
+                             "latent_partly_silent_or_shifted"
+                             if style in ("half_pulse", "sparse", "swing",
+                                          "drum_dropouts") else "declared"),
+        "tempo_segments": oracle_tempo_segments(style, duration, sample_rate),
+        "meter": ("5/4" if style == "drum_odd_five" else
+                  "4/4" if style.startswith("drum_") else "unspecified"),
+        "generator_seed": fixture_seed(style),
+        "seed_recipe": ("indexed_drum_voice_seeds_v1"
+                        if style.startswith("drum_") or
+                           style.startswith("tempo_switch") else
+                        "fixed_xorshift32_v1" if fixture_seed(style) is not None
+                        else "deterministic_no_prng"),
+        "corpus_partition": ("prospective_holdout" if name.startswith("prospective_")
+                             else "window_evaluation" if name.startswith("window_")
+                             else "development"),
         "wav_sha256": hashlib.sha256(target.read_bytes()).hexdigest(),
     }
 
@@ -426,7 +492,9 @@ def main() -> None:
     for name, bpm, style in cases:
         manifest.append(render(name, bpm, style, dest / (name + ".wav")))
     (dest / "reference.json").write_text(
-        json.dumps({"schema": "synthetic_bpm_reference_v1", "cases": manifest},
+        json.dumps({"schema": "synthetic_bpm_reference_v1",
+                    "oracle_metadata_revision": "musical_grid_v2",
+                    "cases": manifest},
                    indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(f"SYNTHETIC_REFERENCE_GENERATED={len(manifest)}")
     print("SYNTHETIC_REFERENCE_NO_OWNER_AUDIO=PASS")
