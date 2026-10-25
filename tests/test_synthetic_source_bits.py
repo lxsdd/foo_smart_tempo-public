@@ -140,7 +140,11 @@ class ProvenanceTests(unittest.TestCase):
         self.assertEqual(script.count("SMART_TEMPO_DIAGNOSTIC_RUNTIME_"), 1)
         self.assertEqual(script.count("$challengeSourceRows.Add("), 1)
         self.assertEqual(script.count("Import-Csv -LiteralPath ($wav+'.sources.csv')"), 1)
-        self.assertEqual(script.count("foreach ($candidate in $evidence)"), 1)
+        # Other independent prospective/sweep loops legitimately reuse this name.
+        challenge = script.split(
+            "$challengeSourceRows=[System.Collections.Generic.List[object]]::new()", 1
+        )[1].split("if ($challengeObserved.Count -ne 16", 1)[0]
+        self.assertEqual(challenge.count("foreach ($candidate in $evidence)"), 1)
         self.assertEqual(script.count("--source-bits $challengeSourceCsv"), 1)
         self.assertIn("^(?:[1-9]|[12][0-9]|3[01])$') {", script)
         self.assertIn("throw 'Complex provenance bitmask or board mismatch'", script)
