@@ -80,6 +80,72 @@ def audit_candidates(scored: dict, grouped: dict[str, list[float]]) -> dict:
     return counts
 
 
+
+def audit_selection_path(scored: dict, signals: dict[str, list[dict]]) -> dict:
+    """Post-host audit only: export-board absence is NOT MIR-generation proof.
+
+    A production output matching a candidate does not prove its selection path.
+    Oracle labels are used here only AFTER the audio analysis has completed.
+    """
+    if set(signals) != {r["id"] for r in scored["results"]}:
+        raise ValueError("selection-path identity mismatch")
+    counts = dict(clear_total=0, correct=0, wrong=0, held=0,
+                  wrong_precise=0, wrong_no_precise=0,
+                  precise_output_matches=0, precise_output_unmatched=0,
+                  no_precise_output_matches=0, no_precise_output_unmatched=0,
+                  wrong_precise_top_local=0)
+    details = []
+    for row in scored["results"]:
+        if row["ambiguous"] or row["reference_bpm"] is None:
+            continue
+        counts["clear_total"] += 1
+        board = []
+        for candidate in signals[row["id"]]:
+            try:
+                bpm = float(candidate["bpm"])
+                local = float(candidate["local_exact"])
+                rank = int(candidate["rank"])
+            except (KeyError, TypeError, ValueError, OverflowError) as exc:
+                raise ValueError("invalid selection-path candidate") from exc
+            if not (math.isfinite(bpm) and bpm > 0 and math.isfinite(local)
+                    and 0 <= local <= 1 and 1 <= rank <= 256):
+                raise ValueError("unbounded selection-path candidate")
+            board.append((bpm, local, rank))
+        if row["held"] or row["reported_bpm"] <= 0:
+            counts["held"] += 1
+            continue
+        if row["absolute_error_bpm"] <= .20 + 1e-9:
+            counts["correct"] += 1
+            continue
+        counts["wrong"] += 1
+        ref, out = row["reference_bpm"], row["reported_bpm"]
+        nearest_ref = min(board, key=lambda c: (abs(c[0] - ref), c[2]),
+                          default=None)
+        nearest_out = min(board, key=lambda c: (abs(c[0] - out), c[2]),
+                          default=None)
+        precise = nearest_ref is not None and abs(nearest_ref[0] - ref) <= .20 + 1e-9
+        matches = nearest_out is not None and abs(nearest_out[0] - out) <= .20 + 1e-9
+        counts["wrong_precise" if precise else "wrong_no_precise"] += 1
+        key = ("precise" if precise else "no_precise") + (
+            "_output_matches" if matches else "_output_unmatched")
+        counts[key] += 1
+        if precise:
+            top = max(board, key=lambda c: (c[1], -c[2]))
+            counts["wrong_precise_top_local"] += int(abs(top[0] - ref) <= .20 + 1e-9)
+        details.append(dict(
+            id=row["id"], precise=int(precise), output_matches=int(matches),
+            precise_rank=nearest_ref[2] if precise else None,
+            precise_local=nearest_ref[1] if precise else None,
+            ref_error=abs(nearest_ref[0] - ref) if nearest_ref else None,
+            output_rank=nearest_out[2] if matches else None,
+            output_local=nearest_out[1] if matches else None,
+            output_error=abs(nearest_out[0] - out) if nearest_out else None))
+    if (counts["correct"] + counts["wrong"] + counts["held"] != counts["clear_total"]
+            or counts["wrong_precise"] + counts["wrong_no_precise"] != counts["wrong"]):
+        raise ValueError("selection-path denominator mismatch")
+    return {"counts": counts, "details": details}
+
+
 def classify_challenge(scored: dict) -> dict:
     """Keep tempo-switch, metrical ambiguity and nonrhythmic negatives apart."""
     counts = dict(clear_correct=0, clear_wrong=0, clear_held=0,
@@ -181,6 +247,7 @@ def score(manifest: dict, observed: list[dict], timing: list[dict],
     if candidates is not None:
         result["candidate_audit"] = audit_candidates(result, candidates)
     if candidate_signals is not None:
+        result["selection_path_audit"] = audit_selection_path(result, candidate_signals)
         result["frozen_shadow"] = audit_frozen_shadow(result, candidate_signals)
     millis = [float(row["analysis_ms"]) for row in timing]
     result["host_response_ms_median"] = statistics.median(millis)
@@ -226,6 +293,21 @@ def main() -> None:
     for name, near, closest in audit["wrong_details"]:
         value = "none" if closest is None else f"{closest:.6f}"
         print(f"CHALLENGE_WRONG_CASE id={name} precise_board={near} nearest_error_bpm={value}")
+    selection = result["selection_path_audit"]
+    for key, value in selection["counts"].items():
+        print(f"CHALLENGE_SELECTION_{key.upper()}={value}")
+    for row in selection["details"]:
+        def show(value):
+            return "none" if value is None else f"{value:.6f}"
+        print(f"CHALLENGE_SELECTION_CASE id={row['id']} "
+              f"precise_export={row['precise']} "
+              f"output_matches_export={row['output_matches']} "
+              f"precise_rank={row['precise_rank'] or 'none'} "
+              f"precise_local={show(row['precise_local'])} "
+              f"ref_error={show(row['ref_error'])} "
+              f"output_rank={row['output_rank'] or 'none'} "
+              f"output_local={show(row['output_local'])} "
+              f"output_error={show(row['output_error'])}")
     frozen = result["frozen_shadow"]
     print("CHALLENGE_FROZEN_PROFILE=min_local_0.95,harmonic_margin_0.10")
     for key, value in frozen["counts"].items():

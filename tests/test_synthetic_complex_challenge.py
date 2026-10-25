@@ -253,5 +253,50 @@ class ComplexSyntheticChallengeTests(unittest.TestCase):
                 load_candidate_signals(path)
 
 
+    def test_selection_path_audit_attribution_and_fail_closed(self):
+        refs, observed, timing = [], [], []
+        signals = {name: [] for name, _, _ in CASES}
+        for i, (name, bpm, style) in enumerate(CASES):
+            ambiguity = ("meter_underdetermined" if style in
+                         ("halftrap", "doubletrap") else
+                         "tempo_nonstationary" if style == "switch" else "none")
+            refs.append({"id": name, "reference_bpm": bpm,
+                         "style": "stress_" + style, "ambiguity": ambiguity})
+            observed.append({"index": str(i), "bpm": str(bpm or 0),
+                             "held": "1" if ambiguity != "none" or bpm is None else "0"})
+            timing.append({"index": str(i), "id": name, "analysis_ms": "350"})
+        for i in (0, 1, 2, 3):
+            observed[i]["bpm"] = str(CASES[i][1] * (2 if i == 0 else 1.3))
+        observed[6]["held"] = "1"
+        signals[CASES[0][0]] = [
+            {"rank": "1", "bpm": str(CASES[0][1] + .01), "local_exact": ".99"},
+            {"rank": "2", "bpm": observed[0]["bpm"], "local_exact": ".90"}]
+        signals[CASES[1][0]] = [
+            {"rank": "1", "bpm": str(CASES[1][1]), "local_exact": ".98"}]
+        signals[CASES[2][0]] = [
+            {"rank": "1", "bpm": observed[2]["bpm"], "local_exact": ".80"}]
+        signals[CASES[3][0]] = [
+            {"rank": "1", "bpm": "170", "local_exact": ".80"}]
+        signals[CASES[6][0]] = [
+            {"rank": "1", "bpm": str(CASES[6][1]), "local_exact": ".98"}]
+        manifest = {"schema": "synthetic_bpm_reference_v1", "cases": refs}
+        audit = score(manifest, observed, timing,
+                      candidate_signals=signals)["selection_path_audit"]
+        c = audit["counts"]
+        self.assertEqual((c["clear_total"], c["correct"], c["wrong"], c["held"]),
+                         (11, 6, 4, 1))
+        self.assertEqual((c["wrong_precise"], c["wrong_no_precise"],
+                          c["wrong_precise_top_local"]), (2, 2, 2))
+        self.assertEqual((c["precise_output_matches"], c["precise_output_unmatched"],
+                          c["no_precise_output_matches"],
+                          c["no_precise_output_unmatched"]), (1, 1, 1, 1))
+        self.assertEqual(audit["details"][0]["precise_rank"], 1)
+        self.assertEqual(audit["details"][0]["output_rank"], 2)
+        signals[CASES[0][0]][0]["local_exact"] = "nan"
+        with self.assertRaises(ValueError):
+            score(manifest, observed, timing, candidate_signals=signals)
+
+
+
 if __name__ == "__main__":
     unittest.main()
