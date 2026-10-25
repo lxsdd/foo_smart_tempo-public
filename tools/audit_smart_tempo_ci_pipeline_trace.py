@@ -339,12 +339,21 @@ def validate(rows: list[dict], *, require_windows: bool = False) -> dict:
                 abs(terminal[-1]["metrics"]["bpm"] -
                     primary["metrics"]["bpm"]) >= 0.001):
             raise TraceError("primary selected candidate is not exact terminal object")
-    if primary["reason_code"] not in (
-            "primary_auto", "primary_review_hold", "primary_no_candidate"):
-        raise TraceError("unapproved primary decision reason")
-    if policy["reason_code"] not in (
-            "writer_override", "hold_release", "keep_primary", "no_policy_write"):
-        raise TraceError("unapproved policy decision reason")
+    expected_primary_reason = {
+        "selected": "primary_auto",
+        "review_hold": "primary_review_hold",
+        "no_candidate": "primary_no_candidate",
+    }
+    if (primary["outcome"] not in expected_primary_reason or
+            primary["reason_code"] != expected_primary_reason[primary["outcome"]] or
+            (primary["outcome"] == "selected" and primary["metrics"]["bpm"] <= 0)):
+        raise TraceError("primary outcome/reason inconsistent")
+    # Native host capture must prove all three executed terminal snapshots.
+    # Synthetic minimal unit traces remain permitted without them.
+    if require_windows and primary["metrics"]["bpm"] > 0 and not terminal:
+        raise TraceError("host selected primary BPM without executed terminal provenance")
+    if require_windows and not primary["metrics"]["bpm"] and terminal:
+        raise TraceError("host terminal selected without primary BPM")
     if policy["parent_candidate_ids"] != policy_pointer["parent_candidate_ids"]:
         raise TraceError("policy chosen pointer must be independently witnessed")
     if abs(policy_pointer["metrics"]["bpm"] - policy["metrics"]["bpm"]) > 0.001:
@@ -389,10 +398,16 @@ def validate(rows: list[dict], *, require_windows: bool = False) -> dict:
         raise TraceError("policy fullboard exact-BPM multiplicity drift")
     override = bool(policy_origin["metrics"]["score"])
     release = bool(policy_origin["metrics"]["support"])
-    if override and policy["reason_code"] != "writer_override":
-        raise TraceError("writer-override flag missing from policy action")
-    if not override and release and policy["reason_code"] != "hold_release":
-        raise TraceError("review-release flag missing from policy action")
+    # Orthogonal override/release flags are not disjoint root causes:
+    # the native reporter prioritizes writer_override when both are true.
+    expected_policy_reason = (
+        "writer_override" if override else
+        "hold_release" if release else
+        "keep_primary" if policy["outcome"] == "selected" else
+        "no_policy_write"
+    )
+    if policy["reason_code"] != expected_policy_reason:
+        raise TraceError("policy action/override/release flags inconsistent")
     if final["reason_code"] not in ("final_numeric", "final_abstained"):
         raise TraceError("unapproved final decision reason")
     if (policy["outcome"] == "selected" and
@@ -421,7 +436,8 @@ def validate(rows: list[dict], *, require_windows: bool = False) -> dict:
           witness["parent_candidate_ids"]):
         raise TraceError("withheld BPM must not claim measured acceptance")
     if (guard["outcome"] != "write_blocked" or
-            guard["reason_code"] != "ci_dry_run"):
+            guard["reason_code"] != "ci_dry_run" or
+            any(guard["metrics"][name] != 0 for name in METRICS)):
         raise TraceError("media write safety drift")
     # A pool candidate's presence is NEVER evidence it cleared branch-specific
     # selector vetoes. This remains an explicit *known* gap until instrumented.

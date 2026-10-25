@@ -65,6 +65,18 @@ def resource_event():
 
 
 def with_resource(rows):
+    # Host-valid minimal selector lineage: the native recorder emits these
+    # three ordered snapshots before primary_select for a chosen BPM.
+    primary_index = next(i for i, row in enumerate(rows)
+                         if row["stage"] == "primary_select")
+    primary = rows[primary_index]
+    if primary["metrics"]["bpm"] > 0:
+        for reason in ("terminal_lane_choice", "terminal_residual_choice",
+                       "terminal_final_choice"):
+            rows.insert(primary_index, event(
+                "primary_terminal", primary["parent_candidate_ids"][0], [],
+                primary["metrics"]["bpm"], "selected", reason, 0))
+            primary_index += 1
     rows.insert(-1, resource_event())
     for i, row in enumerate(rows):
         row["sequence"] = i
@@ -80,6 +92,87 @@ class NativePipelineTraceTests(unittest.TestCase):
                           result["write_guard_blocked"]), (1, 1, 1))
         self.assertEqual(result["primary_veto_reason_unknown"], 1)
         self.assertEqual(result["phase_b_causal_completeness"], "INCOMPLETE_PRIMARY_VETO")
+
+    def test_primary_outcome_reason_pairs_are_not_interchangeable(self):
+        for outcome, reason in (("selected", "primary_review_hold"),
+                                ("review_hold", "primary_auto"),
+                                ("no_candidate", "primary_auto"),
+                                ("rejected", "primary_auto")):
+            with self.subTest(outcome=outcome, reason=reason):
+                rows = trace()
+                rows[4]["outcome"] = outcome
+                rows[4]["reason_code"] = reason
+                with self.assertRaises(TraceError):
+                    validate(rows)
+        rows = trace()
+        rows[4]["metrics"]["bpm"] = 0.
+        with self.assertRaises(TraceError):
+            validate(rows)
+
+    def test_policy_flags_and_action_must_match_both_directions(self):
+        # Native reason precedence: override > hold release > keep > no write.
+        for override, release, outcome, reason, should_pass in (
+            (0, 0, "selected", "keep_primary", True),
+            (1, 0, "selected", "writer_override", True),
+            (0, 1, "selected", "hold_release", True),
+            (1, 1, "selected", "writer_override", True),
+            (0, 0, "selected", "writer_override", False),
+            (0, 0, "selected", "hold_release", False),
+            (1, 0, "selected", "keep_primary", False),
+            (0, 1, "selected", "keep_primary", False),
+            (1, 1, "selected", "hold_release", False),
+            (0, 0, "selected", "no_policy_write", False),
+            (0, 0, "review_hold", "no_policy_write", True),
+        ):
+            with self.subTest(override=override, release=release,
+                              outcome=outcome, reason=reason):
+                rows = trace()
+                rows[5]["metrics"]["score"] = float(override)
+                rows[5]["metrics"]["support"] = float(release)
+                rows[7]["outcome"] = outcome
+                rows[7]["reason_code"] = reason
+                if should_pass:
+                    self.assertEqual(validate(rows)["policy_override_active"],
+                                     override)
+                else:
+                    with self.assertRaises(TraceError):
+                        validate(rows)
+
+    def test_write_guard_rejects_forged_numeric_evidence(self):
+        for metric in ("bpm", "score", "support"):
+            with self.subTest(metric=metric):
+                rows = trace()
+                rows[-1]["metrics"][metric] = 1.
+                with self.assertRaises(TraceError):
+                    validate(rows)
+
+    def test_host_primary_requires_executed_terminal_chain(self):
+        rows = with_resource(trace())
+        window = event("decode_window", None, [], 0., "observed",
+                       "actual_decoded_extent", 0)
+        window["metrics"] = dict(
+            bpm=0., score=0., support=0., pass_index=0, pass_total=1,
+            start_sec=0., requested_frames=32000, decoded_frames=32000,
+            analysis_frames=32000, source_rate_hz=16000, analysis_rate_hz=16000)
+        rows.insert(0, window)
+        for i, row in enumerate(rows):
+            row["sequence"] = i
+        self.assertEqual(validate(rows, require_windows=True)["selector_terminal_observations"], 3)
+        for missing in ("terminal_lane_choice", "terminal_residual_choice",
+                        "terminal_final_choice"):
+            with self.subTest(missing=missing):
+                bad = copy.deepcopy(rows)
+                bad = [row for row in bad if row["reason_code"] != missing]
+                for i, row in enumerate(bad):
+                    row["sequence"] = i
+                with self.assertRaises(TraceError):
+                    validate(bad, require_windows=True)
+        no_terminal = [row for row in rows if row["stage"] != "primary_terminal"]
+        for i, row in enumerate(no_terminal):
+            row["sequence"] = i
+        self.assertEqual(validate(no_terminal)["selector_terminal_observations"], 0)
+        with self.assertRaises(TraceError):
+            validate(no_terminal, require_windows=True)
 
     def test_held_result_preserves_no_write_semantics(self):
         actual = trace(held=True)

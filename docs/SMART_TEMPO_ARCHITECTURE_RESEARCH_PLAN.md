@@ -294,3 +294,17 @@ foreign or mismatched pointer/candidate identity and preserves the distinction
 between a selected Policy pointer and the final writer's measured witness.
 This is not full first-veto or final supplemental witness completeness; no
 production selector, writer or audio DSP changed. Phase C remains closed.
+
+### Phase-B native-host trace contract hardening (25 October 2026)
+
+The strict host parser now requires the actual ordered lane/residual/final
+selector-terminal witness whenever a native host primary BPM was selected;
+minimal source-only unit fixtures may omit this witness but **cannot** claim
+native-host qualification. Primary outcome/reason pairs, orthogonal
+writer-override/review-hold-release flag precedence and the zero-valued
+CI no-write guard are checked bidirectionally. Adversarial regressions
+explicitly attempt forged selected/held reasons, false writer-override and
+hold-release attribution, missing terminal evidence and injected write-guard
+numeric data. These are **integrity gates only**; they do not establish
+first-veto completeness or positive real-host supplemental selection, and
+therefore do not unlock package C or musical release.
