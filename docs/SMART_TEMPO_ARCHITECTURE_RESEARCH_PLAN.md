@@ -154,6 +154,31 @@ and fallback, residual rescue candidate vetoes, partial-bar/TopK origin identity
 window extents and independently measured CPU/RSS require full runtime capture
 and a distinct audit before the large C campaign.
 
+### Package B – exact policy BPM source-comparison audit
+
+The previous native sidecar joined Policy output to **all** FullBoard BPM rows
+within ±0.20 BPM. This can conflate nearby, independently measured candidates
+and equal-BPM aliases; it is *not* proof of the actual chosen candidate pointer.
+
+The new bounded `policy_resolution` event reports zero/one/multiple **exact
+same-BPM (≤0.001)** FullBoard matches or no output. A parent candidate ID is
+emitted only for the unique same-BPM **comparison**, and the `policy_change`
+stage leaves its parent list empty to avoid false chosen-pointer provenance.
+The record exposes independent numeric boolean flags for native
+`writer_override_candidate` and `review_hold_promotion_candidate`.
+The strict validator re-counts actual FullBoard matches, catches ambiguous
+duplicates or falsely asserted uniqueness, ensures output consistency,
+confirms independent flags and rejects invented policy-selected identities.
+The JSON schema is kept aligned with every native emitted stage, including
+`primary_terminal` and `policy_resolution`.
+
+This remains CI-only and source/synthetic-only. No production metadata,
+selection, DSP, thresholds, writer semantics, media or private data changes.
+Policy's *actual chosen object identity*, supplemental TopK/partial-bar
+candidate lineage, nested per-branch veto causes, CPU/RSS performance and
+an independent pilot audit remain Phase-B gates. No Phase-C study until
+causal completeness is genuinely achieved.
+
 ## Candidate architecture candidates: all compared under identical evidence
 
 - **A:** unchanged current MIR + primary + policy baseline.

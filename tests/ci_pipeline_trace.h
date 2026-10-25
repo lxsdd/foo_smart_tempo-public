@@ -255,19 +255,34 @@ inline bool record(
            primary.auto_candidate ? "primary_auto" : "primary_no_candidate",
            "", primary_parent, primary.selected_bpm,
            primary.selected_local_exact_score, primary.support);
-  std::vector<std::string> policy_parent;
-  for (std::size_t i = 0; i < fullboard.size(); ++i) {
-    if (policy.output_bpm > 0.0 &&
-        std::abs(fullboard[i].bpm - policy.output_bpm) <= 0.20)
-      policy_parent.push_back(policy_ids[i]);
+  // BPM proximity to a FullBoard row is not native chosen-object identity.
+  // Report matching BPM multiplicity as a falsifiable *comparison*, not an
+  // assertion that Policy selected that candidate pointer.
+  std::vector<std::string> exact_policy_matches;
+  if (policy.output_bpm > 0.0) {
+    for (std::size_t i = 0; i < fullboard.size(); ++i) {
+      if (std::abs(fullboard[i].bpm - policy.output_bpm) <= 0.001)
+        exact_policy_matches.push_back(policy_ids[i]);
+    }
   }
+  const char* policySource = policy.output_bpm <= 0.0 ? "policy_no_output" :
+      exact_policy_matches.size() == 1 ? "policy_one_same_bpm" :
+      exact_policy_matches.empty() ? "policy_no_fullboard_match" :
+                                     "policy_multiple_same_bpm";
+  if (exact_policy_matches.size() > 128) return false;
+  out.push("policy_resolution", "observed", policySource, "",
+           exact_policy_matches.size() == 1 ? exact_policy_matches :
+                                             std::vector<std::string>{},
+           policy.output_bpm,
+           static_cast<double>(policy.writer_override_candidate),
+           static_cast<double>(policy.review_hold_promotion_candidate));
   out.push("policy_change",
            policy.output_would_write ? "selected" :
            policy.output_would_review_hold ? "review_hold" : "rejected",
            policy.writer_override_candidate ? "writer_override" :
            policy.review_hold_promotion_candidate ? "hold_release" :
            policy.output_would_write ? "keep_primary" : "no_policy_write",
-           "", policy_parent, policy.output_bpm,
+           "", {}, policy.output_bpm,
            policy.candidate_local_exact_score, policy.candidate_support);
   out.push("final_output",
            withheld || final_bpm <= 0.0 ? "review_hold" : "selected",
@@ -298,7 +313,7 @@ inline bool record(
   out.push("write_guard", "write_blocked", "ci_dry_run",
            "", {}, 0.0, 0.0, 0.0);
   if (out.sequence != windows.size() + board.raw_candidates.size() + 2 * collapsed.size() +
-                      fullboard.size() + selectorEvents.size() + 5 ||
+                      fullboard.size() + selectorEvents.size() + 6 ||
       out.lines.size() > 2 * 1024 * 1024) return false;
   const std::wstring output = fixture + L".pipeline.jsonl";
   HANDLE h = CreateFileW(output.c_str(), GENERIC_WRITE, 0, nullptr,

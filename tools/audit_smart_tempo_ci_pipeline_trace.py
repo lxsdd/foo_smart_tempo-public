@@ -31,6 +31,7 @@ ENUMS = {
     "primary_terminal": ("selected", None),
     "policy_eligibility": ("included", None),
     "primary_select": (None, None),
+    "policy_resolution": ("observed", None),
     "policy_change": (None, None),
     "final_output": (None, None),
     "measured_witness": (None, None),
@@ -55,6 +56,10 @@ ALLOWED_TERMINAL_REASONS = frozenset((
     "terminal_lane_choice", "terminal_residual_choice",
     "terminal_final_choice"
 ))
+ALLOWED_POLICY_COMPARISONS = frozenset((
+    "policy_no_output", "policy_one_same_bpm",
+    "policy_no_fullboard_match", "policy_multiple_same_bpm"
+))
 
 
 class TraceError(ValueError):
@@ -73,8 +78,8 @@ def validate(rows: list[dict], *, require_windows: bool = False) -> dict:
         "primary_eligibility": 1, "policy_eligibility": 2,
         "candidate_filter": 3, "primary_rank": 3,
         "primary_terminal": 3, "primary_select": 4,
-        "policy_change": 5, "final_output": 6,
-        "measured_witness": 7, "write_guard": 8
+        "policy_resolution": 5, "policy_change": 6, "final_output": 7,
+        "measured_witness": 8, "write_guard": 9
     }
     previous_stage_number = -1
     session_id = rows[0].get("analysis_id") if type(rows[0]) is dict else None
@@ -135,6 +140,19 @@ def validate(rows: list[dict], *, require_windows: bool = False) -> dict:
         elif stage == "primary_eligibility":
             if candidate_id is None or ids.get(candidate_id) != "candidate_transform":
                 raise TraceError("primary pool includes candidate not transformed")
+        elif stage == "policy_resolution":
+            if candidate_id is not None or item["reason_code"] not in ALLOWED_POLICY_COMPARISONS:
+                raise TraceError("invalid policy comparison")
+            if len(parents) > 1 or any(ids[p] != "policy_eligibility" for p in parents):
+                raise TraceError("fabricated policy same-BPM source")
+            matched = item["reason_code"] == "policy_one_same_bpm"
+            if matched != (len(parents) == 1) or (
+                    matched and abs(candidate_bpm[parents[0]] - bpm) > .001):
+                raise TraceError("false unique policy BPM comparison")
+            if (item["reason_code"] == "policy_no_output") != (bpm == 0):
+                raise TraceError("policy output presence mismatch")
+            if item["metrics"]["score"] not in (0, 1) or item["metrics"]["support"] not in (0, 1):
+                raise TraceError("policy source flags must be booleans")
         elif stage in ("candidate_filter", "primary_rank", "primary_terminal"):
             # Actual executed selector probes, with explicit raw/cluster source.
             reason_set = (ALLOWED_FILTER_REASONS if stage == "candidate_filter"
@@ -157,7 +175,8 @@ def validate(rows: list[dict], *, require_windows: bool = False) -> dict:
         if stage == "policy_eligibility" and any(ids[p] != "candidate_transform" for p in parents):
             raise TraceError("policy candidate parent not collapsed")
         stage_indices[stage].append(item)
-    for single in ("primary_select", "policy_change", "final_output",
+    for single in ("primary_select", "policy_resolution",
+                   "policy_change", "final_output",
                    "measured_witness", "write_guard"):
         if len(stage_indices[single]) != 1:
             raise TraceError("missing or repeated terminal stage " + single)
@@ -216,6 +235,7 @@ def validate(rows: list[dict], *, require_windows: bool = False) -> dict:
            for row in fullboard):
         raise TraceError("policy board source unknown")
     primary = stage_indices["primary_select"][0]
+    policy_origin = stage_indices["policy_resolution"][0]
     policy = stage_indices["policy_change"][0]
     final = stage_indices["final_output"][0]
     witness = stage_indices["measured_witness"][0]
@@ -243,6 +263,30 @@ def validate(rows: list[dict], *, require_windows: bool = False) -> dict:
     if policy["reason_code"] not in (
             "writer_override", "hold_release", "keep_primary", "no_policy_write"):
         raise TraceError("unapproved policy decision reason")
+    if policy["parent_candidate_ids"]:
+        raise TraceError("policy chosen object inferred from BPM proximity")
+    if abs(policy_origin["metrics"]["bpm"] - policy["metrics"]["bpm"]) > 0.001:
+        raise TraceError("policy output/compare drift")
+    # Source comparison is not chosen-pointer identity. Recompute the exact
+    # matching-BPM multiplicity to catch false uniqueness and hidden ties.
+    matching = [x["candidate_id"] for x in fullboard
+                if policy["metrics"]["bpm"] > 0 and
+                abs(x["metrics"]["bpm"] - policy["metrics"]["bpm"]) <= .001]
+    source_reason = policy_origin["reason_code"]
+    expected = ("policy_no_output" if policy["metrics"]["bpm"] == 0 else
+                "policy_one_same_bpm" if len(matching) == 1 else
+                "policy_no_fullboard_match" if not matching else
+                "policy_multiple_same_bpm")
+    if source_reason != expected or (
+            len(matching) == 1 and
+            policy_origin["parent_candidate_ids"] != matching):
+        raise TraceError("policy fullboard exact-BPM multiplicity drift")
+    override = bool(policy_origin["metrics"]["score"])
+    release = bool(policy_origin["metrics"]["support"])
+    if override and policy["reason_code"] != "writer_override":
+        raise TraceError("writer-override flag missing from policy action")
+    if not override and release and policy["reason_code"] != "hold_release":
+        raise TraceError("review-release flag missing from policy action")
     if final["reason_code"] not in ("final_numeric", "final_abstained"):
         raise TraceError("unapproved final decision reason")
     if (policy["outcome"] == "selected" and
@@ -292,6 +336,10 @@ def validate(rows: list[dict], *, require_windows: bool = False) -> dict:
         "selector_terminal_observations": len(stage_indices["primary_terminal"]),
         "policy_origin_unknown": sum(x["reason_code"] == "full_board_origin_unknown"
                                      for x in fullboard),
+        "policy_output_source_comparison": policy_origin["reason_code"],
+        "policy_override_active": int(override),
+        "policy_hold_release_active": int(release),
+        "policy_pointer_identity_complete": 0,
         "primary_auto": int(primary["outcome"] == "selected"),
         "final_accept": int(final["outcome"] == "selected"),
         "indexed_native_final_witness": int(
