@@ -12,6 +12,7 @@ import statistics
 from generate_synthetic_complex_challenge import CASES
 from score_synthetic_bpm_reference import evaluate, load_observed, shadow_candidate_choice
 from score_prospective_bpm_reference import PROFILE_MIN_LOCAL, PROFILE_HARMONIC_MARGIN
+from audit_synthetic_genre_prior import compare_audio_and_genre
 
 
 
@@ -215,6 +216,78 @@ def audit_frozen_shadow(scored: dict, signals: dict[str, list[dict]]) -> dict:
     return {"counts": counts, "cases": cases}
 
 
+
+# Fixed tag scenarios independent of generator BPM. These never reach MIR.
+GENRE_SCENARIOS = {
+    "none": (), "house": ((118., 135.),), "techno": ((125., 155.),),
+    "slow": ((65., 105.),),
+    "conflicting": ((118., 135.), (65., 105.)),
+}
+
+
+def audit_genre_counterfactual(scored: dict, signals: dict[str, list[dict]]) -> dict:
+    """Read-only A/C on the same measured board. Legacy host B is UNMEASURED.
+
+    Proposals are computed without consulting the BPM oracle. Only afterwards
+    do the frozen labels classify accuracy, hold and false non-tempo accepts.
+    """
+    known = {name for name, _, _ in CASES}
+    if set(signals) != known or [r["id"] for r in scored["results"]] != [
+            name for name, _, _ in CASES]:
+        raise ValueError("genre case identity/order mismatch")
+    proposals = {name: compare_audio_and_genre(signals[name], GENRE_SCENARIOS)
+                 for name in known}
+    keys = ("clear_correct", "clear_wrong", "clear_held",
+            "metrical_accepted", "nonstationary_accepted",
+            "nonrhythmic_accepted", "reference_in_range",
+            "reference_out_of_range", "out_of_range_wrong")
+    summary = {scenario: dict.fromkeys(keys, 0) for scenario in GENRE_SCENARIOS}
+    for (name, bpm, style), row in zip(CASES, scored["results"]):
+        for scenario, entry in proposals[name].items():
+            a, c = entry["audio_shadow"], entry["conservative_shadow"]
+            if entry["legacy_measured"] or entry["legacy_host"] is not None:
+                raise ValueError("fabricated legacy host measurement")
+            if c is not None and c != a:
+                raise ValueError("genre changed the measured audio candidate")
+            if scenario in ("none", "conflicting") and c != a:
+                raise ValueError("neutral genre changed audio decision")
+            stats = summary[scenario]
+            if style in ("halftrap", "doubletrap"):
+                stats["metrical_accepted"] += int(c is not None)
+            elif style == "switch":
+                stats["nonstationary_accepted"] += int(c is not None)
+            elif style in ("nonperiodic", "tone"):
+                stats["nonrhythmic_accepted"] += int(c is not None)
+            else:
+                if bpm is None:
+                    raise ValueError("clear genre reference missing")
+                ranges = GENRE_SCENARIOS[scenario]
+                active = scenario not in ("none", "conflicting")
+                in_range = bool(ranges) and all(lo <= bpm <= hi for lo, hi in ranges)
+                if active:
+                    stats["reference_in_range" if in_range else
+                          "reference_out_of_range"] += 1
+                if c is None:
+                    stats["clear_held"] += 1
+                elif abs(c - bpm) <= .20 + 1e-9:
+                    stats["clear_correct"] += 1
+                else:
+                    stats["clear_wrong"] += 1
+                    if active and not in_range:
+                        stats["out_of_range_wrong"] += 1
+    base = summary["none"]
+    for scenario, stats in summary.items():
+        if sum(stats[k] for k in ("clear_correct", "clear_wrong", "clear_held")) != 11:
+            raise ValueError("genre clear denominator mismatch")
+        if scenario not in ("none", "conflicting") and (
+                stats["reference_in_range"] + stats["reference_out_of_range"] != 11):
+            raise ValueError("genre label denominator mismatch")
+        if stats["clear_wrong"] > base["clear_wrong"] or (
+                stats["clear_correct"] > base["clear_correct"]):
+            raise ValueError("genre created a new accepted decision")
+    return {"legacy_B": "UNMEASURED", "scenarios": summary}
+
+
 def score(manifest: dict, observed: list[dict], timing: list[dict],
           candidates: dict[str, list[float]] | None = None,
           candidate_signals: dict[str, list[dict]] | None = None) -> dict:
@@ -249,6 +322,7 @@ def score(manifest: dict, observed: list[dict], timing: list[dict],
     if candidate_signals is not None:
         result["selection_path_audit"] = audit_selection_path(result, candidate_signals)
         result["frozen_shadow"] = audit_frozen_shadow(result, candidate_signals)
+        result["genre_counterfactual"] = audit_genre_counterfactual(result, candidate_signals)
     millis = [float(row["analysis_ms"]) for row in timing]
     result["host_response_ms_median"] = statistics.median(millis)
     result["host_response_ms_p95"] = sorted(millis)[
@@ -315,6 +389,10 @@ def main() -> None:
     for name, proposal in frozen["cases"]:
         shown = "held" if proposal is None else f"{proposal:.6f}"
         print(f"CHALLENGE_FROZEN_CASE id={name} proposal={shown}")
+    print("CHALLENGE_GENRE_B=UNMEASURED")
+    for scenario, stats in result["genre_counterfactual"]["scenarios"].items():
+        for key, value in stats.items():
+            print(f"CHALLENGE_GENRE_{scenario.upper()}_{key.upper()}={value}")
     print(f"CHALLENGE_MEDIAN_HOST_RESPONSE_MS={result['host_response_ms_median']:.0f}")
     print(f"CHALLENGE_P95_HOST_RESPONSE_MS={result['host_response_ms_p95']:.0f}")
     print(f"CHALLENGE_QUALITY_VERDICT={result['quality_verdict']}")

@@ -298,5 +298,46 @@ class ComplexSyntheticChallengeTests(unittest.TestCase):
 
 
 
+
+    def test_genre_counterfactual_uses_actual_board_and_preserves_denominators(self):
+        from score_synthetic_complex_challenge import audit_genre_counterfactual
+        signals = {name: [] for name, _, _ in CASES}
+        rows = [{"id": name} for name, _, _ in CASES]
+        for name, bpm, style in CASES:
+            if bpm is not None and style not in ("halftrap", "doubletrap"):
+                signals[name] = [{"rank": "1", "bpm": str(bpm),
+                                  "local_exact": ".99"}]
+        signals[CASES[0][0]].append(
+            {"rank": "2", "bpm": "125", "local_exact": ".98"})
+        signals[CASES[1][0]] = [
+            {"rank": "1", "bpm": "125", "local_exact": ".99"},
+            {"rank": "2", "bpm": "97.25", "local_exact": ".98"}]
+        scored = {"results": rows}
+        result = audit_genre_counterfactual(scored, signals)
+        self.assertEqual(result["legacy_B"], "UNMEASURED")
+        base = result["scenarios"]["none"]
+        self.assertEqual((base["clear_correct"], base["clear_wrong"],
+                          base["clear_held"]), (10, 1, 0))
+        house = result["scenarios"]["house"]
+        self.assertEqual((house["clear_correct"], house["clear_wrong"],
+                          house["clear_held"]), (9, 1, 1))
+        slow = result["scenarios"]["slow"]
+        self.assertEqual((slow["clear_correct"], slow["clear_wrong"],
+                          slow["clear_held"]), (10, 0, 1))
+        self.assertEqual(result["scenarios"]["conflicting"], base)
+        self.assertEqual(house["reference_in_range"] +
+                         house["reference_out_of_range"], 11)
+        self.assertTrue(all(v["metrical_accepted"] == 0 and
+                            v["nonrhythmic_accepted"] == 0
+                            for v in result["scenarios"].values()))
+        signals[CASES[15][0]] = [
+            {"rank": "1", "bpm": "125", "local_exact": ".99"}]
+        self.assertEqual(audit_genre_counterfactual(scored, signals)
+                         ["scenarios"]["none"]["nonrhythmic_accepted"], 1)
+        signals["not_public"] = []
+        with self.assertRaises(ValueError):
+            audit_genre_counterfactual(scored, signals)
+
+
 if __name__ == "__main__":
     unittest.main()
