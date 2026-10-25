@@ -534,6 +534,7 @@ try {
     $challengeReferences=[System.Collections.Generic.List[object]]::new()
     $challengeObserved=[System.Collections.Generic.List[object]]::new()
     $challengeTimes=[System.Collections.Generic.List[object]]::new()
+    $challengeCandidateRows=[System.Collections.Generic.List[object]]::new()
     foreach ($caseId in $challengeIds) {
       if ($caseId -cnotmatch '^challenge_[a-z0-9_]+$') {
         throw 'Disallowed complex synthetic fixture ID'
@@ -560,6 +561,16 @@ try {
         index=$challengeTimes.Count; id=$caseId;
         analysis_ms=$script:LastSyntheticAnalysisMs
       })
+      # Read-only post-host board audit: never supply reference BPM to MIR.
+      $evidence=@(Import-Csv -LiteralPath ($wav+'.candidates.csv'))
+      if ($evidence.Count -gt 32) { throw 'Complex candidate board cap exceeded' }
+      foreach ($candidate in $evidence) {
+        $challengeCandidateRows.Add([pscustomobject][ordered]@{
+          id=$caseId; rank=$candidate.rank; bpm=$candidate.bpm;
+          evidence=$candidate.evidence; support=$candidate.support;
+          winner=$candidate.winner; local_exact=$candidate.local_exact
+        })
+      }
     }
     if ($challengeObserved.Count -ne 16) { throw 'Incomplete complex BPM matrix' }
     $challengeManifest=Join-Path $root 'complex-reference-matrix.json'
@@ -571,7 +582,10 @@ try {
     $challengeObserved | Export-Csv -LiteralPath $challengeCsv -NoTypeInformation -Encoding utf8
     $challengeTimeCsv=Join-Path $root 'complex-host-timings.csv'
     $challengeTimes | Export-Csv -LiteralPath $challengeTimeCsv -NoTypeInformation -Encoding utf8
-    python ./tools/score_synthetic_complex_challenge.py --manifest $challengeManifest --observed $challengeCsv --timing $challengeTimeCsv
+    $challengeCandidateCsv=Join-Path $root 'complex-candidates-matrix.csv'
+    if ($challengeCandidateRows.Count -eq 0) { throw 'Complex candidate evidence missing' }
+    $challengeCandidateRows | Export-Csv -LiteralPath $challengeCandidateCsv -NoTypeInformation -Encoding utf8
+    python ./tools/score_synthetic_complex_challenge.py --manifest $challengeManifest --observed $challengeCsv --timing $challengeTimeCsv --candidates $challengeCandidateCsv
     if ($LASTEXITCODE -ne 0) { throw 'Complex real-host BPM scoring failed' }
     Write-Host 'SYNTHETIC_REAL_COMPLEX_CASE_COUNT_x64=16'
     Write-Host 'SYNTHETIC_REAL_COMPLEX_COMPLETED_x64=PASS'
