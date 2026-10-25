@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import json
 import math
+import re
 from pathlib import Path
 import sys
 import tempfile
@@ -501,6 +502,113 @@ class NativePipelineTraceTests(unittest.TestCase):
             self.assertEqual(source.count('"' + family + '_compare_lost"'), 1)
         self.assertIn('comparison ? "primary_compare"', reporter)
         self.assertIn('#if defined(SMART_TEMPO_CI_ORACLE_PROBE)', source)
+
+    def test_all_four_comparator_families_and_outcome_denominators(self):
+        rows = with_resource(trace())
+        insert_at = next(i for i, row in enumerate(rows)
+                         if row["stage"] == "primary_disposition")
+        events = []
+        families = ("raw", "harmonic", "general_baseline", "general_alt")
+        for family in families:
+            candidate = "c0" if family == "raw" else "c1"
+            for score, verdict in ((.95, "won"), (.90, "lost")):
+                rank = event("primary_rank", candidate, [], 128., "included",
+                             family + "_rank_scored", 0)
+                comp = event("primary_compare", candidate, [], 128.,
+                             "included" if verdict == "won" else "excluded",
+                             family + "_compare_" + verdict, 0)
+                rank["metrics"]["score"] = score
+                comp["metrics"]["score"] = score
+                events.extend((rank, comp))
+        rows[insert_at:insert_at] = events
+        for index, row in enumerate(rows):
+            row["sequence"] = index
+        result = validate(rows)
+        self.assertEqual(result["selector_comparator_observations"], 8)
+        self.assertEqual(result["selector_comparator_families"], 4)
+        self.assertEqual((result["selector_comparator_wins"],
+                          result["selector_comparator_losses"]), (4, 4))
+        for family in families:
+            self.assertEqual(result["selector_compare_" + family + "_wins"], 1)
+            self.assertEqual(result["selector_compare_" + family + "_losses"], 1)
+        for family in families:
+            for mutation in ("higher_lost", "lower_won", "missing_rank"):
+                with self.subTest(family=family, mutation=mutation):
+                    bad = copy.deepcopy(rows)
+                    matches = [x for x in bad if x["stage"] == "primary_compare"
+                               and x["reason_code"].startswith(family + "_compare_")]
+                    second = matches[1]
+                    if mutation == "higher_lost":
+                        second["metrics"]["score"] = 1.20
+                        # Preserve rank/comparator equality to isolate chronology.
+                        prior = bad[bad.index(second) - 1]
+                        prior["metrics"]["score"] = 1.20
+                    elif mutation == "lower_won":
+                        second["reason_code"] = family + "_compare_won"
+                        second["outcome"] = "included"
+                    else:
+                        bad.remove(bad[bad.index(second) - 1])
+                    for index, row in enumerate(bad):
+                        row["sequence"] = index
+                    with self.assertRaises(TraceError):
+                        validate(bad)
+
+    def test_ci_comparator_shadow_is_guarded_and_matches_production(self):
+        source = (ROOT / "src/foo_smart_tempo/mir_candidate_pipeline.cpp").read_text(
+            encoding="utf-8")
+        families = ("raw", "general_baseline", "harmonic", "general_alt")
+        pattern = re.compile(
+            r"#if defined\(SMART_TEMPO_CI_ORACLE_PROBE\)\s+"
+            r"const bool ciComparisonWon =\s*(.*?);\s*#endif\s*if\s*\(",
+            re.DOTALL)
+
+        def verify(content):
+            matches = list(pattern.finditer(content))
+            self.assertEqual(len(matches), 4)
+            observed = set()
+            for match in matches:
+                pos = match.end() - 1
+                depth = 0
+                end = None
+                for index in range(pos, len(content)):
+                    char = content[index]
+                    if char == "(":
+                        depth += 1
+                    elif char == ")":
+                        depth -= 1
+                        if depth == 0:
+                            end = index
+                            break
+                self.assertIsNotNone(end)
+                ci_expression = "".join(match.group(1).split())
+                production_expression = "".join(content[pos + 1:end].split())
+                self.assertEqual(ci_expression, production_expression)
+                tail = content[end:end + 450]
+                candidates = [f for f in families
+                              if '"' + f + '_compare_won"' in tail
+                              and '"' + f + '_compare_lost"' in tail]
+                self.assertEqual(len(candidates), 1)
+                observed.add(candidates[0])
+                self.assertIn('ciComparisonWon ? "' + candidates[0] +
+                              '_compare_won"', tail)
+            self.assertEqual(observed, set(families))
+
+        verify(source)
+        # Independent negative mutations must fail before the costly SDK build.
+        mutations = (
+            source.replace("const bool ciComparisonWon = best == nullptr || score > bestScore;",
+                           "const bool ciComparisonWon = best == nullptr || score < bestScore;", 1),
+            source.replace("if (best == nullptr || score > bestScore) {",
+                           "if (best == nullptr || score < bestScore) {", 1),
+            source.replace("#if defined(SMART_TEMPO_CI_ORACLE_PROBE)\n    const bool ciComparisonWon",
+                           "#if 0\n    const bool ciComparisonWon", 1),
+            source.replace('ciComparisonWon ? "harmonic_compare_won"',
+                           'false ? "harmonic_compare_won"', 1),
+        )
+        for mutation in mutations:
+            self.assertNotEqual(mutation, source)
+            with self.assertRaises(AssertionError):
+                verify(mutation)
 
     def test_per_candidate_disposition_recomputed_from_executed_events(self):
         rows = with_resource(trace())

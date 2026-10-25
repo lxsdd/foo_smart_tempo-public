@@ -575,6 +575,26 @@ def validate(rows: list[dict], *, require_windows: bool = False) -> dict:
         "selector_rank_observations": len(stage_indices["primary_rank"]),
         "selector_comparator_observations": len(comparisons),
         "selector_comparator_families": len(current_best),
+        "selector_comparator_wins": sum(x["outcome"] == "included" for x in comparisons),
+        "selector_comparator_losses": sum(x["outcome"] == "excluded" for x in comparisons),
+        # Per-family actual executed comparator outcomes, never a claim of
+        # full selector eligibility or causal first-veto coverage.
+        "selector_compare_raw_wins": sum(
+            x["reason_code"] == "raw_compare_won" for x in comparisons),
+        "selector_compare_raw_losses": sum(
+            x["reason_code"] == "raw_compare_lost" for x in comparisons),
+        "selector_compare_harmonic_wins": sum(
+            x["reason_code"] == "harmonic_compare_won" for x in comparisons),
+        "selector_compare_harmonic_losses": sum(
+            x["reason_code"] == "harmonic_compare_lost" for x in comparisons),
+        "selector_compare_general_baseline_wins": sum(
+            x["reason_code"] == "general_baseline_compare_won" for x in comparisons),
+        "selector_compare_general_baseline_losses": sum(
+            x["reason_code"] == "general_baseline_compare_lost" for x in comparisons),
+        "selector_compare_general_alt_wins": sum(
+            x["reason_code"] == "general_alt_compare_won" for x in comparisons),
+        "selector_compare_general_alt_losses": sum(
+            x["reason_code"] == "general_alt_compare_lost" for x in comparisons),
         "selector_terminal_observations": len(stage_indices["primary_terminal"]),
         "selector_disposition_observations": len(dispositions),
         "disposition_ranked_not_final": sum(

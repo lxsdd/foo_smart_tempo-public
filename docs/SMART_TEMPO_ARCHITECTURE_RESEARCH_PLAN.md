@@ -339,3 +339,17 @@ this is deliberately **not** interpreted as a final veto. This closes a
 specific completeness question about observed vs unvisited candidate paths,
 not the still-open comprehensive first-veto stage reasons. No production
 selection, BPM policy, writer, or private data is changed.
+
+
+### Phase B: comparator-parity and per-family evidence gate (CI-only)
+
+The four observed comparator branches now have an independently checked
+source contract: the CI-only winning predicate must match the original
+production `if` predicate byte-for-byte after whitespace normalization,
+while all observer variables remain behind the compile guard. Positive and
+adversarial regressions mutate either side, remove a guard, or corrupt the
+logged outcome. The read-only trace scorer reports explicit won/lost counts
+for each of raw, harmonic, general-baseline and general-alternative families.
+These are **executed comparisons**, not proof that a different lane or a
+supplementary Policy source was selectable. A tie is still not independently
+reconstructed from the full ordered tuple, and package B remains incomplete.
