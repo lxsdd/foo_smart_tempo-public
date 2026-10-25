@@ -16,11 +16,11 @@ namespace smart_tempo::mir_pipeline {
 #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
 namespace {
 thread_local std::vector<MirCiSelectorEvent> g_ci_primary_events;
-inline void ci_primary_event(double bpm, double score, bool raw,
-                             bool included, const char* reason) noexcept {
+inline void ci_primary_event(std::size_t sourceIndex, double bpm, double score,
+                             bool raw, bool included, const char* reason) noexcept {
   if (g_ci_primary_events.size() >= 4096) return;
   try {
-    g_ci_primary_events.push_back({bpm, score, raw, included, reason});
+    g_ci_primary_events.push_back({bpm, score, raw, included, reason, sourceIndex});
   } catch (...) {
     // CI-only diagnostics must never affect BPM selection or writer behavior.
   }
@@ -946,7 +946,8 @@ evaluate_mir_high_pulse_interval_conflict_shadow(
   for (const auto& candidate : board.raw_candidates) {
     const bool aliasAllowed = mir_raw_alias_allowed(candidate, lane);
 #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
-    ci_primary_event(candidate.bpm, 0.0, true, aliasAllowed,
+    ci_primary_event(static_cast<std::size_t>(&candidate - board.raw_candidates.data()),
+                     candidate.bpm, 0.0, true, aliasAllowed,
                      aliasAllowed ? "raw_alias_allowed" : "raw_alias_provisional_exclusion");
 #endif
     if (aliasAllowed) {
@@ -964,7 +965,8 @@ evaluate_mir_high_pulse_interval_conflict_shadow(
   for (const auto* candidate : pool) {
     const double support = mir_raw_support(*candidate, board.segment_count);
 #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
-    ci_primary_event(candidate->bpm, support, true, support >= supportFloor,
+    ci_primary_event(static_cast<std::size_t>(candidate - board.raw_candidates.data()),
+                     candidate->bpm, support, true, support >= supportFloor,
                      support >= supportFloor ? "raw_support_allowed" : "raw_support_provisional_exclusion");
 #endif
     if (support >= supportFloor) {
@@ -981,7 +983,8 @@ evaluate_mir_high_pulse_interval_conflict_shadow(
     const double score = score_mir_raw_conservative(
         *candidate, board.segment_count, lane, routeMin, routeMax, routeCenter);
 #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
-    ci_primary_event(candidate->bpm, score, true, true, "raw_rank_scored");
+    ci_primary_event(static_cast<std::size_t>(candidate - board.raw_candidates.data()),
+                     candidate->bpm, score, true, true, "raw_rank_scored");
 #endif
     const auto tie = std::make_tuple(
         mir_raw_support(*candidate, board.segment_count),
@@ -1158,7 +1161,8 @@ evaluate_mir_high_pulse_interval_conflict_shadow(
         candidate.support >= 0.70 && candidate.pulse_score >= 0.35 &&
         candidate.pulse_section_support >= 0.35;
 #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
-    ci_primary_event(candidate.bpm, candidate.pulse_score, false, qualifies,
+    ci_primary_event(static_cast<std::size_t>(&candidate - candidates.data()),
+                     candidate.bpm, candidate.pulse_score, false, qualifies,
                      qualifies ? "low_upper_gate_allowed" : "low_upper_gate_provisional_exclusion");
 #endif
     if (qualifies) {
@@ -1179,7 +1183,8 @@ evaluate_mir_high_pulse_interval_conflict_shadow(
   for (const auto& candidate : candidates) {
     const bool inRange = candidate.bpm >= 45.0 && candidate.bpm <= 90.0;
 #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
-    ci_primary_event(candidate.bpm, candidate.support, false, inRange,
+    ci_primary_event(static_cast<std::size_t>(&candidate - candidates.data()),
+                     candidate.bpm, candidate.support, false, inRange,
                      inRange ? "low_threshold_allowed" : "low_threshold_provisional_exclusion");
 #endif
     if (inRange) {
@@ -1430,7 +1435,8 @@ select_mir_low_pulse_continuous_center_rescue(
     const bool inRail = candidate.bpm >= kMirProductionMinBpm &&
         candidate.bpm <= kMirProductionMaxBpm;
 #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
-    ci_primary_event(candidate.bpm, candidate.support, false, inRail,
+    ci_primary_event(static_cast<std::size_t>(&candidate - candidates.data()),
+                     candidate.bpm, candidate.support, false, inRail,
                      inRail ? "harmonic_in_rail" : "harmonic_out_of_rail");
 #endif
     if (inRail) {
@@ -1463,7 +1469,8 @@ select_mir_low_pulse_continuous_center_rescue(
       score -= 1.2;
     }
 #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
-    ci_primary_event(candidate->bpm, score, false, true, "harmonic_rank_scored");
+    ci_primary_event(static_cast<std::size_t>(candidate - candidates.data()),
+                     candidate->bpm, score, false, true, "harmonic_rank_scored");
 #endif
     if (best == nullptr || score > bestScore) {
       best = candidate;
@@ -1484,7 +1491,8 @@ select_mir_low_pulse_continuous_center_rescue(
     const bool inRail = candidate.bpm >= kMirProductionMinBpm &&
         candidate.bpm <= kMirProductionMaxBpm;
 #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
-    ci_primary_event(candidate.bpm, candidate.support, false, inRail,
+    ci_primary_event(static_cast<std::size_t>(&candidate - candidates.data()),
+                     candidate.bpm, candidate.support, false, inRail,
                      inRail ? "general_in_rail" : "general_out_of_rail_provisional");
 #endif
     if (inRail) {

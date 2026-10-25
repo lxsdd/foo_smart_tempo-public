@@ -220,6 +220,7 @@ struct MirCiSelectorEvent {
   bool raw = false;
   bool included = false;
   const char* reason = "unknown";
+  std::size_t source_index = 0;
 };
 [[nodiscard]] std::span<const MirCiSelectorEvent>
 mir_ci_primary_selector_events() noexcept;

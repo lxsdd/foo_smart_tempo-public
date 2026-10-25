@@ -202,8 +202,16 @@ class NativePipelineTraceTests(unittest.TestCase):
         self.assertIn("mir_ci_primary_selector_events()", component)
         self.assertIn("candidate_filter", header)
         self.assertIn("primary_rank", header)
+        self.assertIn("item.source_index >= count", header)
+        self.assertIn("ids[item.source_index]", header)
+        self.assertNotIn("std::size_t match = count", header)
+        selector_header = (ROOT / "src" / "foo_smart_tempo" /
+                           "mir_candidate_pipeline.h").read_text(encoding="utf-8")
+        self.assertIn("std::size_t source_index = 0", selector_header)
         selector = (ROOT / "src" / "foo_smart_tempo" /
                     "mir_candidate_pipeline.cpp").read_text(encoding="utf-8")
+        self.assertIn("candidate - board.raw_candidates.data()", selector)
+        self.assertIn("&candidate - candidates.data()", selector)
         for snippet in ("raw_alias_provisional_exclusion", "raw_support_provisional_exclusion",
                         "low_upper_gate_provisional_exclusion", "low_threshold_allowed",
                         "harmonic_rank_scored", "general_out_of_rail_provisional"):

@@ -135,20 +135,18 @@ inline bool record(
         !std::isfinite(item.score)) return false;
     const std::size_t count = item.raw ? board.raw_candidates.size() : collapsed.size();
     const auto& ids = item.raw ? raw_ids : cluster_ids;
-    std::size_t match = count;
-    for (std::size_t i = 0; i < count; ++i) {
-      const double bpm = item.raw ? board.raw_candidates[i].bpm : collapsed[i].bpm;
-      if (std::abs(bpm - item.bpm) < 0.001) {
-        match = i;
-        break;
-      }
-    }
-    if (match == count) return false;
+    if (item.source_index >= count) return false;
+    const double actualBpm = item.raw
+        ? board.raw_candidates[item.source_index].bpm
+        : collapsed[item.source_index].bpm;
+    if (std::abs(actualBpm - item.bpm) >= 0.001) return false;
+    // Source index is preserved from the ACTUAL executed selector vector:
+    // same-BPM alias rows no longer collapse onto the first matching raw ID.
     const bool ranking = std::strcmp(item.reason, "raw_rank_scored") == 0 ||
                          std::strcmp(item.reason, "harmonic_rank_scored") == 0;
     out.push(ranking ? "primary_rank" : "candidate_filter",
              item.included ? "included" : "excluded",
-             item.reason, ids[match], {}, item.bpm, item.score, 0.0);
+             item.reason, ids[item.source_index], {}, item.bpm, item.score, 0.0);
   }
   std::vector<std::string> primary_parent;
   for (std::size_t i = 0; i < collapsed.size(); ++i) {
