@@ -190,3 +190,16 @@ No candidate may be synthesized from genre or oracle; no tuned track-specific ru
 **Package E:** pick best qualified algorithm; isolate production DSP/Selector/Policy changes in a separate reviewable diff; run Win32/x64 runtime and private real-music endgate. Musical release **NO_GO** until independently proven.
 
 No further minute-by-minute approvals requested for safe research. GitHub Actions must remain zero-cost under existing free runners. Draft PR only, no main merge, no release, no uploaded binaries.
+
+### Phase B decoder-window capture (25 Oct 2026, proposed CI-only block)
+
+The disposable `pulse_128.wav` host observer now records **actual** per-pass
+source frames consumed and analysis frames emitted (after resampler flush),
+planned pass index/offset, requested frames and both sample rates. The strict
+read-only parser computes decoded/requested seconds, union of actually decoded
+intervals, overlap-derived repeat factor and complete-vs-partial pass counts.
+The Windows host gate requires a complete declared pass sequence. These are
+observed decode extents, **not** a measured CPU speedup, per-frame ODF reuse,
+peak RSS or proof of independent musical evidence. This work neither changes
+production window planning nor authorizes Phase C: first-veto selector and
+supplemental policy/witness identities are still incomplete.

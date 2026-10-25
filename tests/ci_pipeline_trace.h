@@ -67,6 +67,19 @@ inline std::string ci_run_id() {
   return std::string(digits);
 }
 
+// Only actual decoded source/analysis frames, never audio samples or paths.
+// Captured in the CI-only analyzer loop after resampler flush.
+struct WindowObservation {
+  std::size_t pass_index = 0;
+  std::size_t pass_total = 0;
+  double start_sec = 0.0;
+  std::size_t requested_frames = 0;
+  std::size_t decoded_frames = 0;
+  std::size_t analysis_frames = 0;
+  unsigned source_rate_hz = 0;
+  unsigned analysis_rate_hz = 0;
+};
+
 struct EventWriter {
   std::string run_id;
   explicit EventWriter(std::string id) : run_id(std::move(id)) {}
@@ -91,10 +104,26 @@ struct EventWriter {
     lines += ",\"score\":" + safe_num(score);
     lines += ",\"support\":" + safe_num(support) + "}}\n";
   }
+  void push_window(const WindowObservation& w) {
+    push("decode_window", "observed", "actual_decoded_extent",
+         "", {}, 0.0, 0.0, 0.0);
+    // Extend the just-emitted numeric-only metrics object, before its two
+    // closing braces and newline. The writer never serializes identifiers.
+    lines.insert(lines.size() - 3,
+        ",\"pass_index\":" + std::to_string(w.pass_index) +
+        ",\"pass_total\":" + std::to_string(w.pass_total) +
+        ",\"start_sec\":" + safe_num(w.start_sec) +
+        ",\"requested_frames\":" + std::to_string(w.requested_frames) +
+        ",\"decoded_frames\":" + std::to_string(w.decoded_frames) +
+        ",\"analysis_frames\":" + std::to_string(w.analysis_frames) +
+        ",\"source_rate_hz\":" + std::to_string(w.source_rate_hz) +
+        ",\"analysis_rate_hz\":" + std::to_string(w.analysis_rate_hz));
+  }
 };
 
 inline bool record(
     const mir_pipeline::MirCandidateBoard& board,
+    const std::vector<WindowObservation>& windows,
     const std::vector<mir_pipeline::MirCandidate>& collapsed,
     const std::vector<mir_pipeline::MirPolicyMeasuredCandidate>& fullboard,
     std::span<const mir_pipeline::MirCiSelectorEvent> selectorEvents,
@@ -107,7 +136,8 @@ inline bool record(
       !finite_bpm(final_bpm) || final_bpm > 220.0 ||
       (!withheld && final_bpm > 0.0 && !same_run_measured_witness))
     return false;
-  if (board.raw_candidates.size() > 4096 || collapsed.size() > 4096 ||
+  if (windows.empty() || windows.size() > 128 ||
+      board.raw_candidates.size() > 4096 || collapsed.size() > 4096 ||
       selectorEvents.size() > 4096 || fullboard.size() > 4096 ||
       collapsed.size() != primary.candidate_count)
     return false;
@@ -116,6 +146,28 @@ inline bool record(
   raw_ids.reserve(board.raw_candidates.size());
   cluster_ids.reserve(collapsed.size());
   policy_ids.reserve(fullboard.size());
+  // Fail closed on missing, reordered or physically impossible decoder extents.
+  // Actual decoded frames may be shorter than requested at end-of-file.
+  const std::size_t declaredPasses = windows.front().pass_total;
+  for (std::size_t i = 0; i < windows.size(); ++i) {
+    const auto& w = windows[i];
+    if (w.pass_index != i || w.pass_total != declaredPasses ||
+        declaredPasses == 0 || declaredPasses > 128 ||
+        !std::isfinite(w.start_sec) || w.start_sec < 0.0 ||
+        w.start_sec > 86400.0 ||
+        w.source_rate_hz < 8000 || w.source_rate_hz > 384000 ||
+        w.analysis_rate_hz < 8000 || w.analysis_rate_hz > 48000 ||
+        w.analysis_rate_hz > w.source_rate_hz ||
+        w.requested_frames == 0 ||
+        w.requested_frames > static_cast<std::size_t>(w.source_rate_hz) * 600 ||
+        w.decoded_frames == 0 || w.decoded_frames > w.requested_frames ||
+        w.analysis_frames == 0 ||
+        static_cast<double>(w.analysis_frames) / w.analysis_rate_hz >
+            static_cast<double>(w.decoded_frames) / w.source_rate_hz + 0.10 ||
+        (i > 0 && w.start_sec < windows[i - 1].start_sec))
+      return false;
+    out.push_window(w);
+  }
   for (const auto& raw : board.raw_candidates) {
     if (!finite_bpm(raw.bpm) || raw.bpm == 0.0 ||
         !std::isfinite(raw.score_sum) || !std::isfinite(raw.synthetic_support))
@@ -245,7 +297,7 @@ inline bool record(
            "", witness_ids, final_bpm, 0.0, 0.0);
   out.push("write_guard", "write_blocked", "ci_dry_run",
            "", {}, 0.0, 0.0, 0.0);
-  if (out.sequence != board.raw_candidates.size() + 2 * collapsed.size() +
+  if (out.sequence != windows.size() + board.raw_candidates.size() + 2 * collapsed.size() +
                       fullboard.size() + selectorEvents.size() + 5 ||
       out.lines.size() > 2 * 1024 * 1024) return false;
   const std::wstring output = fixture + L".pipeline.jsonl";

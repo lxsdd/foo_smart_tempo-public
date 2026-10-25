@@ -180,7 +180,7 @@ function Run-Case([string]$installer,[string]$root,[string]$inputFile,[string[]]
       if (-not (Test-Path -LiteralPath $trace -PathType Leaf)) {
         throw 'Real foobar native primary/policy lineage observer is missing'
       }
-      python ./tools/audit_smart_tempo_ci_pipeline_trace.py --trace $trace
+      python ./tools/audit_smart_tempo_ci_pipeline_trace.py --trace $trace --require-windows
       if ($LASTEXITCODE -ne 0) { throw 'Real foobar native BPM lineage contract failed' }
       Write-Host 'SMART_TEMPO_NATIVE_POOL_PROVENANCE=PASS'
       Write-Host 'SMART_TEMPO_PRIMARY_VETO_INDIVIDUAL_REASONS=UNMEASURED'

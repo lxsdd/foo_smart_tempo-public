@@ -254,6 +254,85 @@ class NativePipelineTraceTests(unittest.TestCase):
         with self.assertRaises(TraceError):
             validate(rows)
 
+
+    def test_actual_decoder_window_coverage_and_overlap(self):
+        rows = trace()
+        windows = []
+        for index, start in enumerate((0.0, 0.5, 1.0)):
+            row = event("decode_window", None, [], 0., "observed",
+                        "actual_decoded_extent", 0)
+            row["metrics"] = dict(bpm=0., score=0., support=0.,
+                pass_index=index, pass_total=3, start_sec=start,
+                requested_frames=32000, decoded_frames=32000,
+                analysis_frames=32000, source_rate_hz=16000,
+                analysis_rate_hz=16000)
+            windows.append(row)
+        rows[:0] = windows
+        for index, row in enumerate(rows):
+            row["sequence"] = index
+        result = validate(rows, require_windows=True)
+        self.assertEqual((result["decoded_windows"], result["declared_windows"],
+                          result["windows_complete"]), (3, 3, 1))
+        self.assertEqual(result["requested_window_seconds"], 6.)
+        self.assertEqual(result["decoded_window_seconds"], 6.)
+        self.assertEqual(result["unique_covered_seconds"], 3.)
+        self.assertEqual(result["repeat_factor"], 2.)
+
+    def test_window_capture_missing_partial_and_out_of_order_fail_closed(self):
+        rows = trace()
+        with self.assertRaises(TraceError):
+            validate(rows, require_windows=True)
+        row = event("decode_window", None, [], 0., "observed",
+                    "actual_decoded_extent", 0)
+        row["metrics"] = dict(bpm=0., score=0., support=0.,
+            pass_index=0, pass_total=2, start_sec=1.5,
+            requested_frames=32000, decoded_frames=24000,
+            analysis_frames=24000, source_rate_hz=16000,
+            analysis_rate_hz=16000)
+        rows.insert(0, row)
+        for index, item in enumerate(rows):
+            item["sequence"] = index
+        self.assertEqual(validate(rows)["windows_complete"], 0)
+        with self.assertRaises(TraceError):
+            validate(rows, require_windows=True)
+        rows[0]["metrics"]["pass_total"] = 1
+        self.assertEqual(validate(rows, require_windows=True)["decoded_windows"], 1)
+        rows[0]["metrics"]["pass_index"] = 1
+        with self.assertRaises(TraceError):
+            validate(rows)
+
+    def test_decoder_window_adversarial_numeric_and_privacy_inputs(self):
+        rows = trace()
+        row = event("decode_window", None, [], 0., "observed",
+                    "actual_decoded_extent", 0)
+        row["metrics"] = dict(bpm=0., score=0., support=0.,
+            pass_index=0, pass_total=1, start_sec=0.,
+            requested_frames=32000, decoded_frames=32000,
+            analysis_frames=32000, source_rate_hz=16000,
+            analysis_rate_hz=16000)
+        rows.insert(0, row)
+        for index, item in enumerate(rows):
+            item["sequence"] = index
+        self.assertEqual(validate(rows, require_windows=True)["windows_complete"], 1)
+        for key, value in (("decoded_frames", 32001), ("analysis_frames", 50000),
+                           ("source_rate_hz", 0), ("analysis_rate_hz", 96000),
+                           ("pass_index", .5), ("start_sec", -1.),
+                           ("start_sec", float("nan")), ("requested_frames", True),
+                           ("pass_total", 129), ("score", .5)):
+            with self.subTest(key=key, value=value):
+                bad = copy.deepcopy(rows)
+                bad[0]["metrics"][key] = value
+                with self.assertRaises(TraceError):
+                    validate(bad, require_windows=True)
+        for field, value in (("file_path", "private.wav"),
+                             ("candidate_id", "c0"),
+                             ("parent_candidate_ids", ["c0"])):
+            with self.subTest(field=field):
+                bad = copy.deepcopy(rows)
+                bad[0][field] = value
+                with self.assertRaises(TraceError):
+                    validate(bad, require_windows=True)
+
     def test_ci_only_compilation_and_host_provenance_chain(self):
         component = (ROOT / "src" / "foo_smart_tempo" /
                      "modern_bpm_analyzer.cpp").read_text(encoding="utf-8")
@@ -265,6 +344,11 @@ class NativePipelineTraceTests(unittest.TestCase):
         self.assertIn("#ifndef SMART_TEMPO_CI_ORACLE_PROBE", header)
         self.assertIn("#if defined(SMART_TEMPO_CI_ORACLE_PROBE)", component)
         self.assertIn("ci_pipeline_trace::record(", component)
+        self.assertIn("ciWindows.push_back", component)
+        self.assertIn("ciWindowCaptureFailed", component)
+        self.assertIn('out.push_window(w)', header)
+        self.assertIn('"actual_decoded_extent"', header)
+        self.assertIn("--require-windows", host)
         self.assertIn('L"GITHUB_ACTIONS"', header)
         self.assertIn('L"RUNNER_TEMP"', header)
         self.assertIn('L"SMART_TEMPO_CI_FIXTURE"', header)

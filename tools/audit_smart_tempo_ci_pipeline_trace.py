@@ -17,8 +17,12 @@ MAX_BYTES, MAX_LINES = 2 * 1024 * 1024, 12300
 FIELDS = frozenset(("schema", "analysis_id", "sequence", "stage", "outcome",
                     "reason_code", "candidate_id", "parent_candidate_ids", "metrics"))
 METRICS = frozenset(("bpm", "score", "support"))
+WINDOW_METRICS = METRICS | frozenset(("pass_index", "pass_total", "start_sec",
+    "requested_frames", "decoded_frames", "analysis_frames",
+    "source_rate_hz", "analysis_rate_hz"))
 CREATORS = frozenset(("candidate_create", "candidate_transform", "policy_eligibility"))
 ENUMS = {
+    "decode_window": ("observed", "actual_decoded_extent"),
     "candidate_create": ("observed", "raw_alias"),
     "candidate_transform": ("observed", "cluster_from_raw"),
     "primary_eligibility": ("observed", "pool_only_gate_unresolved"),
@@ -57,13 +61,14 @@ class TraceError(ValueError):
     pass
 
 
-def validate(rows: list[dict]) -> dict:
+def validate(rows: list[dict], *, require_windows: bool = False) -> dict:
     if not isinstance(rows, list) or not 8 <= len(rows) <= MAX_LINES:
         raise TraceError("trace missing or out of row bound")
     ids: dict[str, str] = {}
     candidate_bpm: dict[str, float] = {}
     stage_indices: dict[str, list[dict]] = {name: [] for name in ENUMS}
     stage_order = {
+        "decode_window": -1,
         "candidate_create": 0, "candidate_transform": 1,
         "primary_eligibility": 1, "policy_eligibility": 2,
         "candidate_filter": 3, "primary_rank": 3,
@@ -97,7 +102,8 @@ def validate(rows: list[dict]) -> dict:
         if (not isinstance(item["reason_code"], str) or
                 not REASON_PATTERN.fullmatch(item["reason_code"])):
             raise TraceError("unbounded reason")
-        if type(item["metrics"]) is not dict or set(item["metrics"]) != METRICS:
+        expected_metrics = WINDOW_METRICS if stage == "decode_window" else METRICS
+        if type(item["metrics"]) is not dict or set(item["metrics"]) != expected_metrics:
             raise TraceError("non-numeric-only telemetry")
         for key, value in item["metrics"].items():
             if type(value) not in (float, int) or not math.isfinite(value):
@@ -114,6 +120,8 @@ def validate(rows: list[dict]) -> dict:
             raise TraceError("invalid candidate parents")
         if any(type(p) is not str or p not in ids for p in parents):
             raise TraceError("orphan or forward candidate parent")
+        if stage == "decode_window" and (candidate_id is not None or parents):
+            raise TraceError("window must not contain candidate identity")
         if stage in CREATORS:
             if candidate_id is None or candidate_id in ids:
                 raise TraceError("duplicated or missing created candidate ID")
@@ -153,6 +161,47 @@ def validate(rows: list[dict]) -> dict:
                    "measured_witness", "write_guard"):
         if len(stage_indices[single]) != 1:
             raise TraceError("missing or repeated terminal stage " + single)
+    windows = stage_indices["decode_window"]
+    if len(windows) > 128:
+        raise TraceError("too many observed windows")
+    declared_passes = 0
+    intervals: list[tuple[float, float]] = []
+    total_decoded = total_requested = 0.0
+    for index, row in enumerate(windows):
+        m = row["metrics"]
+        for key in ("pass_index", "pass_total", "requested_frames",
+                    "decoded_frames", "analysis_frames",
+                    "source_rate_hz", "analysis_rate_hz"):
+            if m[key] != int(m[key]):
+                raise TraceError("fractional window counter")
+        if index == 0:
+            declared_passes = int(m["pass_total"])
+        source_rate, analysis_rate = m["source_rate_hz"], m["analysis_rate_hz"]
+        if (m["pass_index"] != index or m["pass_total"] != declared_passes or
+                not 1 <= declared_passes <= 128 or
+                not 8000 <= source_rate <= 384000 or
+                not 8000 <= analysis_rate <= min(48000, source_rate) or
+                not 0 <= m["start_sec"] <= 86400 or
+                not 0 < m["requested_frames"] <= source_rate * 600 or
+                not 0 < m["decoded_frames"] <= m["requested_frames"] or
+                not 0 < m["analysis_frames"] or
+                m["analysis_frames"] / analysis_rate >
+                    m["decoded_frames"] / source_rate + .10 or
+                any(m[key] != 0 for key in METRICS) or
+                (index and m["start_sec"] < windows[index-1]["metrics"]["start_sec"])):
+            raise TraceError("invalid actual decode window")
+        start = m["start_sec"]
+        duration = m["decoded_frames"] / source_rate
+        intervals.append((start, start + duration))
+        total_decoded += duration
+        total_requested += m["requested_frames"] / source_rate
+    if require_windows and (not windows or len(windows) != declared_passes):
+        raise TraceError("native window capture absent or incomplete")
+    covered = 0.0
+    end = -1.0
+    for start, stop in intervals:
+        covered += max(0.0, stop - max(start, end))
+        end = max(end, stop)
     raw = stage_indices["candidate_create"]
     collapsed = stage_indices["candidate_transform"]
     primary_pool = stage_indices["primary_eligibility"]
@@ -230,6 +279,12 @@ def validate(rows: list[dict]) -> dict:
                      for x in primary_pool)
     return {
         "rows": len(rows), "raw": len(raw), "collapsed": len(collapsed),
+        "decoded_windows": len(windows), "declared_windows": declared_passes,
+        "windows_complete": int(bool(windows) and len(windows) == declared_passes),
+        "requested_window_seconds": round(total_requested, 6),
+        "decoded_window_seconds": round(total_decoded, 6),
+        "unique_covered_seconds": round(covered, 6),
+        "repeat_factor": round(total_decoded / covered, 6) if covered else 0.0,
         "primary_pool": len(primary_pool), "policy_board": len(fullboard),
         "primary_veto_reason_unknown": incomplete,
         "selector_branch_checks": len(stage_indices["candidate_filter"]),
@@ -267,8 +322,9 @@ def load(path: Path) -> list[dict]:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--trace", required=True, type=Path)
+    parser.add_argument("--require-windows", action="store_true")
     a = parser.parse_args()
-    result = validate(load(a.trace))
+    result = validate(load(a.trace), require_windows=a.require_windows)
     print("SMART_TEMPO_CI_PIPELINE_TRACE_SCHEMA=PASS")
     for key, value in result.items():
         print(f"SMART_TEMPO_TRACE_{key.upper()}={value}")

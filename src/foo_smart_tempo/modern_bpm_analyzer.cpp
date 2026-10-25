@@ -1630,6 +1630,10 @@ double ModernBpmAnalyzer::analyze(metadb_handle_ptr track, threaded_process_stat
   std::vector<float> hodgkinsonFullMirPassSamples;
   std::vector<smpl_t> mirOnlyHop;
   status.set_progress_secondary(0, effectiveSamplePasses);
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+  std::vector<smart_tempo::ci_pipeline_trace::WindowObservation> ciWindows;
+  bool ciWindowCaptureFailed = false;
+#endif
 
   for (int pass = 0; pass < effectiveSamplePasses; ++pass) {
     WaitWhilePaused(p_abort);
@@ -1865,6 +1869,21 @@ double ModernBpmAnalyzer::analyze(metadb_handle_ptr track, threaded_process_stat
     // MIR-only uses complete
     // analysis hops and keeps the partial tail as segment audio, not ODF state.
     progressAccumulator.flush(true);
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+    if (!ciWindowCaptureFailed &&
+        !smart_tempo::ci_pipeline_trace::permitted_fixture().empty()) {
+      try {
+        ciWindows.push_back({static_cast<std::size_t>(pass),
+                             static_cast<std::size_t>(effectiveSamplePasses),
+                             passStartSec, samplesToReadPerPass, samplesRead,
+                             analysisSamplesEmitted, sampleRate,
+                             analysisSampleRate});
+      } catch (...) {
+        ciWindowCaptureFailed = true;
+        ciWindows.clear();
+      }
+    }
+#endif
 
     if (smart_tempo::experimental::kEnableHodgkinsonTatumProbe) {
       const uint64_t passStartSample =
@@ -3000,8 +3019,9 @@ double ModernBpmAnalyzer::analyze(metadb_handle_ptr track, threaded_process_stat
                         ? &partialBarAggregateShadow : nullptr,
                     std::span<const smart_tempo::HodgkinsonPartialBarTopKExactCandidate>(
                         topKExactRows.data(), topKExactRows.size()));
-            const bool traced = smart_tempo::ci_pipeline_trace::record(
-                mirMeasuredCandidateBoard, primaryPool,
+            const bool traced = !ciWindowCaptureFailed &&
+                smart_tempo::ci_pipeline_trace::record(
+                mirMeasuredCandidateBoard, ciWindows, primaryPool,
                 mirPolicyMeasuredCandidates,
                 mir_ci_primary_selector_events(), mirPrimarySelection,
                 mirPolicyDecision, finalBpm, m_diag.suppress_write,
