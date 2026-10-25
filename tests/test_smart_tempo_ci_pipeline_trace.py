@@ -34,7 +34,11 @@ def trace(held=False):
         event("final_output", None, [], 0. if held else 127.99,
               "review_hold" if held else "selected",
               "final_abstained" if held else "final_numeric", 6),
-        event("write_guard", None, [], 0., "write_blocked", "ci_dry_run", 7)
+        event("measured_witness", None, [] if held else ["c2"],
+              0. if held else 127.99,
+              "rejected" if held else "included",
+              "not_accepted" if held else "indexed_native_witness", 7),
+        event("write_guard", None, [], 0., "write_blocked", "ci_dry_run", 8)
     ]
 
 
@@ -89,7 +93,7 @@ class NativePipelineTraceTests(unittest.TestCase):
             (3, "reason_code", "tag_from_owner"),
             (4, "stage", "metadata_source"),
             (6, "reason_code", "oracle_label"),
-            (7, "reason_code", "write_permitted"),
+            (8, "reason_code", "write_permitted"),
         ):
             with self.subTest(field=field):
                 actual = trace()
@@ -170,7 +174,7 @@ class NativePipelineTraceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             p = Path(temp) / "pipeline.jsonl"
             p.write_bytes("".join(json.dumps(x) + "\n" for x in trace()).encode("utf-8"))
-            self.assertEqual(validate(load(p))["rows"], 8)
+            self.assertEqual(validate(load(p))["rows"], 9)
             raw = p.read_text(encoding="utf-8")
             p.write_bytes(raw.rstrip("\n").encode("utf-8"))
             with self.assertRaises(TraceError):
@@ -181,6 +185,48 @@ class NativePipelineTraceTests(unittest.TestCase):
             p.write_bytes(raw.replace('"schema": ', '"music_path": "owner", "schema": ', 1).encode("utf-8"))
             with self.assertRaises(TraceError):
                 validate(load(p))
+
+    def test_final_bpm_witness_falsification_and_unindexed_distinction(self):
+        rows = trace()
+        self.assertEqual(validate(rows)["indexed_native_final_witness"], 1)
+        for mutation in ("missing", "unrelated_value", "orphan", "fake_indexed",
+                         "fake_unindexed", "wrong_outcome"):
+            with self.subTest(mutation=mutation):
+                modified = copy.deepcopy(rows)
+                if mutation == "missing":
+                    modified.pop(7)
+                elif mutation == "unrelated_value":
+                    modified[6]["metrics"]["bpm"] = 167.9
+                elif mutation == "orphan":
+                    modified[7]["parent_candidate_ids"] = ["c99"]
+                elif mutation == "fake_indexed":
+                    modified[7]["parent_candidate_ids"] = ["c0"]
+                elif mutation == "fake_unindexed":
+                    modified[7]["reason_code"] = "supplemental_witness_unindexed"
+                else:
+                    modified[7]["outcome"] = "rejected"
+                with self.assertRaises(TraceError):
+                    validate(modified)
+        # A genuine supplemental candidate is not assigned a fake FullBoard
+        # candidate ID: preserve explicit incomplete causal attribution.
+        rows[7]["parent_candidate_ids"] = []
+        rows[7]["reason_code"] = "supplemental_witness_unindexed"
+        result = validate(rows)
+        self.assertEqual(result["indexed_native_final_witness"], 0)
+        self.assertEqual(result["unindexed_supplemental_final_witness"], 1)
+
+    def test_run_local_id_must_match_every_event_and_have_hex_shape(self):
+        rows = trace()
+        for row in rows:
+            row["analysis_id"] = "19a2b3c4d5e6f708"
+        self.assertEqual(validate(rows)["raw"], 1)
+        rows[4]["analysis_id"] = "cafefeed01234567"
+        with self.assertRaises(TraceError):
+            validate(rows)
+        rows[4]["analysis_id"] = "19a2b3c4d5e6f708"
+        rows[0]["analysis_id"] = "REUSED_CONSTANT"
+        with self.assertRaises(TraceError):
+            validate(rows)
 
     def test_ci_only_compilation_and_host_provenance_chain(self):
         component = (ROOT / "src" / "foo_smart_tempo" /
@@ -198,6 +244,11 @@ class NativePipelineTraceTests(unittest.TestCase):
         self.assertIn('L"SMART_TEMPO_CI_FIXTURE"', header)
         self.assertIn('L"\\synthetic-oracle\\pulse_128.wav"', header.replace('\\\\', '\\'))
         self.assertIn("CREATE_NEW", header)
+        self.assertIn("mir_ci_primary_selector_pool()", component)
+        self.assertIn("ci_run_id()", header)
+        self.assertIn("same_run_measured_witness", header)
+        self.assertIn('out.push("measured_witness"', header)
+        self.assertNotIn("std::isfinite(value) ? value : 0.0", header)
         self.assertIn("pool_only_gate_unresolved", header)
         self.assertIn("mir_ci_primary_selector_events()", component)
         self.assertIn("candidate_filter", header)

@@ -117,6 +117,34 @@ negative cases must then reconcile all counts without inferred join logic.
 Do not launch the large batched phase C musical experiment until that proof
 and an independent audit pass.
 
+### Package B – native origin/witness integrity hardening
+
+The CI-only selector now snapshots the **exact collapsed vector used for the
+primary decision**, rather than recomputing it when emitting the trace.
+It independently records the exact raw/cluster source index of each gate/rank
+observation. Native diagnostics fail closed when a numeric score/support is
+non-finite; they must not silently serialize NaN/Inf as `0.0`.
+
+The per-run analysis ID is derived from the public Actions run identifier
+plus disposable test process/thread identity; the JSONL validator rejects
+malformed or mixed-session IDs. A dedicated `measured_witness` transition
+uses the **existing production same-analysis MIR candidate-witness function**
+without changing its behavior. Exact FullBoard/primary witness matches are
+linked to candidate IDs. Supplemental TopK/partial-bar witness matches that
+are not represented in the FullBoard are explicitly reported as
+`supplemental_witness_unindexed` with **no invented source ID**. Such traces
+may be internally safe but DO NOT yet prove complete causal provenance.
+
+All these changes are within `SMART_TEMPO_CI_ORACLE_PROBE`; no production
+selection, confidence threshold, write policy or user files are changed.
+Adversarial regressions cover orphan/mismatched final witness, mixed-session
+IDs, unindexed supplement flags, branch lineage and loss of the no-write gate.
+
+**Gate remains incomplete:** low-pulse nested rescues, general-144 scoring
+and fallback, residual rescue, partial-bar/TopK origin identity, real audio
+window extents and independently measured CPU/RSS require full runtime capture
+and a distinct audit before the large C campaign.
+
 ## Candidate architecture candidates: all compared under identical evidence
 
 - **A:** unchanged current MIR + primary + policy baseline.

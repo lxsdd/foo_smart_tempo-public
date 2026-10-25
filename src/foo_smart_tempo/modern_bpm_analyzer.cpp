@@ -2986,12 +2986,26 @@ double ModernBpmAnalyzer::analyze(metadb_handle_ptr track, threaded_process_stat
           // Observational synthetic-only lineage data. Production has no
           // observer; this never alters selected BPM, policy or write flag.
           if (!smart_tempo::ci_pipeline_trace::permitted_fixture().empty()) {
-            const auto primaryPool = collapse_mir_candidates(mirMeasuredCandidateBoard);
+            const auto& primaryPool = mir_ci_primary_selector_pool();
+            const bool measuredWitness =
+                !m_diag.suppress_write && finalBpm > 0.0 &&
+                mir_output_has_measured_candidate_witness(
+                    finalBpm,
+                    std::span<const MirPolicyMeasuredCandidate>(
+                        mirPolicyCandidates.data(), mirPolicyCandidates.size()),
+                    mirPrimarySelection,
+                    materialRiskLocalExactProbe.candidate
+                        ? &materialRiskLocalExactProbe : nullptr,
+                    partialBarAggregateShadow.candidate
+                        ? &partialBarAggregateShadow : nullptr,
+                    std::span<const smart_tempo::HodgkinsonPartialBarTopKExactCandidate>(
+                        topKExactRows.data(), topKExactRows.size()));
             const bool traced = smart_tempo::ci_pipeline_trace::record(
                 mirMeasuredCandidateBoard, primaryPool,
                 mirPolicyMeasuredCandidates,
                 mir_ci_primary_selector_events(), mirPrimarySelection,
-                mirPolicyDecision, finalBpm, m_diag.suppress_write);
+                mirPolicyDecision, finalBpm, m_diag.suppress_write,
+                measuredWitness);
             FB2K_console_formatter()
                 << (traced ? "SMART_TEMPO_CI_PIPELINE_TRACE=PASS"
                            : "SMART_TEMPO_CI_PIPELINE_TRACE=FAIL");

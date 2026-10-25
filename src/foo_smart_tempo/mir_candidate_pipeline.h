@@ -224,6 +224,10 @@ struct MirCiSelectorEvent {
 };
 [[nodiscard]] std::span<const MirCiSelectorEvent>
 mir_ci_primary_selector_events() noexcept;
+// Immutable snapshot of the ACTUAL collapsed vector passed to the selector,
+// not a second collapse after policy/other stages.
+[[nodiscard]] const std::vector<MirCandidate>&
+mir_ci_primary_selector_pool() noexcept;
 #endif
 
 struct MirCandidateBoard {

@@ -28,6 +28,7 @@ ENUMS = {
     "primary_select": (None, None),
     "policy_change": (None, None),
     "final_output": (None, None),
+    "measured_witness": (None, None),
     "write_guard": ("write_blocked", "ci_dry_run")
 }
 REASON_PATTERN = re.compile(r"^[a-z][a-z0-9_]{0,95}$")
@@ -57,13 +58,17 @@ def validate(rows: list[dict]) -> dict:
         "candidate_create": 0, "candidate_transform": 1,
         "primary_eligibility": 1, "policy_eligibility": 2,
         "candidate_filter": 3, "primary_rank": 3, "primary_select": 4,
-        "policy_change": 5, "final_output": 6, "write_guard": 7
+        "policy_change": 5, "final_output": 6,
+        "measured_witness": 7, "write_guard": 8
     }
     previous_stage_number = -1
+    session_id = rows[0].get("analysis_id") if type(rows[0]) is dict else None
+    if type(session_id) is not str or not re.fullmatch(r"[0-9a-f]{16}", session_id):
+        raise TraceError("invalid CI run-local session ID")
     for index, item in enumerate(rows):
         if type(item) is not dict or item.keys() != FIELDS and set(item) != FIELDS:
             raise TraceError("trace fields not exact")
-        if item["schema"] != SCHEMA or item["analysis_id"] != "cafefeed01234567":
+        if item["schema"] != SCHEMA or item["analysis_id"] != session_id:
             raise TraceError("foreign trace source/session")
         if type(item["sequence"]) is not int or item["sequence"] != index:
             raise TraceError("trace sequence gap/reordering")
@@ -133,7 +138,8 @@ def validate(rows: list[dict]) -> dict:
         if stage == "policy_eligibility" and any(ids[p] != "candidate_transform" for p in parents):
             raise TraceError("policy candidate parent not collapsed")
         stage_indices[stage].append(item)
-    for single in ("primary_select", "policy_change", "final_output", "write_guard"):
+    for single in ("primary_select", "policy_change", "final_output",
+                   "measured_witness", "write_guard"):
         if len(stage_indices[single]) != 1:
             raise TraceError("missing or repeated terminal stage " + single)
     raw = stage_indices["candidate_create"]
@@ -152,6 +158,7 @@ def validate(rows: list[dict]) -> dict:
     primary = stage_indices["primary_select"][0]
     policy = stage_indices["policy_change"][0]
     final = stage_indices["final_output"][0]
+    witness = stage_indices["measured_witness"][0]
     guard = stage_indices["write_guard"][0]
     if (primary["outcome"] == "selected" and
             (not primary["parent_candidate_ids"] or
@@ -175,6 +182,23 @@ def validate(rows: list[dict]) -> dict:
             final["outcome"] == "selected" and final["metrics"]["bpm"] <= 0) or (
             final["outcome"] == "review_hold" and final["reason_code"] != "final_abstained"):
         raise TraceError("incorrect final candidate/abstention")
+    if final["outcome"] == "selected":
+        if witness["outcome"] != "included" or abs(
+                witness["metrics"]["bpm"] - final["metrics"]["bpm"]) > 0.001:
+            raise TraceError("final accepted BPM lacks native measured witness")
+        if witness["reason_code"] == "indexed_native_witness":
+            if not witness["parent_candidate_ids"] or any(
+                    ids[p] not in ("policy_eligibility", "candidate_transform")
+                    or abs(candidate_bpm[p] - final["metrics"]["bpm"]) > 0.001
+                    for p in witness["parent_candidate_ids"]):
+                raise TraceError("native indexed witness invalid")
+        elif witness["reason_code"] != "supplemental_witness_unindexed" or (
+                witness["parent_candidate_ids"]):
+            raise TraceError("final measured witness origin invalid")
+    elif (witness["outcome"] != "rejected" or
+          witness["reason_code"] != "not_accepted" or
+          witness["parent_candidate_ids"]):
+        raise TraceError("withheld BPM must not claim measured acceptance")
     if (guard["outcome"] != "write_blocked" or
             guard["reason_code"] != "ci_dry_run"):
         raise TraceError("media write safety drift")
@@ -192,6 +216,12 @@ def validate(rows: list[dict]) -> dict:
                                      for x in fullboard),
         "primary_auto": int(primary["outcome"] == "selected"),
         "final_accept": int(final["outcome"] == "selected"),
+        "indexed_native_final_witness": int(
+            final["outcome"] == "selected" and
+            witness["reason_code"] == "indexed_native_witness"),
+        "unindexed_supplemental_final_witness": int(
+            final["outcome"] == "selected" and
+            witness["reason_code"] == "supplemental_witness_unindexed"),
         "write_guard_blocked": 1,
         "phase_b_causal_completeness": "INCOMPLETE_PRIMARY_VETO"
     }

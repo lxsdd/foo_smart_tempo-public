@@ -16,6 +16,8 @@ namespace smart_tempo::mir_pipeline {
 #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
 namespace {
 thread_local std::vector<MirCiSelectorEvent> g_ci_primary_events;
+thread_local std::vector<MirCandidate> g_ci_primary_pool;
+
 inline void ci_primary_event(std::size_t sourceIndex, double bpm, double score,
                              bool raw, bool included, const char* reason) noexcept {
   if (g_ci_primary_events.size() >= 4096) return;
@@ -29,6 +31,9 @@ inline void ci_primary_event(std::size_t sourceIndex, double bpm, double score,
 std::span<const MirCiSelectorEvent>
 mir_ci_primary_selector_events() noexcept {
   return {g_ci_primary_events.data(), g_ci_primary_events.size()};
+}
+const std::vector<MirCandidate>& mir_ci_primary_selector_pool() noexcept {
+  return g_ci_primary_pool;
 }
 #endif
 namespace {
@@ -1652,6 +1657,7 @@ compute_mir_primary_selection(
     bool enabled) {
 #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
   g_ci_primary_events.clear();
+  g_ci_primary_pool.clear();
 #endif
   smart_tempo::MirPrimarySelection shadow;
   shadow.enabled = enabled;
@@ -1669,6 +1675,15 @@ compute_mir_primary_selection(
     return shadow;
   }
   std::vector<MirCandidate> candidates = collapse_mir_candidates(board);
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+  // Freeze exactly the input vector for the executed selector. An OOM in
+  // diagnostic copying must never change its output.
+  try {
+    g_ci_primary_pool = candidates;
+  } catch (...) {
+    g_ci_primary_pool.clear();
+  }
+#endif
   shadow.candidate_count = candidates.size();
   if (candidates.empty()) {
     shadow.decision_class = "no_candidate";

@@ -13,9 +13,11 @@
 #include <cstddef>
 #include <cstdint>
 #include <cwchar>
+#include <cstdio>
 #include <cstring>
 #include <span>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace smart_tempo::ci_pipeline_trace {
@@ -46,10 +48,28 @@ inline std::wstring permitted_fixture() {
 // Only final accepted BPM is constrained by the 40..220 production decision.
 inline bool finite_bpm(double bpm) { return std::isfinite(bpm) && bpm >= 0.0 && bpm <= 2000.0; }
 inline std::string safe_num(double value) {
-  return std::to_string(std::isfinite(value) ? value : 0.0);
+  // Callers must validate all numeric evidence, never silently map NaN to 0.
+  return std::to_string(value);
+}
+inline std::string ci_run_id() {
+  const auto run = env(L"GITHUB_RUN_ID");
+  if (run.empty() || run.size() > 32) return {};
+  uint64_t hash = UINT64_C(14695981039346656037);
+  for (wchar_t c : run) {
+    if (c < L'0' || c > L'9') return {};
+    hash = (hash ^ static_cast<uint64_t>(c)) * UINT64_C(1099511628211);
+  }
+  hash = (hash ^ GetCurrentProcessId()) * UINT64_C(1099511628211);
+  hash = (hash ^ GetCurrentThreadId()) * UINT64_C(1099511628211);
+  char digits[17] = {};
+  std::snprintf(digits, sizeof(digits), "%016llx",
+                static_cast<unsigned long long>(hash));
+  return std::string(digits);
 }
 
 struct EventWriter {
+  std::string run_id;
+  explicit EventWriter(std::string id) : run_id(std::move(id)) {}
   std::string lines;
   std::size_t sequence = 0;
   std::size_t next_id = 0;
@@ -58,7 +78,7 @@ struct EventWriter {
             const std::string& id, const std::vector<std::string>& parents,
             double bpm, double score, double support) {
     lines += "{\"schema\":\"smart_tempo_source_decision_trace_v1\",";
-    lines += "\"analysis_id\":\"cafefeed01234567\",\"sequence\":" + std::to_string(sequence++);
+    lines += "\"analysis_id\":\"" + run_id + "\",\"sequence\":" + std::to_string(sequence++);
     lines += ",\"stage\":\"" + std::string(stage) + "\",\"outcome\":\"" +
              std::string(outcome) + "\",\"reason_code\":\"" + std::string(reason) + "\"";
     lines += ",\"candidate_id\":" + (id.empty() ? "null" : "\"" + id + "\"");
@@ -80,27 +100,36 @@ inline bool record(
     std::span<const mir_pipeline::MirCiSelectorEvent> selectorEvents,
     const MirPrimarySelection& primary,
     const MirPolicyDecision& policy,
-    double final_bpm, bool withheld) {
+    double final_bpm, bool withheld, bool same_run_measured_witness) {
   const std::wstring fixture = permitted_fixture();
-  if (fixture.empty() || !finite_bpm(final_bpm) || final_bpm > 220.0) return false;
+  const auto run_id = ci_run_id();
+  if (fixture.empty() || run_id.empty() ||
+      !finite_bpm(final_bpm) || final_bpm > 220.0 ||
+      (!withheld && final_bpm > 0.0 && !same_run_measured_witness))
+    return false;
   if (board.raw_candidates.size() > 4096 || collapsed.size() > 4096 ||
       selectorEvents.size() > 4096 || fullboard.size() > 4096 ||
       collapsed.size() != primary.candidate_count)
     return false;
-  EventWriter out;
+  EventWriter out(run_id);
   std::vector<std::string> raw_ids, cluster_ids, policy_ids;
   raw_ids.reserve(board.raw_candidates.size());
   cluster_ids.reserve(collapsed.size());
   policy_ids.reserve(fullboard.size());
   for (const auto& raw : board.raw_candidates) {
-    if (!finite_bpm(raw.bpm) || raw.bpm == 0.0) return false;
+    if (!finite_bpm(raw.bpm) || raw.bpm == 0.0 ||
+        !std::isfinite(raw.score_sum) || !std::isfinite(raw.synthetic_support))
+      return false;
     const auto id = out.create_id();
     raw_ids.push_back(id);
     out.push("candidate_create", "observed", "raw_alias", id, {},
              raw.bpm, raw.score_sum, raw.synthetic_support);
   }
   for (const auto& cluster : collapsed) {
-    if (!finite_bpm(cluster.bpm) || cluster.bpm == 0.0) return false;
+    if (!finite_bpm(cluster.bpm) || cluster.bpm == 0.0 ||
+        !std::isfinite(cluster.score_sum) || !std::isfinite(cluster.support) ||
+        !std::isfinite(cluster.best_combined_score))
+      return false;
     std::vector<std::string> parents;
     for (std::size_t i = 0; i < board.raw_candidates.size(); ++i) {
       if (std::abs(board.raw_candidates[i].bpm - cluster.bpm) < 0.001)
@@ -115,7 +144,10 @@ inline bool record(
              id, {}, cluster.bpm, cluster.best_combined_score, cluster.support);
   }
   for (const auto& candidate : fullboard) {
-    if (!finite_bpm(candidate.bpm) || candidate.bpm == 0.0) return false;
+    if (!finite_bpm(candidate.bpm) || candidate.bpm == 0.0 ||
+        !std::isfinite(candidate.local_exact_score) ||
+        !std::isfinite(candidate.candidate.support))
+      return false;
     std::vector<std::string> parents;
     for (std::size_t i = 0; i < collapsed.size(); ++i) {
       if (std::abs(collapsed[i].bpm - candidate.cluster_bpm) < 0.001)
@@ -148,6 +180,11 @@ inline bool record(
              item.included ? "included" : "excluded",
              item.reason, ids[item.source_index], {}, item.bpm, item.score, 0.0);
   }
+  if (!std::isfinite(primary.selected_local_exact_score) ||
+      !std::isfinite(primary.support) ||
+      !std::isfinite(policy.candidate_local_exact_score) ||
+      !std::isfinite(policy.candidate_support))
+    return false;
   std::vector<std::string> primary_parent;
   for (std::size_t i = 0; i < collapsed.size(); ++i) {
     if (primary.selected_bpm > 0.0 &&
@@ -179,10 +216,32 @@ inline bool record(
            withheld || final_bpm <= 0.0 ? "review_hold" : "selected",
            withheld || final_bpm <= 0.0 ? "final_abstained" : "final_numeric",
            "", {}, final_bpm, 0.0, 0.0);
+  // Existing MIR writer invariant is the executable same-run witness.
+  // The identity of supplemental TopK/partial-bar candidates is NOT yet
+  // serialized; explicitly distinguish this from an indexed witness.
+  std::vector<std::string> witness_ids;
+  if (!withheld && final_bpm > 0.0 && same_run_measured_witness) {
+    for (std::size_t i = 0; i < fullboard.size(); ++i) {
+      if (std::abs(fullboard[i].bpm - final_bpm) <= 0.001)
+        witness_ids.push_back(policy_ids[i]);
+    }
+    for (std::size_t i = 0; i < collapsed.size(); ++i) {
+      if (std::abs(collapsed[i].bpm - final_bpm) <= 0.001)
+        witness_ids.push_back(cluster_ids[i]);
+    }
+    if (witness_ids.size() > 128) return false;
+  }
+  out.push("measured_witness",
+           same_run_measured_witness && !withheld && final_bpm > 0.0
+               ? "included" : "rejected",
+           withheld || final_bpm <= 0.0 ? "not_accepted" :
+               !witness_ids.empty() ? "indexed_native_witness" :
+                                      "supplemental_witness_unindexed",
+           "", witness_ids, final_bpm, 0.0, 0.0);
   out.push("write_guard", "write_blocked", "ci_dry_run",
            "", {}, 0.0, 0.0, 0.0);
   if (out.sequence != board.raw_candidates.size() + 2 * collapsed.size() +
-                      fullboard.size() + selectorEvents.size() + 4 ||
+                      fullboard.size() + selectorEvents.size() + 5 ||
       out.lines.size() > 2 * 1024 * 1024) return false;
   const std::wstring output = fixture + L".pipeline.jsonl";
   HANDLE h = CreateFileW(output.c_str(), GENERIC_WRITE, 0, nullptr,
