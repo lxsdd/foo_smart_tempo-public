@@ -470,6 +470,12 @@ inline bool record(
       if (std::abs(collapsed[i].bpm - final_bpm) <= 0.001)
         witness_ids.push_back(cluster_ids[i]);
     }
+    // A selected Policy supplemental source is independently observed by
+    // exact native object address. An equal-BPM value alone is insufficient.
+    if (actualSupplementalObject &&
+        std::abs(supplemental_bpm - final_bpm) <= 0.001 &&
+        supplemental_id.size() == 1)
+      witness_ids.push_back(supplemental_id.front());
     if (witness_ids.size() > 128) return false;
   }
   out.push("measured_witness",

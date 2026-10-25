@@ -630,13 +630,17 @@ class NativePipelineTraceTests(unittest.TestCase):
         rows[7]["parent_candidate_ids"] = ["c3"]
         rows[7]["metrics"]["score"] = 1.
         rows[8]["parent_candidate_ids"] = ["c3"]
+        rows[10]["parent_candidate_ids"] = ["c3"]
         for i, row in enumerate(rows):
             row["sequence"] = i
         result = validate(rows)
         self.assertEqual(result["policy_supplemental_pointer_identity_complete"], 1)
         self.assertEqual(result["supplemental_selected_sources"], 1)
+        self.assertEqual(result["indexed_supplemental_final_witness"], 1)
         for key in ("wrong_id", "lost_source", "wrong_board_flag",
-                    "wrong_bpm", "foreign_kind", "duplicate"):
+                    "wrong_bpm", "foreign_kind", "duplicate",
+                    "witness_source_lost", "witness_source_forged",
+                    "unindexed_selected_source"):
             with self.subTest(key=key):
                 bad = copy.deepcopy(rows)
                 if key == "wrong_id":
@@ -650,10 +654,31 @@ class NativePipelineTraceTests(unittest.TestCase):
                     duplicate = copy.deepcopy(bad[4])
                     duplicate["candidate_id"] = "c4"
                     bad.insert(5, duplicate)
+                elif key == "witness_source_lost":
+                    bad[10]["parent_candidate_ids"] = ["c2"]
+                elif key == "unindexed_selected_source":
+                    bad[10]["parent_candidate_ids"] = []
+                    bad[10]["reason_code"] = "supplemental_witness_unindexed"
+                elif key == "witness_source_forged":
+                    bad[10]["parent_candidate_ids"] = ["c2", "c3"]
+                    bad[7]["reason_code"] = "pointer_not_observed"
+                    bad[7]["parent_candidate_ids"] = []
+                    bad[7]["metrics"]["score"] = 0.
+                    bad[8]["parent_candidate_ids"] = []
                 for i, row in enumerate(bad):
                     row["sequence"] = i
                 with self.assertRaises(TraceError):
                     validate(bad)
+
+    def test_fullboard_pointer_cannot_launder_supplemental_final_witness(self):
+        rows = trace()
+        rows.insert(4, event("supplemental_candidate", "c3", [], 127.99,
+                             "observed", "partial_bar_topk_source", 0))
+        rows[10]["parent_candidate_ids"] = ["c2", "c3"]
+        for i, row in enumerate(rows):
+            row["sequence"] = i
+        with self.assertRaises(TraceError):
+            validate(rows)
 
     def test_native_selector_capture_fails_closed_on_loss(self):
         """CI capture overflow/OOM must never be reported as complete provenance."""

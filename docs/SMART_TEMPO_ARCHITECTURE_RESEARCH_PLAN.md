@@ -308,3 +308,18 @@ hold-release attribution, missing terminal evidence and injected write-guard
 numeric data. These are **integrity gates only**; they do not establish
 first-veto completeness or positive real-host supplemental selection, and
 therefore do not unlock package C or musical release.
+
+
+### 25 October 2026: exact native supplemental-to-final-witness source ID (CI-only)
+
+When the Policy's actually selected supplemental native object remains the
+accepted numeric final BPM, the synthetic host recorder now includes its
+already-indexed source ID as an additional same-run final measured witness.
+This requires exact live pointer identity, not just a same-BPM FullBoard row.
+The strict validator binds the supplemental final-witness ID bidirectionally
+to the independently witnessed Policy selected pointer and rejects fabricated,
+omitted or substituted supplemental IDs. Source-only positive/adversarial
+regressions cover the two directions. This does not assert the musical BPM is
+correct, that all alternate measured source origins have been enumerated,
+or that every primary lane first-veto is accounted for. It is CI-only and
+changes no productive BPM decisions, no metadata writes and no private data.

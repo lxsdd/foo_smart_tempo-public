@@ -422,12 +422,30 @@ def validate(rows: list[dict], *, require_windows: bool = False) -> dict:
         if witness["outcome"] != "included" or abs(
                 witness["metrics"]["bpm"] - final["metrics"]["bpm"]) > 0.001:
             raise TraceError("final accepted BPM lacks native measured witness")
+        if (pointer_supplemental and
+                abs(policy["metrics"]["bpm"] - final["metrics"]["bpm"]) <= 0.001 and
+                witness["reason_code"] != "indexed_native_witness"):
+            raise TraceError("selected supplemental final requires indexed witness")
         if witness["reason_code"] == "indexed_native_witness":
             if not witness["parent_candidate_ids"] or any(
-                    ids[p] not in ("policy_eligibility", "candidate_transform")
+                    ids[p] not in ("policy_eligibility", "candidate_transform",
+                                  "supplemental_candidate")
                     or abs(candidate_bpm[p] - final["metrics"]["bpm"]) > 0.001
                     for p in witness["parent_candidate_ids"]):
                 raise TraceError("native indexed witness invalid")
+            supplemental_witness_ids = [
+                p for p in witness["parent_candidate_ids"]
+                if ids[p] == "supplemental_candidate"
+            ]
+            if supplemental_witness_ids and (
+                    not pointer_supplemental or
+                    policy_pointer["parent_candidate_ids"] != supplemental_witness_ids):
+                raise TraceError("supplemental final witness lacks native selected object")
+            if (pointer_supplemental and
+                    abs(policy["metrics"]["bpm"] - final["metrics"]["bpm"]) <= 0.001 and
+                    policy_pointer["parent_candidate_ids"][0]
+                        not in witness["parent_candidate_ids"]):
+                raise TraceError("native chosen supplemental source missing in final witness")
         elif witness["reason_code"] != "supplemental_witness_unindexed" or (
                 witness["parent_candidate_ids"]):
             raise TraceError("final measured witness origin invalid")
@@ -479,6 +497,11 @@ def validate(rows: list[dict], *, require_windows: bool = False) -> dict:
         "indexed_native_final_witness": int(
             final["outcome"] == "selected" and
             witness["reason_code"] == "indexed_native_witness"),
+        "indexed_supplemental_final_witness": int(
+            final["outcome"] == "selected" and
+            witness["reason_code"] == "indexed_native_witness" and
+            any(ids[p] == "supplemental_candidate"
+                for p in witness["parent_candidate_ids"])),
         "unindexed_supplemental_final_witness": int(
             final["outcome"] == "selected" and
             witness["reason_code"] == "supplemental_witness_unindexed"),
