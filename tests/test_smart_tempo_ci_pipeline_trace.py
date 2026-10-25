@@ -81,6 +81,18 @@ def with_resource(rows):
                 "primary_terminal", primary["parent_candidate_ids"][0], [],
                 primary["metrics"]["bpm"], "selected", reason, 0))
             primary_index += 1
+    # The native recorder now emits a disposition for each actual
+    # collapsed candidate. This helper models the one-candidate positive
+    # synthetic host fixture, not the production scoring path.
+    selected_cid = primary["parent_candidate_ids"][0]
+    for i, row in enumerate(rows):
+        if row["stage"] == "primary_select":
+            rows.insert(i, event("primary_disposition", selected_cid, [],
+                                 primary["metrics"]["bpm"], "observed",
+                                 "selected_final_object", 0))
+            rows[i]["metrics"]["score"] = 0.
+            rows[i]["metrics"]["support"] = 0.
+            break
     rows.insert(-1, resource_event())
     for i, row in enumerate(rows):
         row["sequence"] = i
@@ -171,7 +183,8 @@ class NativePipelineTraceTests(unittest.TestCase):
                     row["sequence"] = i
                 with self.assertRaises(TraceError):
                     validate(bad, require_windows=True)
-        no_terminal = [row for row in rows if row["stage"] != "primary_terminal"]
+        no_terminal = [row for row in rows if row["stage"] not in
+                       ("primary_terminal", "primary_disposition")]
         for i, row in enumerate(no_terminal):
             row["sequence"] = i
         self.assertEqual(validate(no_terminal)["selector_terminal_observations"], 0)
@@ -439,6 +452,34 @@ class NativePipelineTraceTests(unittest.TestCase):
         with self.assertRaises(TraceError):
             validate(rows)
 
+
+    def test_per_candidate_disposition_recomputed_from_executed_events(self):
+        rows = with_resource(trace())
+        self.assertEqual(validate(rows)["selector_disposition_observations"], 1)
+        disposition = next(x for x in rows if x["stage"] == "primary_disposition")
+        for reason in ("ranked_not_final", "observed_not_ranked",
+                       "no_cluster_observation"):
+            bad = copy.deepcopy(rows)
+            next(x for x in bad if x["stage"] == "primary_disposition")["reason_code"] = reason
+            with self.subTest(reason=reason), self.assertRaises(TraceError):
+                validate(bad)
+        missing = [x for x in rows if x["stage"] != "primary_disposition"]
+        for i, row in enumerate(missing):
+            row["sequence"] = i
+        # Legacy short unit traces are allowed, but native host qualification isn't.
+        self.assertEqual(validate(missing)["selector_disposition_observations"], 0)
+        window = event("decode_window", None, [], 0., "observed",
+                       "actual_decoded_extent", 0)
+        window["metrics"] = dict(bpm=0., score=0., support=0.,
+                                pass_index=0, pass_total=1, start_sec=0.,
+                                requested_frames=16000, decoded_frames=16000,
+                                analysis_frames=16000, source_rate_hz=16000,
+                                analysis_rate_hz=16000)
+        missing.insert(0, window)
+        for i, row in enumerate(missing):
+            row["sequence"] = i
+        with self.assertRaises(TraceError):
+            validate(missing, require_windows=True)
 
     def test_actual_decoder_window_coverage_and_overlap(self):
         rows = with_resource(trace())

@@ -323,3 +323,19 @@ regressions cover the two directions. This does not assert the musical BPM is
 correct, that all alternate measured source origins have been enumerated,
 or that every primary lane first-veto is accounted for. It is CI-only and
 changes no productive BPM decisions, no metadata writes and no private data.
+
+
+### Phase B: executed-path disposition for every Primary source object
+
+A bounded CI-only native summary now assigns every actual collapsed Primary
+input object one falsifiable, source-ID-preserving observation: final terminal
+object, scored in an executed ranking but not ultimately final, observed in a gate or intermediate terminal without ranking, or no
+recorded cluster-level observation.
+Python strictly recomputes each disposition from the *earlier actual native*
+selector event sequence, rejects missing/duplicated source rows for Windows
+host qualification and catches retrospective re-labeling. Raw-only selector
+lanes can leave nonwinning clusters with no cluster-level observation;
+this is deliberately **not** interpreted as a final veto. This closes a
+specific completeness question about observed vs unvisited candidate paths,
+not the still-open comprehensive first-veto stage reasons. No production
+selection, BPM policy, writer, or private data is changed.

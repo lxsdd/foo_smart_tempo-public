@@ -34,6 +34,7 @@ ENUMS = {
     "candidate_filter": (None, None),
     "primary_rank": ("included", None),
     "primary_terminal": ("selected", None),
+    "primary_disposition": ("observed", None),
     "policy_eligibility": ("included", None),
     "supplemental_candidate": ("observed", None),
     "primary_select": (None, None),
@@ -63,6 +64,10 @@ ALLOWED_FILTER_REASONS = frozenset((
 ALLOWED_RANK_REASONS = frozenset((
     "raw_rank_scored", "harmonic_rank_scored", "low_rank_scored",
     "general_baseline_rank_scored", "general_alt_rank_scored"
+))
+ALLOWED_DISPOSITION_REASONS = frozenset((
+    "selected_final_object", "ranked_not_final",
+    "observed_not_ranked", "no_cluster_observation"
 ))
 ALLOWED_TERMINAL_REASONS = frozenset((
     "terminal_lane_choice", "terminal_residual_choice",
@@ -99,7 +104,8 @@ def validate(rows: list[dict], *, require_windows: bool = False) -> dict:
         "primary_eligibility": 1, "policy_eligibility": 2,
         "supplemental_candidate": 2,
         "candidate_filter": 3, "primary_rank": 3,
-        "primary_terminal": 3, "primary_select": 4,
+        "primary_terminal": 3, "primary_disposition": 3,
+        "primary_select": 4,
         "policy_resolution": 5, "policy_pointer": 6,
         "policy_change": 7, "final_output": 8,
         "measured_witness": 9, "resource_usage": 10,
@@ -213,6 +219,11 @@ def validate(rows: list[dict], *, require_windows: bool = False) -> dict:
                     ((fullboard_pointer or supplemental_pointer) and
                      abs(candidate_bpm[parents[0]] - bpm) > 0.001)):
                 raise TraceError("policy pointer identity not verified")
+        elif stage == "primary_disposition":
+            if (candidate_id is None or ids.get(candidate_id) != "candidate_transform" or
+                    parents or item["reason_code"] not in ALLOWED_DISPOSITION_REASONS or
+                    any(item["metrics"][key] != 0 for key in ("score", "support"))):
+                raise TraceError("invalid native candidate disposition")
         elif stage in ("candidate_filter", "primary_rank", "primary_terminal"):
             # Actual executed selector probes, with explicit raw/cluster source.
             reason_set = (ALLOWED_FILTER_REASONS if stage == "candidate_filter"
@@ -311,6 +322,30 @@ def validate(rows: list[dict], *, require_windows: bool = False) -> dict:
     if any(row["reason_code"] not in ("full_board_member","full_board_origin_unknown")
            for row in fullboard):
         raise TraceError("policy board source unknown")
+    dispositions = stage_indices["primary_disposition"]
+    if (require_windows and len(dispositions) != len(collapsed)) or (
+            dispositions and len(dispositions) != len(collapsed)):
+        raise TraceError("per-candidate disposition incomplete")
+    if dispositions:
+        ranked_ids = {x["candidate_id"] for x in stage_indices["primary_rank"]}
+        checked_ids = {
+            x["candidate_id"] for x in
+            (stage_indices["candidate_filter"] + stage_indices["primary_terminal"])
+            if ids[x["candidate_id"]] == "candidate_transform"
+        }
+        terminal_ids = [x["candidate_id"] for x in stage_indices["primary_terminal"]
+                        if x["reason_code"] == "terminal_final_choice"]
+        if len(terminal_ids) > 1:
+            raise TraceError("duplicate final selected object")
+        for cluster, row in zip(collapsed, dispositions):
+            cid = cluster["candidate_id"]
+            expected = ("selected_final_object" if cid in terminal_ids else
+                        "ranked_not_final" if cid in ranked_ids else
+                        "observed_not_ranked" if cid in checked_ids else
+                        "no_cluster_observation")
+            if (row["candidate_id"] != cid or row["reason_code"] != expected or
+                    abs(row["metrics"]["bpm"] - cluster["metrics"]["bpm"]) >= 0.001):
+                raise TraceError("native per-candidate executed-path disposition drift")
     primary = stage_indices["primary_select"][0]
     policy_origin = stage_indices["policy_resolution"][0]
     policy_pointer = stage_indices["policy_pointer"][0]
@@ -483,6 +518,13 @@ def validate(rows: list[dict], *, require_windows: bool = False) -> dict:
             for x in stage_indices["candidate_filter"]),
         "selector_rank_observations": len(stage_indices["primary_rank"]),
         "selector_terminal_observations": len(stage_indices["primary_terminal"]),
+        "selector_disposition_observations": len(dispositions),
+        "disposition_ranked_not_final": sum(
+            row["reason_code"] == "ranked_not_final" for row in dispositions),
+        "disposition_observed_not_ranked": sum(
+            row["reason_code"] == "observed_not_ranked" for row in dispositions),
+        "disposition_no_cluster_observation": sum(
+            row["reason_code"] == "no_cluster_observation" for row in dispositions),
         "supplemental_selected_sources": len(supplemental),
         "policy_supplemental_pointer_identity_complete": int(pointer_supplemental),
         "policy_origin_unknown": sum(x["reason_code"] == "full_board_origin_unknown"

@@ -365,6 +365,30 @@ inline bool record(
                  item.included ? "included" : "excluded",
              item.reason, ids[item.source_index], {}, item.bpm, item.score, 0.0);
   }
+  // Every collapsed candidate receives a purely observational disposition.
+  // A temporary filter veto may be reversed later: never label it terminal.
+  std::vector<uint8_t> primary_observation(collapsed.size(), 0);
+  std::size_t final_source_index = collapsed.size();
+  for (const auto& item : selectorEvents) {
+    if (item.raw || item.source_index >= collapsed.size()) continue;
+    if (std::strcmp(item.reason, "terminal_final_choice") == 0) {
+      if (final_source_index != collapsed.size()) return false;
+      final_source_index = item.source_index;
+    } else if (std::strstr(item.reason, "_rank_scored") != nullptr) {
+      primary_observation[item.source_index] = 2;
+    } else if (primary_observation[item.source_index] < 1) {
+      primary_observation[item.source_index] = 1;
+    }
+  }
+  for (std::size_t i = 0; i < collapsed.size(); ++i) {
+    const char* reason = i == final_source_index
+        ? "selected_final_object"
+        : primary_observation[i] == 2 ? "ranked_not_final"
+        : primary_observation[i] == 1 ? "observed_not_ranked"
+        : "no_cluster_observation";
+    out.push("primary_disposition", "observed", reason, cluster_ids[i],
+             {}, collapsed[i].bpm, 0.0, 0.0);
+  }
   if (!std::isfinite(primary.selected_local_exact_score) ||
       !std::isfinite(primary.support) ||
       !std::isfinite(policy.candidate_local_exact_score) ||
@@ -490,7 +514,7 @@ inline bool record(
            "", {}, 0.0, 0.0, 0.0);
   if (out.sequence != windows.size() + board.raw_candidates.size() + 2 * collapsed.size() +
                       fullboard.size() + selectorEvents.size() +
-                      supplemental_id.size() + 8 ||
+                      supplemental_id.size() + collapsed.size() + 8 ||
       out.lines.size() > 2 * 1024 * 1024) return false;
   const std::wstring output = fixture + L".pipeline.jsonl";
   HANDLE h = CreateFileW(output.c_str(), GENERIC_WRITE, 0, nullptr,
