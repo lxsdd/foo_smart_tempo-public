@@ -1028,17 +1028,20 @@ evaluate_mir_high_pulse_interval_conflict_shadow(
                                                mir_raw_winner_support(*best, board.segment_count),
                                                best->score_sum,
                                                -std::abs(best->bpm - routeCenter));
-    const bool comparisonWon =
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+    const bool ciComparisonWon =
         best == nullptr || score > bestScore + 1e-9 ||
         (std::abs(score - bestScore) <= 1e-9 && tie > bestTie);
-    if (comparisonWon) {
+#endif
+    if (best == nullptr || score > bestScore + 1e-9 ||
+        (std::abs(score - bestScore) <= 1e-9 && tie > bestTie)) {
       best = candidate;
       bestScore = score;
     }
 #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
     ci_primary_event(static_cast<std::size_t>(candidate - board.raw_candidates.data()),
-                     candidate->bpm, score, true, comparisonWon,
-                     comparisonWon ? "raw_compare_won" :
+                     candidate->bpm, score, true, ciComparisonWon,
+                     ciComparisonWon ? "raw_compare_won" :
                                      "raw_compare_lost");
 #endif
   }
@@ -1153,17 +1156,20 @@ evaluate_mir_high_pulse_interval_conflict_shadow(
                              : std::make_tuple(best->support, best->winner_support,
                                                best->score_sum,
                                                -std::abs(best->bpm - routeCenter));
-    const bool comparisonWon =
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+    const bool ciComparisonWon =
         best == nullptr || score > bestScore + 1e-9 ||
         (std::abs(score - bestScore) <= 1e-9 && tie > bestTie);
-    if (comparisonWon) {
+#endif
+    if (best == nullptr || score > bestScore + 1e-9 ||
+        (std::abs(score - bestScore) <= 1e-9 && tie > bestTie)) {
       best = candidate;
       bestScore = score;
     }
 #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
     ci_primary_event(static_cast<std::size_t>(candidate - candidates.data()),
-                     candidate->bpm, score, false, comparisonWon,
-                     comparisonWon ? "general_baseline_compare_won" :
+                     candidate->bpm, score, false, ciComparisonWon,
+                     ciComparisonWon ? "general_baseline_compare_won" :
                                      "general_baseline_compare_lost");
 #endif
   }
@@ -1547,15 +1553,17 @@ select_mir_low_pulse_continuous_center_rescue(
     ci_primary_event(static_cast<std::size_t>(candidate - candidates.data()),
                      candidate->bpm, score, false, true, "harmonic_rank_scored");
 #endif
-    const bool comparisonWon = best == nullptr || score > bestScore;
-    if (comparisonWon) {
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+    const bool ciComparisonWon = best == nullptr || score > bestScore;
+#endif
+    if (best == nullptr || score > bestScore) {
       best = candidate;
       bestScore = score;
     }
 #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
     ci_primary_event(static_cast<std::size_t>(candidate - candidates.data()),
-                     candidate->bpm, score, false, comparisonWon,
-                     comparisonWon ? "harmonic_compare_won" :
+                     candidate->bpm, score, false, ciComparisonWon,
+                     ciComparisonWon ? "harmonic_compare_won" :
                                      "harmonic_compare_lost");
 #endif
   }
@@ -1652,15 +1660,17 @@ select_mir_low_pulse_continuous_center_rescue(
                      candidate->bpm, score, false, true,
                      "general_alt_rank_scored");
 #endif
-    const bool comparisonWon = best == nullptr || score > bestScore;
-    if (comparisonWon) {
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+    const bool ciComparisonWon = best == nullptr || score > bestScore;
+#endif
+    if (best == nullptr || score > bestScore) {
       best = candidate;
       bestScore = score;
     }
 #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
     ci_primary_event(static_cast<std::size_t>(candidate - candidates.data()),
-                     candidate->bpm, score, false, comparisonWon,
-                     comparisonWon ? "general_alt_compare_won" :
+                     candidate->bpm, score, false, ciComparisonWon,
+                     ciComparisonWon ? "general_alt_compare_won" :
                                      "general_alt_compare_lost");
 #endif
   }
