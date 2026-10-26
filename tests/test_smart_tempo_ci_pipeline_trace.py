@@ -703,8 +703,12 @@ class NativePipelineTraceTests(unittest.TestCase):
                     validate(case(family, second_wins=True),
                              require_native_comparator=True)
 
-        rescue = validate(case("low", second_wins=True, continuous_rescue=True),
-                          require_native_comparator=True)
+        # The old gate-only continuous fixture must NOT pass as genuine
+        # original-host winner provenance after the five-tuple upgrade.
+        with self.assertRaisesRegex(TraceError, "terminal lane candidate was not"):
+            validate(case("low", second_wins=True, continuous_rescue=True),
+                     require_native_comparator=True)
+        rescue = validate(case("low", second_wins=True, continuous_rescue=True))
         self.assertEqual(rescue["selector_lane_comparator_winner_proven"], 0)
         self.assertEqual(rescue["selector_lane_continuous_rescue_unranked"], 1)
         forged = case("low", second_wins=True, continuous_rescue=True)
@@ -1109,6 +1113,10 @@ class NativePipelineTraceTests(unittest.TestCase):
             event("primary_disposition", "c3", [], 130., "observed",
                   "ranked_not_final", 0),
         ]
+        for item in events:
+            if item["stage"] == "primary_disposition":
+                item["metrics"]["score"] = 0.
+                item["metrics"]["support"] = 0.
         rows[at:at] = events
         for i, item in enumerate(rows):
             item["sequence"] = i
@@ -1186,7 +1194,7 @@ class NativePipelineTraceTests(unittest.TestCase):
         # Build canonical source expressions without looking at a BPM oracle.
         def source_tuples(content):
             tuples = []
-            for match in re.finditer(r"std::make_tuple\\(", content):
+            for match in re.finditer(r"std::make_tuple\(", content):
                 opening = content.index("(", match.start())
                 depth = 0
                 for at in range(opening, len(content)):
