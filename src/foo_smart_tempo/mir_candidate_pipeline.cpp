@@ -1855,6 +1855,18 @@ select_mir_low_pulse_continuous_center_rescue(
                        eligible ? "residual_high_gate_allowed" :
                                   "residual_high_gate_provisional_exclusion");
 #endif
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+      if (eligible) {
+        const bool ciRescueWon = best == nullptr || evidence > bestEvidence;
+        const std::size_t ciIndex =
+            static_cast<std::size_t>(&candidate - candidates.data());
+        ci_primary_event(ciIndex, candidate.bpm, evidence, false, true,
+                         "residual_high_rank_scored");
+        ci_primary_event(ciIndex, candidate.bpm, evidence, false, ciRescueWon,
+                         ciRescueWon ? "residual_high_compare_won" :
+                                       "residual_high_compare_lost");
+      }
+#endif
       if (candidate.bpm >= 126.0 && candidate.bpm <= 130.5 &&
           candidate.support >= 0.60 &&
           candidate.best_combined_score >= 0.18 &&
@@ -1894,6 +1906,26 @@ select_mir_low_pulse_continuous_center_rescue(
                        candidate.bpm, evidence, false, eligible,
                        eligible ? "residual_harmonic_gate_allowed" :
                                   "residual_harmonic_gate_provisional_exclusion");
+#endif
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+      if (eligible) {
+        const auto ciTie = std::make_tuple(
+            evidence, candidate.support, candidate.winner_support, 0.0);
+        const auto ciBestTie = lower == nullptr
+            ? ciTie
+            : std::make_tuple(lowerEvidence, lower->support,
+                              lower->winner_support, 0.0);
+        const bool ciRescueWon = lower == nullptr || ciTie > ciBestTie;
+        const std::size_t ciIndex =
+            static_cast<std::size_t>(&candidate - candidates.data());
+        ci_primary_event(ciIndex, candidate.bpm, evidence, false, true,
+                         "residual_harmonic_rank_scored");
+        ci_primary_event(ciIndex, candidate.bpm, evidence, false, ciRescueWon,
+                         ciRescueWon ? "residual_harmonic_compare_won" :
+                                       "residual_harmonic_compare_lost",
+                         {std::get<0>(ciTie), std::get<1>(ciTie),
+                          std::get<2>(ciTie), std::get<3>(ciTie)}, true);
+      }
 #endif
       if (candidate.bpm >= 84.0 &&
           mir_pulse_ratio_in_range(candidate.bpm, selected->bpm, 0.64,
@@ -2048,6 +2080,28 @@ compute_mir_primary_selection(
                        candidate.bpm, candidate.support, false, eligible,
                        eligible ? "harmonic_direct_gate_allowed" :
                                   "harmonic_direct_gate_provisional_exclusion");
+#endif
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+      if (eligible) {
+        const auto ciTie = std::make_tuple(
+            candidate.support, candidate.best_combined_score,
+            candidate.winner_support, 0.0);
+        const auto ciBestTie = direct == nullptr
+            ? ciTie
+            : std::make_tuple(direct->support, direct->best_combined_score,
+                              direct->winner_support, 0.0);
+        const bool ciRescueWon = direct == nullptr || ciTie > ciBestTie;
+        const std::size_t ciIndex =
+            static_cast<std::size_t>(&candidate - candidates.data());
+        ci_primary_event(ciIndex, candidate.bpm, candidate.support,
+                         false, true, "harmonic_direct_rank_scored");
+        ci_primary_event(ciIndex, candidate.bpm, candidate.support,
+                         false, ciRescueWon,
+                         ciRescueWon ? "harmonic_direct_compare_won" :
+                                       "harmonic_direct_compare_lost",
+                         {std::get<0>(ciTie), std::get<1>(ciTie),
+                          std::get<2>(ciTie), std::get<3>(ciTie)}, true);
+      }
 #endif
       if (candidate.bpm >= 128.0 && candidate.bpm <= 132.0 &&
           mir_has_alias(candidate.alias_bits, MirAlias::direct) &&

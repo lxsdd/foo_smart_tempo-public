@@ -481,7 +481,10 @@ inline bool record(
                          std::strcmp(item.reason, "harmonic_rank_scored") == 0 ||
                          std::strcmp(item.reason, "low_rank_scored") == 0 ||
                          std::strcmp(item.reason, "general_baseline_rank_scored") == 0 ||
-                         std::strcmp(item.reason, "general_alt_rank_scored") == 0;
+                         std::strcmp(item.reason, "general_alt_rank_scored") == 0 ||
+                         std::strcmp(item.reason, "residual_high_rank_scored") == 0 ||
+                         std::strcmp(item.reason, "residual_harmonic_rank_scored") == 0 ||
+                         std::strcmp(item.reason, "harmonic_direct_rank_scored") == 0;
     const bool terminal = std::strncmp(item.reason, "terminal_", 9) == 0;
     const bool comparison = std::strstr(item.reason, "_compare_") != nullptr;
     out.push(terminal ? "primary_terminal" :
@@ -506,7 +509,11 @@ inline bool record(
           ",\"low_pool_epoch\":" + std::to_string(item.low_pool_epoch));
     const bool tieExpected = comparison &&
         (std::strncmp(item.reason, "raw_compare_", 12) == 0 ||
-         std::strncmp(item.reason, "general_baseline_compare_", 25) == 0);
+         std::strncmp(item.reason, "general_baseline_compare_", 25) == 0 ||
+         std::strncmp(item.reason, "residual_harmonic_compare_",
+                      sizeof("residual_harmonic_compare_") - 1) == 0 ||
+         std::strncmp(item.reason, "harmonic_direct_compare_",
+                      sizeof("harmonic_direct_compare_") - 1) == 0);
     if (item.has_tie_metrics != tieExpected) return false;
     if (tieExpected) {
       for (const double value : item.tie_metrics)

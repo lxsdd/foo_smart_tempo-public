@@ -97,14 +97,19 @@ ALLOWED_FILTER_REASONS = frozenset((
 ))
 ALLOWED_RANK_REASONS = frozenset((
     "raw_rank_scored", "harmonic_rank_scored", "low_rank_scored",
-    "general_baseline_rank_scored", "general_alt_rank_scored"
+    "general_baseline_rank_scored", "general_alt_rank_scored",
+    "residual_high_rank_scored", "residual_harmonic_rank_scored",
+    "harmonic_direct_rank_scored"
 ))
 COMPARE_TO_RANK = {
     "raw": "raw_rank_scored",
     "harmonic": "harmonic_rank_scored",
     "low": "low_rank_scored",
     "general_baseline": "general_baseline_rank_scored",
-    "general_alt": "general_alt_rank_scored"
+    "general_alt": "general_alt_rank_scored",
+    "residual_high": "residual_high_rank_scored",
+    "residual_harmonic": "residual_harmonic_rank_scored",
+    "harmonic_direct": "harmonic_direct_rank_scored"
 }
 ALLOWED_COMPARE_REASONS = frozenset(
     prefix + "_compare_" + verdict
@@ -194,7 +199,9 @@ def validate(rows: list[dict], *, require_windows: bool = False,
                                                "low_compare_lost"))
         has_native_tie = (stage == "primary_compare" and
                           item["reason_code"].startswith(("raw_compare_",
-                                                          "general_baseline_compare_")))
+                                                          "general_baseline_compare_",
+                                                          "residual_harmonic_compare_",
+                                                          "harmonic_direct_compare_")))
         expected_metrics = (SEGMENT_METRICS if stage == "mir_segment" else
                             WINDOW_METRICS if stage == "decode_window" else
                             RESOURCE_METRICS if stage == "resource_usage" else
@@ -377,6 +384,17 @@ def validate(rows: list[dict], *, require_windows: bool = False,
             if row["stage"] == "primary_rank" and row["reason_code"] in COMPARE_TO_RANK.values():
                 prefix = next(k for k, v in COMPARE_TO_RANK.items()
                               if v == row["reason_code"])
+                required_gate = {
+                    "residual_high": "residual_high_gate_allowed",
+                    "residual_harmonic": "residual_harmonic_gate_allowed",
+                    "harmonic_direct": "harmonic_direct_gate_allowed",
+                }.get(prefix)
+                if required_gate and (
+                        index == 0 or rows[index-1]["stage"] != "candidate_filter" or
+                        rows[index-1]["candidate_id"] != row["candidate_id"] or
+                        rows[index-1]["reason_code"] != required_gate or
+                        rows[index-1]["outcome"] != "included"):
+                    raise TraceError("rescue comparator without actual eligible source gate")
                 if index + 1 >= len(rows):
                     raise TraceError("native rank missing adjacent comparator")
                 comp = rows[index + 1]
@@ -409,7 +427,8 @@ def validate(rows: list[dict], *, require_windows: bool = False,
                 comparator_key = (prefix, epoch)
             else:
                 comparator_key = prefix
-            uses_tie = prefix in ("raw", "general_baseline")
+            uses_tie = prefix in ("raw", "general_baseline",
+                                  "residual_harmonic", "harmonic_direct")
             tie = tuple(row["metrics"][f"tie_{i}"] for i in range(4)) if uses_tie else ()
             previous = current_best.get(comparator_key)
             if previous is None:
@@ -417,9 +436,12 @@ def validate(rows: list[dict], *, require_windows: bool = False,
             else:
                 prior_score, prior_tie, _ = previous
                 expected_win = (
-                    score > prior_score + 1e-9 or
-                    (abs(score - prior_score) <= 1e-9 and tie > prior_tie)
-                ) if uses_tie else score > prior_score
+                    tie > prior_tie if prefix in
+                    ("residual_harmonic", "harmonic_direct") else
+                    (score > prior_score + 1e-9 or
+                     (abs(score - prior_score) <= 1e-9 and tie > prior_tie))
+                    if uses_tie else score > prior_score
+                )
             if won != expected_win:
                 raise TraceError("native comparator score/tie chronology contradicted")
             if won:
@@ -701,7 +723,9 @@ def validate(rows: list[dict], *, require_windows: bool = False,
         lane_id = terminal[0]["candidate_id"]
         winning_clusters = {
             state[2] for family, state in current_best.items()
-            if family != "raw"
+            if family != "raw" and
+            (family[0] if isinstance(family, tuple) else family)
+            not in ("residual_high", "residual_harmonic", "harmonic_direct")
         }
         winning_raw = {
             state[2] for family, state in current_best.items()
@@ -726,6 +750,43 @@ def validate(rows: list[dict], *, require_windows: bool = False,
             raise TraceError("terminal lane candidate was not a native comparator winner")
     if require_native_comparator and terminal and not comparisons:
         raise TraceError("native lane terminal has no executed comparator provenance")
+    # Reconstruct the two *later* native terminal transitions independently.
+    # A provisional allowed gate alone is not a winner; only an executed,
+    # ordered comparator can change the selected source object.
+    residual_winner_proven = 0
+    direct_winner_proven = 0
+    if terminal:
+        terminal_positions = [i for i, row in enumerate(rows)
+                              if row["stage"] == "primary_terminal"]
+        if len(terminal_positions) == 3:
+            lane_pos, residual_pos, final_pos = terminal_positions
+            residual_keys = ("residual_high", "residual_harmonic")
+            residual_winners = [
+                current_best[k][2] for k in residual_keys if k in current_best
+            ]
+            if len(residual_winners) > 1:
+                raise TraceError("mutually exclusive residual rescue families combined")
+            expected_residual = (residual_winners[0] if residual_winners
+                                 else terminal[0]["candidate_id"])
+            if terminal[1]["candidate_id"] != expected_residual:
+                raise TraceError("residual terminal not backed by executed winner")
+            residual_winner_proven = int(bool(residual_winners))
+            expected_final = (current_best["harmonic_direct"][2]
+                              if "harmonic_direct" in current_best
+                              else expected_residual)
+            if terminal[2]["candidate_id"] != expected_final:
+                raise TraceError("final terminal not backed by executed direct rescue")
+            direct_winner_proven = int("harmonic_direct" in current_best)
+            for index, row in enumerate(rows):
+                if row["stage"] not in ("primary_rank", "primary_compare"):
+                    continue
+                family = row["reason_code"].split("_rank_", 1)[0] if (
+                    row["stage"] == "primary_rank") else (
+                    row["reason_code"].split("_compare_", 1)[0])
+                if family in residual_keys and not lane_pos < index < residual_pos:
+                    raise TraceError("residual comparator outside native terminal phase")
+                if family == "harmonic_direct" and not residual_pos < index < final_pos:
+                    raise TraceError("direct comparator outside native terminal phase")
     if terminal:
         actual = [row["reason_code"] for row in terminal]
         allowed = ("terminal_lane_choice", "terminal_residual_choice",
@@ -958,6 +1019,14 @@ def validate(rows: list[dict], *, require_windows: bool = False,
         "selector_terminal_observations": len(stage_indices["primary_terminal"]),
         "selector_lane_comparator_winner_proven": lane_comparator_winner_proven,
         "selector_lane_continuous_rescue_unranked": lane_continuous_rescue_unranked,
+        "selector_residual_winner_proven": residual_winner_proven,
+        "selector_direct_winner_proven": direct_winner_proven,
+        "selector_residual_comparator_observations": sum(
+            row["reason_code"].startswith(("residual_high_", "residual_harmonic_"))
+            for row in comparisons),
+        "selector_direct_comparator_observations": sum(
+            row["reason_code"].startswith("harmonic_direct_")
+            for row in comparisons),
         "selector_disposition_observations": len(dispositions),
         "disposition_ranked_not_final": sum(
             row["reason_code"] == "ranked_not_final" for row in dispositions),

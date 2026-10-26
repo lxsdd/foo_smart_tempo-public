@@ -23,7 +23,9 @@ def event(stage, cid, parents, bpm, outcome, reason, number):
         "metrics": {"bpm": bpm, "score": .95, "support": .85,
                     **({f"tie_{i}": 0.0 for i in range(4)}
                        if stage == "primary_compare" and
-                       reason.startswith(("raw_compare_", "general_baseline_compare_"))
+                       reason.startswith(("raw_compare_", "general_baseline_compare_",
+                                          "residual_harmonic_compare_",
+                                          "harmonic_direct_compare_"))
                        else {})}
     }
 
@@ -1723,6 +1725,119 @@ class NativePipelineTraceTests(unittest.TestCase):
         self.assertIn("audit_smart_tempo_ci_pipeline_trace.py --trace", host)
         self.assertIn("test_smart_tempo_ci_pipeline_trace.py", workflow)
         self.assertNotRegex(workflow, r"(?m)^\s*uses:\s*actions/upload-artifact@")
+
+    def test_native_residual_and_direct_terminal_causal_replay(self):
+        # Synthetic source objects, never private audio or oracle BPM input.
+        # Raw c0/c1 -> collapsed c2/c3, independent FullBoard c4.
+        def make_case(kind):
+            rows = lineage_trace([128., 130.], [128., 130.], [[0], [1]])
+            at = next(i for i, row in enumerate(rows)
+                      if row["stage"] == "primary_select")
+            source = "c3"
+            gate = ("residual_high_gate_allowed" if kind == "high" else
+                    "residual_harmonic_gate_allowed" if kind == "harmonic" else
+                    "harmonic_direct_gate_allowed")
+            family = ("residual_high" if kind == "high" else
+                      "residual_harmonic" if kind == "harmonic" else
+                      "harmonic_direct")
+            selected_bpm = 130.
+            rank = event("primary_rank", source, [], selected_bpm, "included",
+                         family + "_rank_scored", 0)
+            compare = event("primary_compare", source, [], selected_bpm,
+                            "included", family + "_compare_won", 0)
+            if family != "residual_high":
+                compare["metrics"].update(
+                    {f"tie_{i}": value for i, value in enumerate(
+                        (0.95, 0.85, 0.50, 0.0))})
+            gate_row = event("candidate_filter", source, [], selected_bpm,
+                             "included", gate, 0)
+            lane = event("primary_terminal", "c2", [], 128., "selected",
+                         "terminal_lane_choice", 0)
+            residual = event("primary_terminal",
+                             source if kind != "direct" else "c2", [],
+                             selected_bpm if kind != "direct" else 128.,
+                             "selected", "terminal_residual_choice", 0)
+            final = event("primary_terminal", source, [], selected_bpm,
+                          "selected", "terminal_final_choice", 0)
+            if kind == "direct":
+                middle = [residual, gate_row, rank, compare]
+            else:
+                middle = [gate_row, rank, compare, residual]
+            rows[at:at] = [lane] + middle + [final]
+            primary = next(row for row in rows if row["stage"] == "primary_select")
+            primary["parent_candidate_ids"] = [source]
+            primary["metrics"]["bpm"] = selected_bpm
+            for i, row in enumerate(rows):
+                row["sequence"] = i
+            return rows
+
+        for kind in ("high", "harmonic", "direct"):
+            with self.subTest(kind=kind):
+                rows = make_case(kind)
+                result = validate(rows)
+                self.assertEqual(result["selector_residual_winner_proven"],
+                                 int(kind != "direct"))
+                self.assertEqual(result["selector_direct_winner_proven"],
+                                 int(kind == "direct"))
+                # Every forged step is rejected independently, even when
+                # the final BPM still exists in the source candidate board.
+                for mutation in ("gate_removed", "rank_removed",
+                                 "false_loss", "terminal_reverted",
+                                 "comparison_outside_phase",
+                                 "foreign_tie", "missing_comparison"):
+                    bad = copy.deepcopy(rows)
+                    gate = next(r for r in bad if r["reason_code"].endswith(
+                        "_gate_allowed"))
+                    rank = next(r for r in bad if r["reason_code"].endswith(
+                        "_rank_scored"))
+                    compare = next(r for r in bad if r["reason_code"].endswith(
+                        "_compare_won"))
+                    if mutation == "gate_removed":
+                        bad.remove(gate)
+                    elif mutation == "rank_removed":
+                        bad.remove(rank)
+                    elif mutation == "false_loss":
+                        compare["reason_code"] = compare["reason_code"].replace(
+                            "_won", "_lost")
+                        compare["outcome"] = "excluded"
+                    elif mutation == "terminal_reverted":
+                        target = ("terminal_final_choice" if kind == "direct"
+                                  else "terminal_residual_choice")
+                        row = next(r for r in bad if r["reason_code"] == target)
+                        row["candidate_id"] = "c2"
+                        row["metrics"]["bpm"] = 128.
+                    elif mutation == "comparison_outside_phase":
+                        bad.remove(rank)
+                        bad.remove(compare)
+                        pos = next(i for i, r in enumerate(bad)
+                                   if r["reason_code"] == "terminal_final_choice")
+                        bad[pos+1:pos+1] = [rank, compare]
+                    elif mutation == "foreign_tie":
+                        compare["metrics"]["tie_0"] = float("nan") if (
+                            kind != "high") else 1.
+                        if kind == "high":
+                            compare["metrics"]["private_path"] = 1.
+                    elif mutation == "missing_comparison":
+                        bad.remove(compare)
+                    for i, row in enumerate(bad):
+                        row["sequence"] = i
+                    with self.assertRaises(TraceError):
+                        validate(bad)
+
+    def test_rescue_trace_source_guarded_and_not_production_mutation(self):
+        source = (ROOT / "src/foo_smart_tempo/mir_candidate_pipeline.cpp").read_text(
+            encoding="utf-8")
+        reporter = (ROOT / "tests/ci_pipeline_trace.h").read_text(
+            encoding="utf-8")
+        for family in ("residual_high", "residual_harmonic", "harmonic_direct"):
+            self.assertIn('"' + family + '_rank_scored"', source)
+            self.assertIn('"' + family + '_compare_won"', source)
+            self.assertIn('"' + family + '_compare_lost"', source)
+            self.assertIn('"' + family + '_rank_scored"', reporter)
+        self.assertIn('item.has_tie_metrics != tieExpected', reporter)
+        self.assertIn('sizeof("residual_harmonic_compare_") - 1', reporter)
+        self.assertIn('sizeof("harmonic_direct_compare_") - 1', reporter)
+        self.assertEqual(source.count("const bool ciRescueWon ="), 3)
 
 
 if __name__ == "__main__":

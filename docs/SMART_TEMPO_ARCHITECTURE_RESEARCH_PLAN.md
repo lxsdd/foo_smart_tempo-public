@@ -638,3 +638,27 @@ makes the historical fallback positive fixture reflect the executed rank+
 comparison and publishes the independently recomputed low won/lost counts.
 No host, SDK or musical pass is inherited from the failed parent; the new
 exact SHA requires full source and original Win32/x64 host qualification.
+
+
+### 26 October 2026: actual residual/direct terminal winner replay (CI-only, awaiting exact host)
+
+The previous first-lane comparator proof could not distinguish an actual
+residual rescue or later harmonic-direct protection from a forged terminal
+pointer. This package records the *executed* eligible source, rank and
+immediately adjacent winner/loser comparison for the high-pulse residual,
+harmonic residual (ordered evidence/support/winner-support tie) and harmonic
+direct-protection (ordered support/combined/winner-support tie) branches.
+The independent parser replays the exact comparator order, requires each
+rank to follow its actual eligible gate, checks the correct phase between
+the three native terminal snapshots, and requires the residual and final
+terminal object IDs to equal their respective executed winners (or to
+retain the preceding object if no rescue won). Positive and adversarial
+source-only fixtures exercise all three families, stale terminal pointers,
+missing gates/comparisons, wrong winners, misplaced phases and tie tampering.
+This is a causal *source-object identity* gate, not a BPM-quality improvement.
+The CI-only recorder is compiled exclusively with
+SMART_TEMPO_CI_ORACLE_PROBE; no productive DSP, selector predicate, policy,
+writer, preferences, metadata or audio was changed. A new exact-HEAD
+original Win32/x64 host run is required to qualify this change. First-veto
+completeness, unexercised nested low rescue and positive native supplemental
+Policy→Writer selection still block B and C; musical release remains NO_GO.
