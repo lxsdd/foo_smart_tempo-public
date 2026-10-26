@@ -50,7 +50,7 @@ class PilotContract(unittest.TestCase):
         self.assertIn("if ($episodes -lt 1 -or $wins -lt 1", script)
         self.assertIn("SMART_TEMPO_NATIVE_LOW_PULSE_", script)
         self.assertIn("if ($RequireLowPulseCoverage)", script)
-        self.assertIn("} else {\n        # The frozen four-case BPM accuracy", script)
+        self.assertIn("} else {\n        # Historical accuracy cohort remains fixed", script)
         self.assertIn("SELECTOR_LOW_BESTBY_EPISODES", cohort)
         self.assertLess(script.index("Run-Case $installer $root $lowCue"),
                         script.index("$pilotReport=Join-Path"))
