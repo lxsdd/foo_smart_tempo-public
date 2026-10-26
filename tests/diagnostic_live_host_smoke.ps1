@@ -454,7 +454,7 @@ try {
   $pilotCases=@('pulse_60','pulse_128','pulse_120_sparse','silence')
   foreach ($caseId in $pilotCases) {
     $syntheticRoot=Join-Path (Join-Path $root ('pilot-'+$caseId)) 'synthetic-oracle'
-    python ./tools/generate_synthetic_bpm_reference.py --output $syntheticRoot --case $caseId
+    python ./tools/generate_smart_tempo_ci_b_pilot_legacy.py --output $syntheticRoot --case $caseId
     if ($LASTEXITCODE -ne 0) { throw "Synthetic B-pilot WAV creation failed: $caseId" }
     $reference=Join-Path $syntheticRoot 'reference.json'
     $cases=@((Get-Content -LiteralPath $reference -Raw | ConvertFrom-Json).cases)
