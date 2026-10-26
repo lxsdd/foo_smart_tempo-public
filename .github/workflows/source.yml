@@ -17,7 +17,17 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  portable:
+    uses: lxsdd/dev-infrastructure-public/.github/workflows/portable-core.yml@1fd8aa0693472d3d7ba2f5821571c1804c1550d5
+    permissions:
+      contents: read
+    with:
+      language: cmake
+      source-directory: tests
+      python-test-patterns: test_synthetic_bpm_*.py,test_mw1_comparator.py
+
   source:
+    needs: portable
     runs-on: windows-2025-vs2026
     timeout-minutes: 90
     steps:
