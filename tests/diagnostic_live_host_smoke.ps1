@@ -95,6 +95,12 @@ $script:pilotTraceKeys=@('NATIVE_SOURCE_INVENTORY_VERIFIED','RAW','COLLAPSED','W
   'SUPPLEMENTAL_SELECTED_SOURCES','POLICY_SUPPLEMENTAL_POINTER_IDENTITY_COMPLETE',
   'NEGATIVE_NO_CANDIDATE_TRACE','SELECTOR_LOW_BESTBY_EPISODES',
   'SELECTOR_COMPARE_LOW_WINS','SELECTOR_COMPARE_LOW_LOSSES')
+$script:pilotShadowKeys=@('CANDIDATES','REFERENCE_PRESENT','NATIVE_PRIMARY_CORRECT',
+  'NATIVE_FINAL_CORRECT','NATIVE_PRIMARY_SOURCE_INDEXED','REFERENCE_LOST_AT_PRIMARY',
+  'MODEL_SCORE_SUM_CORRECT','MODEL_SUPPORT_CORRECT','MODEL_COMBINED_CORRECT',
+  'MODEL_SCORE_TIMES_SUPPORT_CORRECT',
+  'MODEL_SCORE_SUM_MATCHES_PRIMARY','MODEL_SUPPORT_MATCHES_PRIMARY',
+  'MODEL_COMBINED_MATCHES_PRIMARY','MODEL_SCORE_TIMES_SUPPORT_MATCHES_PRIMARY')
 $script:pilotScoreKeys=@('EVALUATED','REFERENCE_RHYTHMIC','ACCEPTED_RHYTHMIC',
   'HELD_RHYTHMIC','ACCEPTED_WITHIN_0_05_BPM','ACCEPTED_WITHIN_0_20_BPM',
   'ACCEPTED_OUTSIDE_0_20_BPM','NEGATIVE_TOTAL','NEGATIVE_FALSEACCEPTS',
@@ -258,6 +264,34 @@ function Run-Case([string]$installer,[string]$root,[string]$inputFile,[string[]]
           throw "Incomplete native pilot trace evidence: $required"
         }
       }
+      $shadowEvidence=@{}
+      if (-not $RequireLowPulseCoverage) {
+        # Shadow models run ONLY after actual worker completion, using the
+        # frozen case oracle solely to SCORE predictions after selection.
+        $shadowOutput=@(python ./tools/audit_smart_tempo_b_shadow_rank.py --manifest $reference --observed $observed --trace $trace --case $label.Substring(10) 2>&1)
+        if ($LASTEXITCODE -ne 0 -or
+            @($shadowOutput | Where-Object { $_ -ceq 'SMART_TEMPO_B_SHADOW_VERIFIED=1' }).Count -ne 1) {
+          throw ('Synthetic source-only shadow audit failed: '+($shadowOutput -join '; '))
+        }
+        $shadowOutput | ForEach-Object { Write-Host $_ }
+        foreach ($line in $shadowOutput) {
+          if ([string]$line -cmatch '^SMART_TEMPO_B_SHADOW_([A-Z0-9_]+)=([0-9]+)$' -and
+              $Matches[1] -cin $script:pilotShadowKeys) {
+            if ($shadowEvidence.ContainsKey($Matches[1])) {
+              throw 'Duplicate shadow model evidence'
+            }
+            $shadowEvidence[$Matches[1]]=[int]$Matches[2]
+          }
+        }
+        if ($shadowEvidence.Count -ne $script:pilotShadowKeys.Count) {
+          throw 'Missing independent shadow model counter'
+        }
+        if ($shadowEvidence['CANDIDATES'] -ne $traceEvidence['COLLAPSED'] -or
+            $shadowEvidence['NATIVE_FINAL_CORRECT'] -ne $scoreEvidence['ACCEPTED_WITHIN_0_20_BPM']) {
+          throw 'Shadow source cardinality/final BPM diverges from original host'
+        }
+        Write-Host ("SMART_TEMPO_B_SHADOW_{0}_{1}=PASS" -f $Architecture,$label)
+      }
       if ($RequireLowPulseCoverage) {
         # The real CUE -> title-format -> default genre mapper must choose
         # the native low-pulse selector, never a synthetic C++ route override.
@@ -280,7 +314,8 @@ function Run-Case([string]$installer,[string]$root,[string]$inputFile,[string[]]
       } else {
         # Historical accuracy cohort remains fixed at exactly four WAVs.
         [void]$script:pilotEvidence.Add([pscustomobject]@{
-          case=$label.Substring(10);score=$scoreEvidence;trace=$traceEvidence;media_no_write=$true
+          case=$label.Substring(10);score=$scoreEvidence;trace=$traceEvidence;
+          shadow=$shadowEvidence;media_no_write=$true
         })
         Write-Host ("SMART_TEMPO_NATIVE_B_PILOT_TRACE_{0}_{1}=PASS" -f $Architecture,$label)
       }

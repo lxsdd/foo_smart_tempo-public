@@ -10,6 +10,13 @@ CASES=("pulse_60","pulse_128","pulse_120_sparse","silence")
 SCORE_KEYS=set("""EVALUATED REFERENCE_RHYTHMIC ACCEPTED_RHYTHMIC HELD_RHYTHMIC ACCEPTED_WITHIN_0_05_BPM ACCEPTED_WITHIN_0_20_BPM ACCEPTED_OUTSIDE_0_20_BPM NEGATIVE_TOTAL NEGATIVE_FALSEACCEPTS HALF_DOUBLE_ALIAS CORRECT_ABSTENTION""".split())
 TRACE_KEYS=set("""NATIVE_SOURCE_INVENTORY_VERIFIED RAW COLLAPSED WRITE_GUARD_BLOCKED PHASE_B_CAUSAL_COMPLETENESS DECODED_WINDOWS DECLARED_WINDOWS WINDOWS_COMPLETE FINAL_ACCEPT PROCESS_CPU_SECONDS PROCESS_PEAK_RSS_BYTES""".split())
 OPTIONAL=set("""PRIMARY_VETO_REASON_UNKNOWN INDEXED_NATIVE_FINAL_WITNESS UNINDEXED_SUPPLEMENTAL_FINAL_WITNESS SUPPLEMENTAL_SELECTED_SOURCES POLICY_SUPPLEMENTAL_POINTER_IDENTITY_COMPLETE NEGATIVE_NO_CANDIDATE_TRACE SELECTOR_LOW_BESTBY_EPISODES SELECTOR_COMPARE_LOW_WINS SELECTOR_COMPARE_LOW_LOSSES""".split())
+SHADOW_MODELS=("SCORE_SUM","SUPPORT","COMBINED","SCORE_TIMES_SUPPORT")
+SHADOW_KEYS={"CANDIDATES","REFERENCE_PRESENT","NATIVE_PRIMARY_CORRECT",
+             "NATIVE_FINAL_CORRECT","NATIVE_PRIMARY_SOURCE_INDEXED",
+             "REFERENCE_LOST_AT_PRIMARY"} | {
+    f"MODEL_{model}_{suffix}" for model in SHADOW_MODELS
+    for suffix in ("CORRECT","MATCHES_PRIMARY")
+}
 
 class PilotError(ValueError): pass
 
@@ -47,13 +54,35 @@ def validate(reports,require_both=True):
         if type(rows) is not list or len(rows)!=4: raise PilotError("missing pilot cases")
         m=dict(clear=0,within_005=0,within_020=0,wrong=0,held=0,
                aliases=0,negative=0,falseaccept=0,unknown_veto=0,
-               cpu_seconds=0.0,peak_rss_bytes=0,classes=[])
+               cpu_seconds=0.0,peak_rss_bytes=0,classes=[],
+               shadow_primary_correct=0,shadow_reference_present=0,
+               shadow_lost_primary=0,
+               shadow_models={model:0 for model in SHADOW_MODELS})
         for i,row in enumerate(rows):
-            if type(row) is not dict or set(row)!={"case","score","trace","media_no_write"}:
+            if type(row) is not dict or set(row)!={"case","score","trace","shadow","media_no_write"}:
                 raise PilotError("unknown case fields")
             if row["case"]!=CASES[i] or row["media_no_write"] is not True:
                 raise PilotError("case identity/order or no-write failed")
-            s,t=row["score"],row["trace"]
+            s,t,h=row["score"],row["trace"],row["shadow"]
+            if type(h) is not dict or set(h)!=SHADOW_KEYS:
+                raise PilotError("native shadow score incomplete/unknown fields")
+            for key,val in h.items():
+                count(val,key)
+                if key!="CANDIDATES" and val not in (0,1):
+                    raise PilotError("nonbinary shadow model evidence")
+            if (h["CANDIDATES"]!=t["COLLAPSED"] or
+                h["NATIVE_FINAL_CORRECT"]!=s["ACCEPTED_WITHIN_0_20_BPM"] or
+                h["NATIVE_PRIMARY_CORRECT"]>h["REFERENCE_PRESENT"] or
+                h["REFERENCE_LOST_AT_PRIMARY"] and (
+                    not h["REFERENCE_PRESENT"] or h["NATIVE_PRIMARY_CORRECT"])):
+                raise PilotError("shadow model source/decision conservation")
+            for name in SHADOW_MODELS:
+                c=h[f"MODEL_{name}_CORRECT"]
+                agree=h[f"MODEL_{name}_MATCHES_PRIMARY"]
+                if c>h["REFERENCE_PRESENT"] or (
+                    agree and (c!=h["NATIVE_PRIMARY_CORRECT"] or
+                               not h["NATIVE_PRIMARY_SOURCE_INDEXED"])):
+                    raise PilotError("shadow winner/source identity contradiction")
             if type(s) is not dict or set(s)!=SCORE_KEYS: raise PilotError("scorer incomplete")
             if type(t) is not dict or not TRACE_KEYS<=set(t) or set(t)-TRACE_KEYS-OPTIONAL:
                 raise PilotError("native trace incomplete/privacy field")
@@ -78,6 +107,13 @@ def validate(reports,require_both=True):
                     t.get("INDEXED_NATIVE_FINAL_WITNESS",0)!=s["ACCEPTED_RHYTHMIC"] or
                     t["RAW"]<=0 or t["COLLAPSED"]<=0):
                     raise PilotError("rhythmic provenance/denominator mismatch")
+                if h["NATIVE_PRIMARY_SOURCE_INDEXED"]!=1:
+                    raise PilotError("rhythmic Primary source not witnessed")
+                m["shadow_primary_correct"]+=h["NATIVE_PRIMARY_CORRECT"]
+                m["shadow_reference_present"]+=h["REFERENCE_PRESENT"]
+                m["shadow_lost_primary"]+=h["REFERENCE_LOST_AT_PRIMARY"]
+                for model in SHADOW_MODELS:
+                    m["shadow_models"][model]+=h[f"MODEL_{model}_CORRECT"]
                 m["clear"]+=1
                 m["within_005"]+=s["ACCEPTED_WITHIN_0_05_BPM"]
                 m["within_020"]+=s["ACCEPTED_WITHIN_0_20_BPM"]
@@ -95,6 +131,11 @@ def validate(reports,require_both=True):
                     t.get("NEGATIVE_NO_CANDIDATE_TRACE",0)!=1 or
                     t["PHASE_B_CAUSAL_COMPLETENESS"]!="INCOMPLETE_EMPTY_BOARD_CAUSAL"):
                     raise PilotError("negative falseaccept or invented source")
+                if (h["CANDIDATES"] or h["REFERENCE_PRESENT"] or
+                    h["NATIVE_PRIMARY_SOURCE_INDEXED"] or
+                    h["REFERENCE_LOST_AT_PRIMARY"] or
+                    any(h[k] for k in h if k!="CANDIDATES")):
+                    raise PilotError("negative shadow invented candidates or selection")
                 m["negative"]+=1
                 m["classes"].append("negative_held")
             m["cpu_seconds"]+=t["PROCESS_CPU_SECONDS"]
@@ -105,6 +146,10 @@ def validate(reports,require_both=True):
         raise PilotError("source SHA or host coverage mismatch")
     if require_both and out["Win32"]["classes"]!=out["x64"]["classes"]:
         raise PilotError("cross-architecture decision class drift")
+    if require_both and any(
+            left["shadow"] != right["shadow"]
+            for left,right in zip(reports[0]["cases"],reports[1]["cases"])):
+        raise PilotError("cross-architecture shadow ranking drift")
     return {"source_sha":shas.pop(),"architectures":out,"phase_b":"INCOMPLETE",
             "phase_c":"CLOSED","musical_release":"NO_GO"}
 
@@ -133,6 +178,11 @@ def main():
         for key in ("clear","within_005","within_020","wrong","held","aliases","negative",
                     "falseaccept","unknown_veto","cpu_seconds","peak_rss_bytes"):
             print(f"SMART_TEMPO_B_PILOT_{arch}_{key.upper()}={m[key]}")
+        for key in ("shadow_primary_correct","shadow_reference_present",
+                    "shadow_lost_primary"):
+            print(f"SMART_TEMPO_B_PILOT_{arch}_{key.upper()}={m[key]}")
+        for name in SHADOW_MODELS:
+            print(f"SMART_TEMPO_B_PILOT_{arch}_SHADOW_{name}_CORRECT={m['shadow_models'][name]}")
     print("SMART_TEMPO_PHASE_B_CAUSAL_COMPLETENESS=INCOMPLETE")
     print("SMART_TEMPO_PHASE_C_GATE=CLOSED")
     print("SMART_TEMPO_MUSICAL_RELEASE=NO_GO")

@@ -25,7 +25,17 @@ def fixture(arch):
         else:
             trace["PRIMARY_VETO_REASON_UNKNOWN"]=18
             trace["INDEXED_NATIVE_FINAL_WITNESS"]=1
-        cases.append(dict(case=name,score=score,trace=trace,media_no_write=True))
+        shadow=dict(CANDIDATES=0 if negative else 18,
+            REFERENCE_PRESENT=int(not negative),
+            NATIVE_PRIMARY_CORRECT=int(correct),
+            NATIVE_FINAL_CORRECT=int(correct),
+            NATIVE_PRIMARY_SOURCE_INDEXED=int(not negative),
+            REFERENCE_LOST_AT_PRIMARY=int(not negative and not correct))
+        for model in ("SCORE_SUM","SUPPORT","COMBINED","SCORE_TIMES_SUPPORT"):
+            shadow["MODEL_"+model+"_CORRECT"]=int(correct)
+            shadow["MODEL_"+model+"_MATCHES_PRIMARY"]=int(not negative)
+        cases.append(dict(case=name,score=score,trace=trace,
+                          shadow=shadow,media_no_write=True))
     return dict(schema="smart_tempo_b_pilot_cohort_v1",architecture=arch,
                 source_sha="a"*40,cases=cases)
 
@@ -36,6 +46,8 @@ class CohortTests(unittest.TestCase):
                          ("INCOMPLETE","CLOSED","NO_GO"))
         self.assertEqual(r["architectures"]["Win32"]["wrong"],2)
         self.assertEqual(r["architectures"]["x64"]["within_005"],1)
+        self.assertEqual(r["architectures"]["x64"]["shadow_lost_primary"],2)
+        self.assertEqual(r["architectures"]["Win32"]["shadow_models"]["SUPPORT"],1)
     def test_single_host_is_not_cross_architecture_proof(self):
         with self.assertRaises(PilotError): validate([fixture("Win32")])
         self.assertEqual(len(validate([fixture("Win32")],require_both=False)["architectures"]),1)
@@ -66,6 +78,15 @@ class CohortTests(unittest.TestCase):
         mutate(["cases",3,"trace","FINAL_ACCEPT"],1)
         mutate(["cases",0,"score","PRIVATE_TRACK_NAME"],1)
         mutate(["cases",0,"trace","user_path"],1)
+        mutate(["cases",0,"shadow","PRIVATE_SONG"],1)
+        mutate(["cases",0,"shadow","REFERENCE_PRESENT"],0)
+        mutate(["cases",0,"shadow","MODEL_SUPPORT_CORRECT"],2)
+        mutate(["cases",0,"shadow","NATIVE_FINAL_CORRECT"],1)
+        mutate(["cases",0,"shadow","CANDIDATES"],17)
+        mutate(["cases",0,"shadow","NATIVE_PRIMARY_SOURCE_INDEXED"],0)
+        mutate(["cases",0,"shadow","NATIVE_PRIMARY_CORRECT"],1)
+        mutate(["cases",0,"shadow","MODEL_SUPPORT_MATCHES_PRIMARY"],0 if False else 2)
+        mutate(["cases",3,"shadow","REFERENCE_PRESENT"],1)
     def test_cross_architecture_decision_class_drift(self):
         r=[fixture("Win32"),fixture("x64")]
         s=r[1]["cases"][0]["score"]; t=r[1]["cases"][0]["trace"]
@@ -73,6 +94,13 @@ class CohortTests(unittest.TestCase):
         t.update(FINAL_ACCEPT=0,INDEXED_NATIVE_FINAL_WITNESS=0)
         with self.assertRaisesRegex(PilotError,"cross-architecture decision class drift"):
             validate(r)
+
+    def test_shadow_cross_architecture_must_agree_without_reference_tuning(self):
+        rows=[fixture("Win32"),fixture("x64")]
+        rows[1]["cases"][0]["shadow"]["MODEL_SUPPORT_CORRECT"]=1
+        rows[1]["cases"][0]["shadow"]["MODEL_SUPPORT_MATCHES_PRIMARY"]=0
+        with self.assertRaisesRegex(PilotError,"cross-architecture shadow ranking drift"):
+            validate(rows)
 
     def test_cli_json_serialization_and_checkout_sha(self):
         """Exercise the real CLI boundary: two hosts, BOM, duplicate keys, SHA."""

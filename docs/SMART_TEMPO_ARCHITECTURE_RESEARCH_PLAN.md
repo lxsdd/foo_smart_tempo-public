@@ -717,6 +717,45 @@ improvement, real music qualification or musical GO. Production DSP,
 genre rules, preferences, selector, Policy, writer and owner media
 remain unchanged.
 
+### 26 October 2026 — frozen post-host Phase-B shadow-ranking comparison
+
+The real, independent post-host recall oracle already proves that the
+correct pulse_60 and pulse_120_sparse BPMs survive MIR raw, collapse and
+Policy FullBoard, and that *Primary* selects another BPM. To isolate the
+contribution of candidate ranking **without touching production behavior**,
+a CI-only post-host independent source-ID scorer now compares four fixed
+unconstrained candidate-ranking controls on the *same native collapsed
+Primary pool*: (1) maximum raw score sum; (2) maximum segment support;
+(3) maximum native best-combined score recorded by Primary eligibility;
+(4) maximum score sum × support. Ties keep the original source order;
+none of the rules uses the reference BPM, filename, genre, aliases, or a
+per-case learned parameter during selection. They are diagnostic baselines,
+not candidate production policies or suggested fixes.
+
+Only after foobar has completed, Python validates the original exact
+same-analysis candidate IDs and strict native trace, independently checks
+the frozen synthetic reference and actual Primary→Policy→Writer output,
+scores each hypothetical winner within the predeclared ±0.20 BPM window,
+and prints predefined bounded numeric counters. The original Win32/x64
+host hard gate checks completeness, identity, source/score conservation and
+separation from the standard four-case accuracy cohort. The joined
+dual-architecture cohort additionally checks the source-indexed shadow
+results for cross-host decision parity and strict allowed fields. Silence
+remains a negative with *zero* invented candidates or selected winners.
+Positive/adversarial tests corrupt candidate IDs, score/eligibility joins,
+host observation, reference manifest, candidate presence and cross-host
+shadow parity; each must fail closed.
+
+A shadow policy appearing stronger on **three** public rhythms would be
+an in-sample observation with a high overfit risk. No formula, coefficient
+or candidate preference can be installed from this pilot; independent
+Phase C alternative-architecture registration, numerous complex rhythms,
+half/double and 3:2 controls, genre classes, multiple window sizes and
+private blinded holdout are still required. Phase B first-decisive
+per-object veto and selected supplemental Policy→Writer native positive
+remain incomplete. Product algorithm, selector, writer, preferences,
+user tags/cuesheets and published artifacts stay unchanged. No musical GO.
+
 
 ### 26 Oct 2026 — independent post-host Primary comparator attribution (B subgate)
 
