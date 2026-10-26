@@ -52,6 +52,10 @@ class IntegratedResearchPortfolio(unittest.TestCase):
             self.assertIn(value,ps)
         for name,_,_ in COMPLEX:
             self.assertIn('L"'+name+'"',sink)
+        self.assertEqual(ps.count("SMART_TEMPO_DIAGNOSTIC_RUNTIME_"),1)
+        self.assertEqual(ps.count("if ($challengeObserved.Count -ne 16"),1)
+        self.assertIn("if ($caseId -cnotmatch '^challenge_[a-z0-9_]+$') {",ps)
+        self.assertEqual(ps.count("SYNTHETIC_REAL_COMPLEX_COMPLETED_x64=PASS"),1)
         self.assertIn("bounded_source_bits",sink)
         self.assertIn("CREATE_NEW",sink)
         self.assertIn('read_env(L"GITHUB_ACTIONS")',sink)
