@@ -522,3 +522,18 @@ These changes repair evidence transport only, not MIR, candidate ranking,
 Policy, Writer or any musical decision. Real Win32/x64 joined-cohort PASS must
 be established by a new exact-SHA CI run; Phase B causal completeness and
 musical quality remain **INCOMPLETE / NO_GO**, Phase C **CLOSED**.
+
+
+### Package B: actual native MIR supply and per-object origin conservation
+
+The isolated CI probe captures full-MIR segment evaluations, retained segment
+results, TopK rows/submissions, family ranks, pulse-alias and continuous
+submissions, and newly created raw objects per native producer. Each raw object
+has a compile-guarded TopK/pulse/continuous origin mask (including upserts).
+The independent Python auditor checks count conservation and origin membership,
+including adversarial negative fixtures, before the Win32/x64 host gate.
+Only bounded numeric counts and fixed enums are emitted. Production DSP,
+selector, preferences and writer are unchanged. This proves the candidate
+supply boundary, NOT upstream why no TopK/family rows, all first-veto causes,
+or a positive supplemental Policy→Writer witness. B INCOMPLETE; C BLOCKED;
+musical NO_GO until independent complete evidence.

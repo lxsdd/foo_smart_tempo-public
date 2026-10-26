@@ -24,7 +24,11 @@ RESOURCE_METRICS = METRICS | frozenset((
     "process_working_set_after_bytes"))
 INVENTORY_METRICS = METRICS | frozenset((
     "raw_count", "collapsed_count", "policy_board_count",
-    "selector_event_count", "decode_window_count", "supplemental_count"))
+    "selector_event_count", "decode_window_count", "supplemental_count",
+    "mir_segments_evaluated", "mir_segment_results", "mir_topk_rows_seen",
+    "mir_topk_add_calls", "mir_topk_new_raw", "mir_family_rank_rows",
+    "mir_alias_add_calls", "mir_alias_new_raw",
+    "mir_continuous_add_calls", "mir_continuous_new_raw"))
 WINDOW_METRICS = METRICS | frozenset(("pass_index", "pass_total", "start_sec",
     "requested_frames", "decoded_frames", "analysis_frames",
     "source_rate_hz", "analysis_rate_hz"))
@@ -32,7 +36,7 @@ CREATORS = frozenset(("candidate_create", "candidate_transform",
                       "policy_eligibility", "supplemental_candidate"))
 ENUMS = {
     "decode_window": ("observed", "actual_decoded_extent"),
-    "candidate_create": ("observed", "raw_alias"),
+    "candidate_create": ("observed", None),
     "candidate_transform": ("observed", "cluster_from_raw"),
     "primary_eligibility": ("observed", "pool_only_gate_unresolved"),
     "candidate_filter": (None, None),
@@ -54,6 +58,11 @@ ENUMS = {
 }
 REASON_PATTERN = re.compile(r"^[a-z][a-z0-9_]{0,95}$")
 ID_PATTERN = re.compile(r"^c(?:0|[1-9][0-9]{0,6})$")
+RAW_SOURCE_MASKS = {
+    "raw_topk": 1, "raw_pulse_alias": 2, "raw_topk_pulse_alias": 3,
+    "raw_continuous": 4, "raw_topk_continuous": 5,
+    "raw_pulse_alias_continuous": 6, "raw_all_sources": 7,
+}
 ALLOWED_FILTER_REASONS = frozenset((
     "raw_alias_allowed", "raw_alias_provisional_exclusion",
     "raw_support_allowed", "raw_support_provisional_exclusion",
@@ -194,6 +203,8 @@ def validate(rows: list[dict], *, require_windows: bool = False) -> dict:
         if stage == "decode_window" and (candidate_id is not None or parents):
             raise TraceError("window must not contain candidate identity")
         if stage in CREATORS:
+            if stage == "candidate_create" and item["reason_code"] not in RAW_SOURCE_MASKS:
+                raise TraceError("raw source origin missing or fabricated")
             if stage == "supplemental_candidate" and (
                     parents or item["reason_code"] not in ALLOWED_SUPPLEMENTAL_SOURCES or
                     bpm <= 0):
@@ -354,6 +365,30 @@ def validate(rows: list[dict], *, require_windows: bool = False) -> dict:
             if (m[name] != int(m[name]) or
                     not 0 <= m[name] <= MAX_LINES or m[name] != expected_count):
                 raise TraceError("native source inventory/JSONL cardinality mismatch")
+        supply_keys = INVENTORY_METRICS - METRICS - set(expected_counts)
+        if any(m[k] != int(m[k]) or not 0 <= m[k] <= MAX_LINES * 16
+               for k in supply_keys):
+            raise TraceError("invalid native MIR source supply counter")
+        masks = [RAW_SOURCE_MASKS[row["reason_code"]]
+                 for row in stage_indices["candidate_create"]]
+        for bit, name in ((1, "topk"), (2, "alias"), (4, "continuous")):
+            used = sum(bool(mask & bit) for mask in masks)
+            if (used < m[f"mir_{name}_new_raw"] or
+                    used > m[f"mir_{name}_add_calls"] * (16 if bit == 1 else 1)):
+                raise TraceError("raw source origin contradicts native producer")
+        if (m["mir_topk_add_calls"] > m["mir_topk_rows_seen"] or
+                m["mir_topk_new_raw"] > m["mir_topk_add_calls"] * 16 or
+                m["mir_alias_new_raw"] > m["mir_alias_add_calls"] or
+                m["mir_continuous_new_raw"] > m["mir_continuous_add_calls"] or
+                sum(m[f"mir_{name}_new_raw"] for name in
+                    ("topk", "alias", "continuous")) != m["raw_count"] or
+                m["mir_segment_results"] > m["mir_segments_evaluated"] or
+                m["mir_family_rank_rows"] > 128 or
+                (m["mir_family_rank_rows"] == 0 and
+                 (m["mir_alias_add_calls"] or m["mir_continuous_add_calls"])) or
+                (m["mir_segments_evaluated"] == 0 and
+                 (m["mir_topk_rows_seen"] or m["mir_topk_add_calls"]))):
+            raise TraceError("native MIR producer/consumer count conservation failed")
     resources = stage_indices["resource_usage"]
     if len(resources) > 1 or (require_windows and len(resources) != 1):
         raise TraceError("native process resource observation missing or duplicated")
@@ -393,6 +428,9 @@ def validate(rows: list[dict], *, require_windows: bool = False) -> dict:
         total_requested += m["requested_frames"] / source_rate
     if require_windows and (not windows or len(windows) != declared_passes):
         raise TraceError("native window capture absent or incomplete")
+    if inventories and windows and (
+            inventories[0]["metrics"]["mir_segments_evaluated"] > len(windows)):
+        raise TraceError("MIR evaluated more segments than decoded windows")
     covered = 0.0
     end = -1.0
     for start, stop in intervals:

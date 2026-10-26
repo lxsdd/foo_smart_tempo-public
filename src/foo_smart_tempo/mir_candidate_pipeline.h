@@ -191,6 +191,9 @@ struct MirRawCandidate {
   double continuous_section_support = 0.0;
   double continuous_score_ratio = 0.0;
   double continuous_section_stability = 0.0;
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+  uint8_t ci_source_mask = 0; // TopK=1, pulse alias=2, continuous=4; CI only
+#endif
 };
 
 struct MirCandidate {

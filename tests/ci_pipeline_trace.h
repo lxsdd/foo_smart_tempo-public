@@ -80,6 +80,20 @@ struct WindowObservation {
   unsigned analysis_rate_hz = 0;
 };
 
+// Real native MIR source-supply, numeric and CI-only.
+struct MirSourceSupplyObservation {
+  std::size_t segments_evaluated = 0;
+  std::size_t segment_results = 0;
+  std::size_t topk_rows_seen = 0;
+  std::size_t topk_add_calls = 0;
+  std::size_t topk_new_raw = 0;
+  std::size_t family_rank_rows = 0;
+  std::size_t alias_add_calls = 0;
+  std::size_t alias_new_raw = 0;
+  std::size_t continuous_add_calls = 0;
+  std::size_t continuous_new_raw = 0;
+};
+
 // Process-scoped measurements, not attributed per-thread CPU/RSS.
 struct ProcessResourceObservation {
   bool valid = false;
@@ -205,6 +219,7 @@ inline bool record(
     const MirPolicyDecision& policy,
     double final_bpm, bool withheld, bool same_run_measured_witness,
     const ProcessResourceObservation& resource,
+    const MirSourceSupplyObservation& supply,
     const smart_tempo::HodgkinsonMaterialRiskLocalExactProbe* risk,
     const smart_tempo::HodgkinsonPartialBarAggregateShadow* partial,
     std::span<const smart_tempo::HodgkinsonPartialBarTopKExactCandidate> topK) {
@@ -225,6 +240,18 @@ inline bool record(
       board.raw_candidates.size() > 4096 || collapsed.size() > 4096 ||
       selectorEvents.size() > 4096 || fullboard.size() > 4096 ||
       collapsed.size() != primary.candidate_count)
+    return false;
+  if (supply.segments_evaluated > windows.size() ||
+      supply.segment_results > supply.segments_evaluated ||
+      supply.topk_add_calls > supply.topk_rows_seen ||
+      supply.topk_new_raw > supply.topk_add_calls * 16 ||
+      supply.alias_new_raw > supply.alias_add_calls ||
+      supply.continuous_new_raw > supply.continuous_add_calls ||
+      supply.family_rank_rows > 128 ||
+      supply.topk_new_raw + supply.alias_new_raw + supply.continuous_new_raw !=
+          board.raw_candidates.size() ||
+      (supply.family_rank_rows == 0 &&
+       (supply.alias_add_calls || supply.continuous_add_calls)))
     return false;
   EventWriter out(run_id);
   std::vector<std::string> raw_ids, cluster_ids, policy_ids;
@@ -259,7 +286,18 @@ inline bool record(
       return false;
     const auto id = out.create_id();
     raw_ids.push_back(id);
-    out.push("candidate_create", "observed", "raw_alias", id, {},
+    const char* source = nullptr;
+    switch (raw.ci_source_mask) {
+      case 1: source = "raw_topk"; break;
+      case 2: source = "raw_pulse_alias"; break;
+      case 3: source = "raw_topk_pulse_alias"; break;
+      case 4: source = "raw_continuous"; break;
+      case 5: source = "raw_topk_continuous"; break;
+      case 6: source = "raw_pulse_alias_continuous"; break;
+      case 7: source = "raw_all_sources"; break;
+      default: return false;
+    }
+    out.push("candidate_create", "observed", source, id, {},
              raw.bpm, raw.score_sum, raw.synthetic_support);
   }
   // Reproduce the ACTUAL first-match collapse partition, not a many-to-many
@@ -566,7 +604,17 @@ inline bool record(
       ",\"policy_board_count\":" + std::to_string(fullboard.size()) +
       ",\"selector_event_count\":" + std::to_string(selectorEvents.size()) +
       ",\"decode_window_count\":" + std::to_string(windows.size()) +
-      ",\"supplemental_count\":" + std::to_string(supplemental_id.size()));
+      ",\"supplemental_count\":" + std::to_string(supplemental_id.size()) +
+      ",\"mir_segments_evaluated\":" + std::to_string(supply.segments_evaluated) +
+      ",\"mir_segment_results\":" + std::to_string(supply.segment_results) +
+      ",\"mir_topk_rows_seen\":" + std::to_string(supply.topk_rows_seen) +
+      ",\"mir_topk_add_calls\":" + std::to_string(supply.topk_add_calls) +
+      ",\"mir_topk_new_raw\":" + std::to_string(supply.topk_new_raw) +
+      ",\"mir_family_rank_rows\":" + std::to_string(supply.family_rank_rows) +
+      ",\"mir_alias_add_calls\":" + std::to_string(supply.alias_add_calls) +
+      ",\"mir_alias_new_raw\":" + std::to_string(supply.alias_new_raw) +
+      ",\"mir_continuous_add_calls\":" + std::to_string(supply.continuous_add_calls) +
+      ",\"mir_continuous_new_raw\":" + std::to_string(supply.continuous_new_raw));
   if (out.sequence != windows.size() + board.raw_candidates.size() + 2 * collapsed.size() +
                       fullboard.size() + selectorEvents.size() +
                       supplemental_id.size() + collapsed.size() + 9 ||

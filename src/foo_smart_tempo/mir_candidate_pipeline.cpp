@@ -289,6 +289,9 @@ void add_mir_topk_candidate(
     }
     auto& raw = upsert_mir_raw_candidate(
         board, aliasBpm, alias.name, static_cast<uint16_t>(alias.bit));
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+  raw.ci_source_mask |= 1;
+#endif
     if (raw.segments[candidate.segment_index] == 0) {
       raw.segments[candidate.segment_index] = 1;
       ++raw.segment_hits;
@@ -329,6 +332,9 @@ void add_mir_alias_pulse_evidence(
   }
   auto& raw = upsert_mir_raw_candidate(
       board, evidence.alias_bpm, evidence.alias_class, aliasBit);
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+  raw.ci_source_mask |= 2;
+#endif
   raw.pulse_score = (std::max)(raw.pulse_score, evidence.pulse_score);
   raw.pulse_section_support =
       (std::max)(raw.pulse_section_support, evidence.section_support);
@@ -353,6 +359,9 @@ void add_mir_continuous_refinement_evidence(
   }
   auto& raw = upsert_mir_raw_candidate(
       board, evidence.best_bpm, evidence.alias_class, aliasBit);
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+  raw.ci_source_mask |= 4;
+#endif
   raw.rows += 1;
   raw.score_sum += evidence.best_score;
   raw.best_combined_score =

@@ -30,7 +30,7 @@ def event(stage, cid, parents, bpm, outcome, reason, number):
 
 def trace(held=False):
     rows = [
-        event("candidate_create", "c0", [], 128., "observed", "raw_alias", 0),
+        event("candidate_create", "c0", [], 128., "observed", "raw_topk", 0),
         event("candidate_transform", "c1", ["c0"], 128., "observed", "cluster_from_raw", 1),
         event("primary_eligibility", "c1", [], 128., "observed", "pool_only_gate_unresolved", 2),
         event("policy_eligibility", "c2", ["c1"], 127.99, "included", "full_board_member", 3),
@@ -70,7 +70,7 @@ def lineage_trace(raw_bpms, cluster_bpms, cluster_sources):
     primary_id = f"c{raw_count}"
     rows = [
         event("candidate_create", f"c{i}", [], bpm,
-              "observed", "raw_alias", 0)
+              "observed", "raw_topk", 0)
         for i, bpm in enumerate(raw_bpms)
     ]
     rows += [
@@ -125,6 +125,15 @@ def attach_inventory(rows):
         "decode_window_count": sum(r["stage"] == "decode_window" for r in rows),
         "supplemental_count": sum(r["stage"] == "supplemental_candidate" for r in rows),
     }
+    raw_count = counts["raw_count"]
+    counts.update(
+        mir_segments_evaluated=max(1, counts["decode_window_count"]),
+        mir_segment_results=1 if raw_count else 0,
+        mir_topk_rows_seen=raw_count, mir_topk_add_calls=raw_count,
+        mir_topk_new_raw=raw_count, mir_family_rank_rows=0,
+        mir_alias_add_calls=0, mir_alias_new_raw=0,
+        mir_continuous_add_calls=0, mir_continuous_new_raw=0,
+    )
     row = event("source_inventory", None, [], 0., "observed",
                 "native_count_conservation", 0)
     row["metrics"] = dict(bpm=0., score=0., support=0., **counts)
@@ -203,6 +212,44 @@ def empty_board_native_trace():
 
 
 class NativePipelineTraceTests(unittest.TestCase):
+    def test_native_source_supply_origin_conservation_and_negative_mutations(self):
+        positive = attach_inventory(with_resource(trace()))
+        self.assertEqual(validate(positive)["raw"], 1)
+        for reason, new, calls in (
+            ("raw_pulse_alias", (0, 1, 0), (0, 1, 0)),
+            ("raw_continuous", (0, 0, 1), (0, 0, 1)),
+            ("raw_all_sources", (1, 0, 0), (1, 1, 1)),
+        ):
+            rows = copy.deepcopy(positive)
+            next(r for r in rows if r["stage"] == "candidate_create")["reason_code"] = reason
+            m = rows[-1]["metrics"]
+            m["mir_topk_new_raw"], m["mir_alias_new_raw"], m["mir_continuous_new_raw"] = new
+            m["mir_topk_add_calls"], m["mir_alias_add_calls"], m["mir_continuous_add_calls"] = calls
+            m["mir_topk_rows_seen"] = max(1, calls[0])
+            m["mir_family_rank_rows"] = int(bool(calls[1] or calls[2]))
+            self.assertEqual(validate(rows)["raw"], 1, reason)
+        for key, value in (
+            ("mir_topk_new_raw", 0), ("mir_topk_add_calls", 0),
+            ("mir_segments_evaluated", 0), ("mir_segment_results", 2),
+            ("mir_alias_add_calls", 1), ("mir_continuous_new_raw", 1),
+            ("mir_topk_rows_seen", 0),
+        ):
+            rows = copy.deepcopy(positive)
+            rows[-1]["metrics"][key] = value
+            with self.assertRaises(TraceError, msg=key):
+                validate(rows)
+        rows = copy.deepcopy(positive)
+        next(r for r in rows if r["stage"] == "candidate_create")["reason_code"] = "raw_unproven"
+        with self.assertRaises(TraceError):
+            validate(rows)
+        empty = empty_board_native_trace()
+        self.assertEqual(validate(empty, require_windows=True)["raw"], 0)
+        for key in ("mir_topk_new_raw", "mir_alias_new_raw", "mir_continuous_new_raw"):
+            rows = copy.deepcopy(empty)
+            rows[-1]["metrics"][key] = 1
+            with self.assertRaises(TraceError):
+                validate(rows, require_windows=True)
+
     def test_native_empty_board_negative_chain_is_verified_but_not_qualified(self):
         rows = empty_board_native_trace()
         result = validate(rows, require_windows=True)
