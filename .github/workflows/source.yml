@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - 'migration/**'
+      - 'research/integrate-frozen-bpm-portfolios-20261026'
   pull_request:
     branches: [main]
   workflow_dispatch:
