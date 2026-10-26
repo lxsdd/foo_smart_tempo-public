@@ -237,6 +237,9 @@ function Run-Case([string]$installer,[string]$root,[string]$inputFile,[string[]]
       [void]$script:pilotEvidence.Add([pscustomobject]@{
         case=$label.Substring(10);score=$scoreEvidence;trace=$traceEvidence;media_no_write=$true
       })
+      Write-Host ("SMART_TEMPO_NATIVE_B_PILOT_TRACE_{0}_{1}=PASS" -f $Architecture,$label)
+      Write-Host 'SMART_TEMPO_PRIMARY_VETO_INDIVIDUAL_REASONS=UNMEASURED'
+    }
     Write-Host ("DIAGNOSTIC_MENU_{0}_{1}=PASS" -f $Architecture,$label)
     Write-Host ("DIAGNOSTIC_ROWS_{0}_{1}={2}" -f $Architecture,$label,$rows)
     Write-Host ("MEDIA_WRITE_SAFETY_{0}_{1}=PASS" -f $Architecture,$label)
