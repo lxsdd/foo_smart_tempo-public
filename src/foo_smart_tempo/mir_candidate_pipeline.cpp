@@ -1000,6 +1000,11 @@ evaluate_mir_high_pulse_interval_conflict_shadow(
   }
   if (pool.empty()) {
     for (const auto& candidate : board.raw_candidates) {
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+      ci_primary_event(static_cast<std::size_t>(&candidate - board.raw_candidates.data()),
+                       candidate.bpm, 0.0, true, true,
+                       "raw_alias_fallback_readmitted");
+#endif
       pool.push_back(&candidate);
     }
   }
@@ -1020,6 +1025,14 @@ evaluate_mir_high_pulse_interval_conflict_shadow(
   if (!supported.empty()) {
     pool = std::move(supported);
   }
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+  else {
+    for (const auto* candidate : pool)
+      ci_primary_event(static_cast<std::size_t>(candidate - board.raw_candidates.data()),
+                       candidate->bpm, mir_raw_support(*candidate, board.segment_count),
+                       true, true, "raw_support_fallback_readmitted");
+  }
+#endif
 
   const MirRawCandidate* best = nullptr;
   double bestScore = -std::numeric_limits<double>::infinity();
@@ -1321,6 +1334,16 @@ evaluate_mir_high_pulse_interval_conflict_shadow(
   if (baseBpm >= 58.0 && baseBpm <= 61.0) {
     std::vector<const MirCandidate*> mid;
     for (const auto& candidate : candidates) {
+      #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+      const bool ciLowEligible = (candidate.bpm >= 68.0 && candidate.bpm <= 82.0 &&
+          (candidate.support >= 0.45 ||
+           (candidate.best_combined_score >= 0.15 &&
+            candidate.score_sum >= 0.55)));
+      ci_primary_event(static_cast<std::size_t>(&candidate - candidates.data()),
+                       candidate.bpm, candidate.support, false, ciLowEligible,
+                       ciLowEligible ? "low_mid_58_61_allowed" :
+                                       "low_mid_58_61_provisional_exclusion");
+#endif
       if (candidate.bpm >= 68.0 && candidate.bpm <= 82.0 &&
           (candidate.support >= 0.45 ||
            (candidate.best_combined_score >= 0.15 &&
@@ -1338,6 +1361,18 @@ evaluate_mir_high_pulse_interval_conflict_shadow(
           aliasBitsExactly(*selectedMid, twoThirdsBit)) {
         std::vector<const MirCandidate*> lowerMid;
         for (const auto& candidate : candidates) {
+          #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+          const bool ciLowEligible = (candidate.bpm >= 69.5 && candidate.bpm <= 72.5 &&
+              aliasCount(candidate, lowerMidAliases) >= 2 &&
+              (lowEvidence(&candidate) >= lowEvidence(selectedMid) * 0.80 ||
+               (candidate.winner_support >= 0.24 &&
+                candidate.score_sum >= 1.0 &&
+                candidate.pulse_score >= 0.20)));
+          ci_primary_event(static_cast<std::size_t>(&candidate - candidates.data()),
+                           candidate.bpm, candidate.support, false, ciLowEligible,
+                           ciLowEligible ? "low_lower_mid_58_61_allowed" :
+                                           "low_lower_mid_58_61_provisional_exclusion");
+#endif
           if (candidate.bpm >= 69.5 && candidate.bpm <= 72.5 &&
               aliasCount(candidate, lowerMidAliases) >= 2 &&
               (lowEvidence(&candidate) >= lowEvidence(selectedMid) * 0.80 ||
@@ -1361,6 +1396,16 @@ evaluate_mir_high_pulse_interval_conflict_shadow(
   } else if (baseBpm >= 56.0 && baseBpm <= 58.0) {
     std::vector<const MirCandidate*> midLow;
     for (const auto& candidate : candidates) {
+      #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+      const bool ciLowEligible = (candidate.bpm >= 63.0 && candidate.bpm <= 66.5 &&
+          (mir_has_alias(candidate.alias_bits, MirAlias::direct) ||
+           candidate.best_combined_score >= 0.16) &&
+          candidate.support >= 0.10);
+      ci_primary_event(static_cast<std::size_t>(&candidate - candidates.data()),
+                       candidate.bpm, candidate.support, false, ciLowEligible,
+                       ciLowEligible ? "low_midlow_56_58_allowed" :
+                                       "low_midlow_56_58_provisional_exclusion");
+#endif
       if (candidate.bpm >= 63.0 && candidate.bpm <= 66.5 &&
           (mir_has_alias(candidate.alias_bits, MirAlias::direct) ||
            candidate.best_combined_score >= 0.16) &&
@@ -1376,6 +1421,18 @@ evaluate_mir_high_pulse_interval_conflict_shadow(
   } else if (baseBpm >= 64.0 && baseBpm <= 67.0) {
     std::vector<const MirCandidate*> deepLow;
     for (const auto& candidate : candidates) {
+      #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+      const bool ciLowEligible = (candidate.bpm >= 50.0 && candidate.bpm <= 53.0 &&
+          (candidate.pulse_score >= 0.22 ||
+           candidate.best_combined_score >= 0.15) &&
+          hasAnyAlias(candidate, static_cast<uint16_t>(MirAlias::one_third) |
+                                   static_cast<uint16_t>(
+                                       MirAlias::quarter)));
+      ci_primary_event(static_cast<std::size_t>(&candidate - candidates.data()),
+                       candidate.bpm, candidate.support, false, ciLowEligible,
+                       ciLowEligible ? "low_deeplow_64_67_allowed" :
+                                       "low_deeplow_64_67_provisional_exclusion");
+#endif
       if (candidate.bpm >= 50.0 && candidate.bpm <= 53.0 &&
           (candidate.pulse_score >= 0.22 ||
            candidate.best_combined_score >= 0.15) &&
@@ -1394,6 +1451,17 @@ evaluate_mir_high_pulse_interval_conflict_shadow(
              aliasBitsExactly(*selected, twoThirdsBit)) {
     std::vector<const MirCandidate*> lowerMid;
     for (const auto& candidate : candidates) {
+      #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+      const bool ciLowEligible = (candidate.bpm >= 69.5 && candidate.bpm <= 72.5 &&
+          aliasCount(candidate, lowerMidAliases) >= 2 &&
+          (candidate.support >= 0.30 ||
+           candidate.best_combined_score >= 0.15 ||
+           candidate.score_sum >= 0.60));
+      ci_primary_event(static_cast<std::size_t>(&candidate - candidates.data()),
+                       candidate.bpm, candidate.support, false, ciLowEligible,
+                       ciLowEligible ? "low_lower_mid_79_81_allowed" :
+                                       "low_lower_mid_79_81_provisional_exclusion");
+#endif
       if (candidate.bpm >= 69.5 && candidate.bpm <= 72.5 &&
           aliasCount(candidate, lowerMidAliases) >= 2 &&
           (candidate.support >= 0.30 ||
@@ -1415,6 +1483,16 @@ evaluate_mir_high_pulse_interval_conflict_shadow(
   } else if (baseBpm >= 86.0 && baseBpm <= 90.0) {
     std::vector<const MirCandidate*> upperDirect;
     for (const auto& candidate : candidates) {
+      #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+      const bool ciLowEligible = (candidate.bpm >= 98.0 && candidate.bpm <= 102.0 &&
+          mir_has_alias(candidate.alias_bits, MirAlias::direct) &&
+          candidate.support >= 0.60 &&
+          candidate.best_combined_score >= 0.18);
+      ci_primary_event(static_cast<std::size_t>(&candidate - candidates.data()),
+                       candidate.bpm, candidate.support, false, ciLowEligible,
+                       ciLowEligible ? "low_upper_direct_86_90_allowed" :
+                                       "low_upper_direct_86_90_provisional_exclusion");
+#endif
       if (candidate.bpm >= 98.0 && candidate.bpm <= 102.0 &&
           mir_has_alias(candidate.alias_bits, MirAlias::direct) &&
           candidate.support >= 0.60 &&
@@ -1434,6 +1512,18 @@ evaluate_mir_high_pulse_interval_conflict_shadow(
       selected->bpm <= 53.0) {
     std::vector<const MirCandidate*> veryLow;
     for (const auto& candidate : candidates) {
+      #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+      const bool ciLowEligible = (candidate.bpm >= 48.5 && candidate.bpm <= 50.5 &&
+          hasAnyAlias(candidate, static_cast<uint16_t>(MirAlias::one_third) |
+                                   static_cast<uint16_t>(
+                                       MirAlias::direct)) &&
+          candidate.support >= 0.50 &&
+          candidate.support >= selected->support + 0.30);
+      ci_primary_event(static_cast<std::size_t>(&candidate - candidates.data()),
+                       candidate.bpm, candidate.support, false, ciLowEligible,
+                       ciLowEligible ? "low_verylow_50_53_allowed" :
+                                       "low_verylow_50_53_provisional_exclusion");
+#endif
       if (candidate.bpm >= 48.5 && candidate.bpm <= 50.5 &&
           hasAnyAlias(candidate, static_cast<uint16_t>(MirAlias::one_third) |
                                    static_cast<uint16_t>(
@@ -1453,6 +1543,18 @@ evaluate_mir_high_pulse_interval_conflict_shadow(
                selected->support < 0.35) {
       std::vector<const MirCandidate*> upper;
       for (const auto& candidate : candidates) {
+        #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+        const bool ciLowEligible = (candidate.bpm >= 98.0 && candidate.bpm <= 102.0 &&
+            hasAnyAlias(candidate,
+                        static_cast<uint16_t>(MirAlias::direct) |
+                            static_cast<uint16_t>(
+                                MirAlias::three_quarters)) &&
+            candidate.support >= 0.60);
+        ci_primary_event(static_cast<std::size_t>(&candidate - candidates.data()),
+                         candidate.bpm, candidate.support, false, ciLowEligible,
+                         ciLowEligible ? "low_upper_recovery_50_53_allowed" :
+                                         "low_upper_recovery_50_53_provisional_exclusion");
+#endif
         if (candidate.bpm >= 98.0 && candidate.bpm <= 102.0 &&
             hasAnyAlias(candidate,
                         static_cast<uint16_t>(MirAlias::direct) |
@@ -1640,6 +1742,13 @@ select_mir_low_pulse_continuous_center_rescue(
   const MirCandidate* best = nullptr;
   double bestScore = -std::numeric_limits<double>::infinity();
   for (const auto* candidate : pool) {
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+    const bool ciAltWindow = candidate->bpm >= 126.0 && candidate->bpm <= 141.5;
+    ci_primary_event(static_cast<std::size_t>(candidate - candidates.data()),
+                     candidate->bpm, candidate->support, false, ciAltWindow,
+                     ciAltWindow ? "general_alt_window_allowed" :
+                                   "general_alt_window_provisional_exclusion");
+#endif
     if (!(candidate->bpm >= 126.0 && candidate->bpm <= 141.5)) {
       continue;
     }

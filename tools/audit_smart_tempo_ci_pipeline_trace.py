@@ -74,7 +74,17 @@ ALLOWED_FILTER_REASONS = frozenset((
     "low_threshold_fallback_readmitted", "general_rail_fallback_readmitted",
     "residual_high_gate_allowed", "residual_high_gate_provisional_exclusion",
     "residual_harmonic_gate_allowed", "residual_harmonic_gate_provisional_exclusion",
-    "harmonic_direct_gate_allowed", "harmonic_direct_gate_provisional_exclusion"
+    "harmonic_direct_gate_allowed", "harmonic_direct_gate_provisional_exclusion",
+    "raw_alias_fallback_readmitted", "raw_support_fallback_readmitted",
+    "general_alt_window_allowed", "general_alt_window_provisional_exclusion",
+    "low_mid_58_61_allowed", "low_mid_58_61_provisional_exclusion",
+    "low_lower_mid_58_61_allowed", "low_lower_mid_58_61_provisional_exclusion",
+    "low_midlow_56_58_allowed", "low_midlow_56_58_provisional_exclusion",
+    "low_deeplow_64_67_allowed", "low_deeplow_64_67_provisional_exclusion",
+    "low_lower_mid_79_81_allowed", "low_lower_mid_79_81_provisional_exclusion",
+    "low_upper_direct_86_90_allowed", "low_upper_direct_86_90_provisional_exclusion",
+    "low_verylow_50_53_allowed", "low_verylow_50_53_provisional_exclusion",
+    "low_upper_recovery_50_53_allowed", "low_upper_recovery_50_53_provisional_exclusion"
 ))
 ALLOWED_RANK_REASONS = frozenset((
     "raw_rank_scored", "harmonic_rank_scored", "low_rank_scored",
@@ -275,17 +285,25 @@ def validate(rows: list[dict], *, require_windows: bool = False) -> dict:
                                     else "excluded")
                 if item["outcome"] != expected_outcome or parents:
                     raise TraceError("native comparison result inconsistent")
-            if item["reason_code"] in ("low_threshold_fallback_readmitted",
-                                       "general_rail_fallback_readmitted"):
-                predecessor = ("low_threshold_provisional_exclusion" if
-                               item["reason_code"].startswith("low_") else
-                               "general_out_of_rail_provisional")
+            fallback_predecessor = {
+                "raw_alias_fallback_readmitted": "raw_alias_provisional_exclusion",
+                "raw_support_fallback_readmitted": "raw_support_provisional_exclusion",
+                "low_threshold_fallback_readmitted": "low_threshold_provisional_exclusion",
+                "general_rail_fallback_readmitted": "general_out_of_rail_provisional",
+            }
+            if item["reason_code"] in fallback_predecessor:
+                predecessor = fallback_predecessor[item["reason_code"]]
                 if (item["outcome"] != "included" or
                     not any(previous["candidate_id"] == candidate_id and
                             previous["reason_code"] == predecessor and
                             previous["outcome"] == "excluded"
                             for previous in stage_indices["candidate_filter"])):
                     raise TraceError("readmission without executed exclusion")
+            if item["reason_code"].endswith("_allowed") and item["outcome"] != "included":
+                raise TraceError("positive selector gate changed to exclusion")
+            if (item["reason_code"].endswith("_provisional_exclusion") and
+                    item["outcome"] != "excluded"):
+                raise TraceError("negative selector gate changed to inclusion")
         elif candidate_id is not None:
             raise TraceError("non-creator stage unexpectedly creates candidate")
         if stage == "candidate_transform" and not parents:
@@ -296,7 +314,8 @@ def validate(rows: list[dict], *, require_windows: bool = False) -> dict:
             raise TraceError("policy candidate parent not collapsed")
         stage_indices[stage].append(item)
     # Executed rank/comparator pairs prove actual incumbent displacement.
-    # A low-pulse rank is not yet a comparator proof.
+    # Nested low-pulse pool membership is observed, but bestBy comparison
+    # still requires an independently replayed per-pool reset.
     comparisons = stage_indices["primary_compare"]
     current_best = {}
     if comparisons or require_windows:
@@ -770,7 +789,12 @@ def validate(rows: list[dict], *, require_windows: bool = False) -> dict:
             x["reason_code"].endswith("_fallback_readmitted")
             for x in stage_indices["candidate_filter"]),
         "selector_nested_rescue_checks": sum(
-            x["reason_code"].startswith(("residual_high_", "residual_harmonic_", "harmonic_direct_"))
+            x["reason_code"].startswith(("residual_high_", "residual_harmonic_",
+                                           "harmonic_direct_", "low_mid_",
+                                           "low_lower_mid_", "low_midlow_",
+                                           "low_deeplow_", "low_upper_direct_",
+                                           "low_verylow_", "low_upper_recovery_",
+                                           "general_alt_window_"))
             for x in stage_indices["candidate_filter"]),
         "selector_rank_observations": len(stage_indices["primary_rank"]),
         "selector_comparator_observations": len(comparisons),
@@ -837,10 +861,19 @@ def load(path: Path) -> list[dict]:
         raw = stream.read()
     if not raw.endswith("\n") or "\r" in raw or len(raw.splitlines()) > MAX_LINES:
         raise TraceError("trace framing error")
+    def unique_pairs(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise TraceError("duplicate JSON trace key")
+            result[key] = value
+        return result
     try:
-        return [json.loads(line, parse_constant=lambda x: (_ for _ in ()).throw(
-            TraceError("nonfinite literal"))) for line in raw.splitlines()]
-    except json.JSONDecodeError as exc:
+        return [json.loads(line, object_pairs_hook=unique_pairs,
+                           parse_constant=lambda x: (_ for _ in ()).throw(
+                               TraceError("nonfinite literal")))
+                for line in raw.splitlines()]
+    except (json.JSONDecodeError, UnicodeError) as exc:
         raise TraceError("invalid JSON trace") from exc
 
 

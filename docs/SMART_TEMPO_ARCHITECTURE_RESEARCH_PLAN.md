@@ -537,3 +537,26 @@ selector, preferences and writer are unchanged. This proves the candidate
 supply boundary, NOT upstream why no TopK/family rows, all first-veto causes,
 or a positive supplemental Policy→Writer witness. B INCOMPLETE; C BLOCKED;
 musical NO_GO until independent complete evidence.
+
+
+### Phase B – bounded executed selector branch coverage (26 October 2026)
+
+The CI-only native observer now records the actual executed membership checks
+of all eight nested low-pulse rescue pools (58–61 mid/lower-mid, 56–58 mid-low,
+64–67 deep-low, 79–81 lower-mid, 86–90 upper-direct, 50–53 very-low and
+upper recovery), the general-144 alternate window, and both conservative
+raw alias/support fallback readmissions. Every event is source-indexed and
+keeps provisional exclusions distinct from terminal eligibility; a later
+readmission is independently required to have a preceding actual exclusion.
+The strict JSONL parser rejects fabricated gate outcomes, wrong source IDs,
+missing/reordered fallback predecessors and duplicate keys even in nested
+metrics. Positive and adversarial synthetic fixtures run in the early gate.
+
+**Scope limit:** the selector's nested bestBy score-only comparisons, full
+first-decisive candidate veto semantics across all lane branches, positive
+real-host supplemental Policy-to-Writer source identity and upstream zero-MIR
+causation still require a single independent closure audit. A provisional
+negative gate is not an irreversible veto. This source/trace coverage does not
+change production DSP, policy, writer, preferences or user files and does
+**not** authorize Phase C or musical release. The source gate and exact-head
+original Win32/x64 host must pass before these observations count as measured.

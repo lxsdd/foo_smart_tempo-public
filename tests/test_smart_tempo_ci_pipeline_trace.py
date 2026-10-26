@@ -655,6 +655,123 @@ class NativePipelineTraceTests(unittest.TestCase):
         self.assertIn("collapse_mir_candidates(", source)
         self.assertIn("#ifndef SMART_TEMPO_CI_ORACLE_PROBE", header)
 
+    def test_complete_nested_low_pool_and_general_alt_ci_source_gates(self):
+        source = (ROOT / "src/foo_smart_tempo/mir_candidate_pipeline.cpp").read_text(
+            encoding="utf-8")
+        low = source.split("select_mir_low_pulse(", 1)[1].split(
+            "select_mir_low_pulse_continuous_center_rescue(", 1)[0]
+        gates = ["low_mid_58_61","low_lower_mid_58_61","low_midlow_56_58","low_deeplow_64_67","low_lower_mid_79_81","low_upper_direct_86_90","low_verylow_50_53","low_upper_recovery_50_53"]
+        for gate in gates:
+            with self.subTest(gate=gate):
+                self.assertEqual(low.count('"' + gate + '_allowed"'), 1)
+                self.assertEqual(low.count('"' + gate + '_provisional_exclusion"'), 1)
+        self.assertEqual(low.count("const bool ciLowEligible = ("), len(gates))
+        self.assertEqual(source.count('"raw_alias_fallback_readmitted"'), 1)
+        self.assertEqual(source.count('"raw_support_fallback_readmitted"'), 1)
+        self.assertEqual(source.count('"general_alt_window_allowed"'), 1)
+        self.assertIn("#if defined(SMART_TEMPO_CI_ORACLE_PROBE)", low)
+
+    def test_executed_nested_gates_and_raw_fallback_fail_closed(self):
+        low_gates = ["low_mid_58_61","low_lower_mid_58_61","low_midlow_56_58","low_deeplow_64_67","low_lower_mid_79_81","low_upper_direct_86_90","low_verylow_50_53","low_upper_recovery_50_53"]
+        for gate in low_gates + ["general_alt_window"]:
+            for verdict in ("allowed", "provisional_exclusion"):
+                with self.subTest(gate=gate, verdict=verdict):
+                    rows = trace()
+                    reason = gate + "_" + verdict
+                    outcome = "included" if verdict == "allowed" else "excluded"
+                    rows.insert(4, event("candidate_filter", "c1", [], 128.,
+                                         outcome, reason, 0))
+                    for i, row in enumerate(rows):
+                        row["sequence"] = i
+                    self.assertEqual(validate(rows)["selector_branch_checks"], 1)
+                    bad = copy.deepcopy(rows)
+                    bad[4]["outcome"] = "excluded" if outcome == "included" else "included"
+                    with self.assertRaises(TraceError):
+                        validate(bad)
+                    bad = copy.deepcopy(rows)
+                    bad[4]["candidate_id"] = "c0"
+                    with self.assertRaises(TraceError):
+                        validate(bad)
+        for prefix in ("raw_alias", "raw_support"):
+            rows = trace()
+            rows[4:4] = [
+                event("candidate_filter", "c0", [], 128., "excluded",
+                      prefix + "_provisional_exclusion", 0),
+                event("candidate_filter", "c0", [], 128., "included",
+                      prefix + "_fallback_readmitted", 0),
+            ]
+            for i, row in enumerate(rows):
+                row["sequence"] = i
+            self.assertEqual(validate(rows)["selector_fallback_readmissions"], 1)
+            for mutation in ("missing_exclusion", "wrong_order", "wrong_source"):
+                with self.subTest(prefix=prefix, mutation=mutation):
+                    bad = copy.deepcopy(rows)
+                    if mutation == "missing_exclusion":
+                        bad.pop(4)
+                    elif mutation == "wrong_order":
+                        bad[4], bad[5] = bad[5], bad[4]
+                    else:
+                        bad[5]["candidate_id"] = "c1"
+                    for i, row in enumerate(bad):
+                        row["sequence"] = i
+                    with self.assertRaises(TraceError):
+                        validate(bad)
+
+    def test_jsonl_duplicate_keys_rejected_even_inside_nested_metrics(self):
+        with tempfile.TemporaryDirectory() as temp:
+            p = Path(temp) / "pipeline.jsonl"
+            baseline = "".join(json.dumps(x) + "\n" for x in trace())
+            p.write_text(baseline, encoding="utf-8")
+            self.assertEqual(validate(load(p))["rows"], 11)
+            for original, duplicate in (
+                ('"schema": ', '"schema": "forged", "schema": '),
+                ('"metrics": {', '"metrics": {"bpm": 666, '),
+            ):
+                with self.subTest(original=original):
+                    p.write_text(baseline.replace(original, duplicate, 1),
+                                 encoding="utf-8")
+                    with self.assertRaises(TraceError):
+                        load(p)
+
+    def test_low_gate_predicates_are_exact_source_parity_not_shadow_tuning(self):
+        source = (ROOT / "src/foo_smart_tempo/mir_candidate_pipeline.cpp").read_text(
+            encoding="utf-8")
+        low = source.split("select_mir_low_pulse(", 1)[1].split(
+            "select_mir_low_pulse_continuous_center_rescue(", 1)[0]
+        gates = ["low_mid_58_61", "low_lower_mid_58_61", "low_midlow_56_58",
+                 "low_deeplow_64_67", "low_lower_mid_79_81",
+                 "low_upper_direct_86_90", "low_verylow_50_53",
+                 "low_upper_recovery_50_53"]
+
+        def balanced(text, opening):
+            depth = 0
+            for index in range(opening, len(text)):
+                if text[index] == "(":
+                    depth += 1
+                elif text[index] == ")":
+                    depth -= 1
+                    if depth == 0:
+                        return text[opening + 1:index]
+            raise AssertionError("unterminated source condition")
+
+        def compare(text):
+            for gate in gates:
+                marker = text.index('"' + gate + '_allowed"')
+                start = text.rfind("const bool ciLowEligible = (", 0, marker)
+                if start < 0:
+                    return False
+                guard = balanced(text, text.index("(", start))
+                production = text.index("if (", marker)
+                real = balanced(text, text.index("(", production))
+                if re.sub(r"\s+", "", guard) != re.sub(r"\s+", "", real):
+                    return False
+            return True
+
+        self.assertTrue(compare(low))
+        mutated = low.replace("candidate.support >= 0.45",
+                              "candidate.support >= 0.46", 1)
+        self.assertFalse(compare(mutated))
+
     def test_strict_file_framing_limits_and_source_id(self):
         with tempfile.TemporaryDirectory() as temp:
             p = Path(temp) / "pipeline.jsonl"
