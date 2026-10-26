@@ -11,6 +11,7 @@ import json
 import math
 from pathlib import Path
 import re
+from audit_smart_tempo_b_raw_fates import RawFateError, reconcile_native_raw
 
 SCHEMA = "smart_tempo_source_decision_trace_v1"
 MAX_BYTES, MAX_LINES = 2 * 1024 * 1024, 12300
@@ -1013,7 +1014,17 @@ def validate(rows: list[dict], *, require_windows: bool = False,
     }
     incomplete = sum(x["reason_code"] == "pool_only_gate_unresolved"
                      for x in primary_pool)
+    # Strict original-host raw source-inventory conservation. Legacy small
+    # test fixtures are deliberately not claimed as native qualifications.
+    raw_fates = {}
+    if require_windows:
+        try:
+            raw_fates = reconcile_native_raw(rows)
+        except RawFateError as exc:
+            raise TraceError("incomplete or contradictory native raw fate: " +
+                             str(exc)) from exc
     return {
+        **raw_fates,
         "rows": len(rows), "raw": len(raw), "collapsed": len(collapsed),
         "native_source_inventory_verified": int(bool(inventories)),
         "native_empty_board_boundary_verified": 0,
