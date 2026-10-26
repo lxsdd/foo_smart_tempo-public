@@ -489,6 +489,93 @@ bool native_raw_fallback_contract(int variant) {
     return true;
 }
 
+
+/* CI-only original productive general/harmonic rail boundaries.
+ * 0 = General with two decisive out-of-rail excludes;
+ * 1 = Harmonic with two decisive excludes and NO fallback;
+ * 2 = General with zero in-rail sources, mandatory source-indexed readmission.
+ * These are disposable FABRICATED MIR boards, not naturally decoded audio. */
+bool native_rail_contract(int variant) {
+    using namespace smart_tempo;
+    using namespace smart_tempo::mir_pipeline;
+    if (variant < 0 || variant > 2) return false;
+    MirCandidateBoard board{};
+    board.segment_count = 10;
+    const int count = variant == 2 ? 2 : 3;
+    for (int i=0; i<count; ++i) {
+        MirRawCandidate candidate{};
+        candidate.bpm = i==0 ? 30.0 : i==1 && count==3 ? 128.0 : 230.0;
+        candidate.alias_bit = static_cast<uint16_t>(MirAlias::direct);
+        candidate.alias_class = "direct";
+        candidate.synthetic_support =
+            variant == 1 ? (i < 2 ? .90 : .20) :
+            (i == 0 ? .25 : i == 1 ? .35 : .20);
+        candidate.synthetic_winner_support=.05;
+        candidate.score_sum=.25;
+        candidate.best_combined_score=.10;
+        candidate.rows=1;
+        board.raw_candidates.push_back(candidate);
+    }
+    const HodgkinsonTatumProbeResult mir{};
+    const HodgkinsonMaterialRiskEvidence risk{};
+    const auto result = compute_mir_primary_selection(
+        board,mir,risk,nullptr,100.,160.,true);
+    if (std::string_view(result.lane) !=
+            (variant==1 ? "harmonic_conflict" : "general") ||
+        !mir_ci_primary_selector_trace_complete())
+        return false;
+    const char* expected = variant==1 ? "harmonic_rail_decisive_veto"
+                                    : "general_rail_decisive_veto";
+    const char* fallback = "general_rail_fallback_readmitted";
+    std::size_t excluded=0,readmitted=0,firstGate=0;
+    std::size_t rank=0,compare=0,terminal=0;
+    for (const auto& row : mir_ci_primary_selector_events()) {
+        if (row.raw) return false;
+        if (std::strcmp(row.reason,expected)==0) {
+            if (row.included || row.source_index==1 && variant!=2)
+                return false;
+            ++excluded;
+        }
+        if (std::strcmp(row.reason,fallback)==0) {
+            if (!row.included || variant!=2) return false;
+            ++readmitted;
+        }
+        if (std::strcmp(row.reason,variant==1 ? "harmonic_in_rail" :
+                        "general_in_rail")==0 ||
+            std::strcmp(row.reason,variant==1 ? "harmonic_out_of_rail" :
+                        "general_out_of_rail_provisional")==0)
+            ++firstGate;
+        if (std::strcmp(row.reason,variant==1 ? "harmonic_rank_scored" :
+                        "general_baseline_rank_scored")==0) ++rank;
+        if (std::strcmp(row.reason,variant==1 ? "harmonic_compare_won" :
+                        "general_baseline_compare_won")==0 ||
+            std::strcmp(row.reason,variant==1 ? "harmonic_compare_lost" :
+                        "general_baseline_compare_lost")==0) ++compare;
+        if (std::strcmp(row.reason,"terminal_lane_choice")==0) ++terminal;
+    }
+    if (firstGate!=static_cast<std::size_t>(count)) return false;
+    if (variant == 2)
+        return excluded==0 && readmitted==2 && rank==2 &&
+               compare==2 && terminal==1;
+    return excluded==2 && readmitted==0 && rank==1 &&
+           compare==1 && terminal==1 && result.selected_bpm==128.0;
+}
+bool write_native_rail_marker() {
+    if (!native_rail_contract(0) || !native_rail_contract(1) ||
+        !native_rail_contract(2)) return false;
+    const std::wstring path=g_ci_fixture+L".native-cluster-rail";
+    HANDLE handle=::CreateFileW(path.c_str(),GENERIC_WRITE,0,nullptr,CREATE_NEW,
+                                FILE_ATTRIBUTE_NORMAL,nullptr);
+    if (handle==INVALID_HANDLE_VALUE) return false;
+    constexpr char proof[]="SMART_TEMPO_CI_NATIVE_RAIL=PASS\n";
+    DWORD written=0;
+    const bool ok=::WriteFile(handle,proof,
+        static_cast<DWORD>(sizeof(proof)-1),&written,nullptr) &&
+        written==sizeof(proof)-1;
+    ::CloseHandle(handle);
+    return ok;
+}
+
 bool write_native_raw_fallback_marker() {
     if (!native_raw_fallback_contract(0) ||
         !native_raw_fallback_contract(1) ||
@@ -551,6 +638,11 @@ void CALLBACK run_ci_probe(HWND, UINT, UINT_PTR timer, DWORD) {
             return;
         }
         FB2K_console_formatter() << "SMART_TEMPO_CI_NATIVE_LOW_NESTED=PASS";
+        if (!write_native_rail_marker()) {
+            FB2K_console_formatter() << "SMART_TEMPO_CI_NATIVE_RAIL=FAIL";
+            return;
+        }
+        FB2K_console_formatter() << "SMART_TEMPO_CI_NATIVE_RAIL=PASS";
         if (!write_native_raw_fallback_marker()) {
             FB2K_console_formatter() << "SMART_TEMPO_CI_NATIVE_RAW_FALLBACK=FAIL";
             return;

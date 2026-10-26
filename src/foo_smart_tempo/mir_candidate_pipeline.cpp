@@ -1719,6 +1719,17 @@ select_mir_low_pulse_continuous_center_rescue(
       pool.push_back(&candidate);
     }
   }
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+  // Harmonic has no rail fallback; every out-of-rail source is a genuine
+  // decisive rail veto for this executed lane, not a provisional rejection.
+  for (const auto& candidate : candidates)
+    if (!(candidate.bpm >= kMirProductionMinBpm &&
+          candidate.bpm <= kMirProductionMaxBpm))
+      ci_primary_event(static_cast<std::size_t>(
+                           &candidate - candidates.data()),
+                       candidate.bpm, candidate.support, false, false,
+                       "harmonic_rail_decisive_veto");
+#endif
   const MirCandidate* best = nullptr;
   double bestScore = -std::numeric_limits<double>::infinity();
   for (const auto* candidate : pool) {
@@ -1794,6 +1805,19 @@ select_mir_low_pulse_continuous_center_rescue(
       pool.push_back(&candidate);
     }
   }
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+  else {
+    // The productive General rail fallback did not fire: an out-of-rail
+    // source cannot re-enter this selector's baseline or 144 alternative.
+    for (const auto& candidate : candidates)
+      if (!(candidate.bpm >= kMirProductionMinBpm &&
+            candidate.bpm <= kMirProductionMaxBpm))
+        ci_primary_event(static_cast<std::size_t>(
+                             &candidate - candidates.data()),
+                         candidate.bpm, candidate.support, false, false,
+                         "general_rail_decisive_veto");
+  }
+#endif
   const MirCandidate* baseline = best_mir_cluster_candidate(
       candidates, pool, lane, routeMin, routeMax, routeCenter);
   if (baseline == nullptr || routeCenter >= 150.0) {

@@ -210,6 +210,14 @@ function Run-Case([string]$installer,[string]$root,[string]$inputFile,[string[]]
       throw 'Original host did not prove native raw alias/support fallback sequence'
     }
     Write-Host ("SMART_TEMPO_NATIVE_RAW_FALLBACK_{0}_{1}=PASS" -f $Architecture,$label)
+    # Source-ID exact original selector General/Harmonic rail + fallback.
+    $railProof=$inputFile+'.native-cluster-rail'
+    if (-not (Test-Path -LiteralPath $railProof -PathType Leaf) -or
+        (Get-Content -LiteralPath $railProof -Raw) -cne
+        "SMART_TEMPO_CI_NATIVE_RAIL=PASS`n") {
+      throw 'Original host did not prove native General/Harmonic rail disposition'
+    }
+    Write-Host ("SMART_TEMPO_NATIVE_RAIL_{0}_{1}=PASS" -f $Architecture,$label)
     # Additional positive/negative in-process low bestBy sequence, 60->80->71.
     # This is a separate synthetic board, NOT decoded-audio BPM quality.
     $nestedProof=$inputFile+'.native-low-nested'
