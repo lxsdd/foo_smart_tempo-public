@@ -826,3 +826,31 @@ This is **not** proof that any fixed synthetic WAV actually triggered the
 continuous-center rescue, nor completion of all first-decisive candidate
 vetoes or Policy supplemental provenance. Win32/x64 original-host source
 qualification is mandatory. Phase B still INCOMPLETE, C CLOSED, musical NO_GO.
+
+
+### 26 October 2026: original host positive and negative actual C++ continuous-center comparator proof
+
+The independent synthetic post-host parser now has full five-field
+lexicographic provenance, but the four frozen decoded-WAV pilot cases did
+not trigger this branch (Win32/x64 actual 0 comparator events). To avoid
+falsely counting a positive branch not exercised by those WAVs, an
+**additional, clearly separated CI-only in-host native selector control**
+now constructs a public three-candidate `MirCandidateBoard` (60/96/99
+BPM) in the foobar process, using only invented support and continuous
+feature values. It calls the **actual productive**
+`compute_mir_primary_selection` function (not a shadow ranker),
+once with route-center 99 and once with center 96. Both use the same
+three input candidates, same matched public `Chill` route, same feature
+evidence and normal production selector. The full recorded native
+five-field comparisons must prove the winner changes from 99 to 96,
+with 2 wins/0 losses and 1 win/1 loss respectively, and that the lane
+terminal exactly references the chosen cluster. CI-only code creates
+a unique PASS marker strictly adjacent to the synthetic input under
+RUNNER_TEMP, which the real Win32 and x64 host harness must verify
+**before** it credits the original diagnostic result. It may never be
+counted as a decoded-audio BPM-accuracy case or substituted for the
+original four-case WAV/CUE decoder/writer-safety and independent
+host-trace audit. A fake marker without native in-process evidence,
+a reordered or stale winner, a missing fifth field or an incorrect
+candidate source must fail closed. No production DSP/selector/writer,
+user files or publication gate is changed.

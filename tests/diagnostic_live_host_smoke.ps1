@@ -180,6 +180,16 @@ function Run-Case([string]$installer,[string]$root,[string]$inputFile,[string[]]
       Write-Host ("HOST_WINDOWS_AT_TIMEOUT_{0}: {1}" -f $label,[STUI]::Titles($hostProcess.Id))
       throw "CI SDK probe did not reach diagnostic results for $label"
     }
+    # Generated ONLY by the original in-host CI-only direct selector probe,
+    # which proves the executed five-field winner and the opposite-center
+    # loser on the same fabricated candidate board (no decoded audio).
+    $nativeProof=$inputFile+'.native-continuous'
+    if (-not (Test-Path -LiteralPath $nativeProof -PathType Leaf) -or
+        (Get-Content -LiteralPath $nativeProof -Raw) -cne
+        "SMART_TEMPO_CI_NATIVE_CONTINUOUS=PASS`n") {
+      throw 'Original host did not prove native five-field continuous comparator'
+    }
+    Write-Host ("SMART_TEMPO_NATIVE_CONTINUOUS_{0}_{1}=PASS" -f $Architecture,$label)
     $rows=[STUI]::Rows($dialog)
     if ($rows -lt $minimum) { throw "Only $rows result rows for $label; expected $minimum" }
     if (-not [STUI]::ButtonDisabled($dialog)) { throw 'Diagnostic Update control enabled' }

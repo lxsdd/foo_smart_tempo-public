@@ -64,6 +64,29 @@ class PilotContract(unittest.TestCase):
         self.assertEqual(script.count("-RequireLowPulseCoverage"), 1)
         self.assertIn("if ($caseId -ceq 'pulse_60')", script)
 
+    def test_native_two_center_direct_selector_proof_is_ci_only_and_real_host(self):
+        source = self.read("tests/smart_tempo_ci_probe.cpp")
+        script = self.read("tests/diagnostic_live_host_smoke.ps1")
+        project = self.read("src/foo_smart_tempo/foo_smart_tempo.vcxproj")
+        self.assertIn("SMART_TEMPO_CI_ORACLE_PROBE", source)
+        self.assertIn("native_continuous_selector_contract(99., 99., 2, 0)", source)
+        self.assertIn("native_continuous_selector_contract(96., 96., 1, 1)", source)
+        self.assertIn("compute_mir_primary_selection(", source)
+        self.assertIn("mir_ci_primary_selector_events()", source)
+        self.assertIn('row.tie_metric_4 != -std::abs(row.bpm - center)', source)
+        self.assertIn('CREATE_NEW', source)
+        self.assertIn('SMART_TEMPO_CI_NATIVE_CONTINUOUS=PASS', source)
+        self.assertIn("SMART_TEMPO_CI_NATIVE_CONTINUOUS=PASS", script)
+        self.assertIn("Get-Content -LiteralPath $nativeProof -Raw", script)
+        self.assertIn("throw 'Original host did not prove native", script)
+        self.assertIn("SmartTempoCIRuntimeProbe", project)
+        self.assertNotIn("std::getenv(\"USERPROFILE\")", source)
+        # Neither generic release component nor owners' music files can run
+        # or observe this branch fixture outside ephemeral Actions runner.
+        self.assertIn("githubActions != L\"true\"", source)
+        self.assertIn("RUNNER_TEMP", source)
+        self.assertEqual(script.count('SMART_TEMPO_NATIVE_CONTINUOUS_{0}_{1}=PASS'), 1)
+
     def test_original_host_script_not_truncated_or_repeated(self):
         script = self.read("tests/diagnostic_live_host_smoke.ps1")
         self.assertEqual(script.count("function Run-Case("), 1)
