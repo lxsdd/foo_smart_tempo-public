@@ -1171,7 +1171,7 @@ class NativePipelineTraceTests(unittest.TestCase):
         sub = cpp.split("select_mir_low_pulse_continuous_center_rescue(", 1)[1]
         sub = sub.split("select_mir_harmonic_soft(", 1)[0]
         def normal(fragment):
-            return re.sub(r"\\s+", "", fragment)
+            return re.sub(r"\s+", "", fragment)
         # Independent source contract: exactly the SAME ordered five
         # productive tuple operands; no hidden CI shadow selector tuning.
         candidate_fields = (
