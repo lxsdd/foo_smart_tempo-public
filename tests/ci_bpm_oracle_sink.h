@@ -66,6 +66,14 @@ inline std::wstring approved_fixture() {
       L"meter_3_4_120_quarter", L"meter_6_8_80_dotted",
       L"meter_3_4_150_quarter", L"meter_6_8_100_dotted",
       L"meter_ambiguous_120q_80dq",
+      L"challenge_73_25_cross32", L"challenge_97_25_cross54",
+      L"challenge_129_37_clave", L"challenge_161_80_odd7",
+      L"challenge_189_60_halftrap", L"challenge_67_40_doubletrap",
+      L"challenge_143_60_ghostswing", L"challenge_118_75_phasehats",
+      L"challenge_103_30_sparsekick", L"challenge_151_25_humanized",
+      L"challenge_84_60_masked", L"challenge_212_50_fast",
+      L"challenge_57_35_slow", L"challenge_108_142_switch",
+      L"challenge_nonperiodic", L"challenge_steady_tone",
       L"window_128_four_floor", L"window_175_breakbeat", L"window_110_shuffle",
       L"window_100_odd_five", L"window_90_128_switch",
       L"window_nonperiodic_percussion"};
@@ -205,6 +213,38 @@ inline bool record_policy(const char* policyReason,
   return true;
 }
 
+// Numeric provenance only in synthetic CI; no source strings leave this file.
+inline int bounded_source_bits(const char* source) noexcept {
+  if (source == nullptr || *source == '\0') return 0;
+  struct Label { const char* token; int mask; };
+  constexpr Label labels[] = {
+      {"full_board", 1}, {"primary_selector", 2},
+      {"material_risk_probe", 4}, {"partial_bar_aggregate", 8},
+      {"partial_bar_topk", 16}};
+  int bits = 0;
+  const char* cursor = source;
+  while (*cursor) {
+    const char* end = std::strchr(cursor, '|');
+    const std::size_t n = end ? static_cast<std::size_t>(end - cursor)
+                              : std::strlen(cursor);
+    bool known = false;
+    for (const auto& label : labels) {
+      if (std::strlen(label.token) == n &&
+          std::strncmp(cursor, label.token, n) == 0) {
+        if (bits & label.mask) return 0;
+        bits |= label.mask;
+        known = true;
+        break;
+      }
+    }
+    if (!known) return 0;
+    if (end == nullptr) break;
+    cursor = end + 1;
+    if (*cursor == '\0') return 0;
+  }
+  return bits;
+}
+
 template <typename CandidateGroups>
 inline bool record(const std::vector<double>& bpm,
                    const std::vector<uint8_t>& withheld,
@@ -239,6 +279,8 @@ inline bool record(const std::vector<double>& bpm,
   // board. No filenames, genre, artist, source strings or reference BPM are
   // serialized. This sidecar never affects a production analysis decision.
   std::string evidence = "rank,bpm,evidence,support,winner,local_exact\n";
+  const bool challenge = fixture.find(L"challenge_") != std::wstring::npos;
+  std::string origins = "rank,bpm,source_bits\n";
   const auto& rows = candidates.front();
   const std::size_t maxRows = rows.size() < 32 ? rows.size() : 32;
   for (std::size_t index = 0; index < maxRows; ++index) {
@@ -256,6 +298,13 @@ inline bool record(const std::vector<double>& bpm,
     evidence += "," + std::to_string(candidate.support);
     evidence += "," + std::to_string(candidate.winner_support);
     evidence += "," + std::to_string(candidate.local_exact_score) + "\n";
+    if (challenge) {
+      const int bits = bounded_source_bits(candidate.sources.get_ptr());
+      if (bits == 0) return false;
+      origins += std::to_string(candidate.evidence_rank) + "," +
+                 std::to_string(candidate.bpm) + "," +
+                 std::to_string(bits) + "\n";
+    }
   }
   const std::wstring evidencePath = fixture + L".candidates.csv";
   HANDLE evidenceHandle = CreateFileW(
@@ -270,6 +319,21 @@ inline bool record(const std::vector<double>& bpm,
   if (!evidenceWritten || evidenceCount != evidence.size()) {
     DeleteFileW(evidencePath.c_str());
     return false;
+  }
+  if (challenge) {
+    const std::wstring path = fixture + L".sources.csv";
+    HANDLE h = CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr,
+                           CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (h == INVALID_HANDLE_VALUE) return false;
+    DWORD count = 0;
+    const BOOL wrote = WriteFile(h, origins.data(),
+                                 static_cast<DWORD>(origins.size()),
+                                 &count, nullptr);
+    CloseHandle(h);
+    if (!wrote || count != origins.size()) {
+      DeleteFileW(path.c_str());
+      return false;
+    }
   }
   return true;
 }
