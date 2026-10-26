@@ -57,3 +57,13 @@ vs a one-alias-change control that must stop at 80 after two episodes.
 Windows Win32/x64 exact SHA CI **must pass** before qualifying this milestone;
 actual decoded-audio natural nested rescue remains unmeasured. Production
 BPM and privacy gates unchanged; Phase B INCOMPLETE, release NO_GO.
+
+
+### 26 Oct 2026 — native raw alias/support fallback block
+
+Five-file CI-only addition on active #39: three unmodified native raw
+selector calls under sparse/acapella with precise original source IDs,
+including both alias/support fallback, no fallback and alias-only fallback.
+First-exclusion does not imply decisive veto. Requires exact new-head
+Win32/x64 original-host GitHub CI plus no public artifacts before
+qualification; frozen decoded audio musical outcome and NO_GO unchanged.

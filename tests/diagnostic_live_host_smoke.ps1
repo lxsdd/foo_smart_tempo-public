@@ -201,6 +201,15 @@ function Run-Case([string]$installer,[string]$root,[string]$inputFile,[string[]]
       throw 'Original host did not prove native supplemental object and writer guard'
     }
     Write-Host ("SMART_TEMPO_NATIVE_SUPPLEMENTAL_{0}_{1}=PASS" -f $Architecture,$label)
+    # Independently qualified raw alias + raw support fallback decisions.
+    # Three separate *native* selector calls use CI-only fabricated objects.
+    $rawProof=$inputFile+'.native-raw-fallback'
+    if (-not (Test-Path -LiteralPath $rawProof -PathType Leaf) -or
+        (Get-Content -LiteralPath $rawProof -Raw) -cne
+        "SMART_TEMPO_CI_NATIVE_RAW_FALLBACK=PASS`n") {
+      throw 'Original host did not prove native raw alias/support fallback sequence'
+    }
+    Write-Host ("SMART_TEMPO_NATIVE_RAW_FALLBACK_{0}_{1}=PASS" -f $Architecture,$label)
     # Additional positive/negative in-process low bestBy sequence, 60->80->71.
     # This is a separate synthetic board, NOT decoded-audio BPM quality.
     $nestedProof=$inputFile+'.native-low-nested'

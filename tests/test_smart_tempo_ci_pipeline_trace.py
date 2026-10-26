@@ -2122,5 +2122,55 @@ class NativePipelineTraceTests(unittest.TestCase):
             with self.subTest(guard=guard):
                 self.assertNotEqual(probe.find(guard), -1)
 
+
+    def test_native_raw_alias_and_support_fallback_positive_negative_host_parity(self):
+        probe = (ROOT / "tests" / "smart_tempo_ci_probe.cpp").read_text(
+            encoding="utf-8")
+        host = (ROOT / "tests" / "diagnostic_live_host_smoke.ps1").read_text(
+            encoding="utf-8")
+        source = (ROOT / "src" / "foo_smart_tempo" /
+                  "mir_candidate_pipeline.cpp").read_text(encoding="utf-8")
+        for text in ("native_raw_fallback_contract(0)",
+                     "native_raw_fallback_contract(1)",
+                     "native_raw_fallback_contract(2)",
+                     "raw_alias_fallback_readmitted",
+                     "raw_support_fallback_readmitted",
+                     "raw_alias_provisional_exclusion",
+                     "raw_support_provisional_exclusion",
+                     "raw_compare_won",
+                     "terminal_final_choice",
+                     "const std::array<E, 15> fallbackBoth",
+                     "const std::array<E, 8> directOnly",
+                     "const std::array<E, 11> aliasOnly",
+                     "event.source_index == expected.source",
+                     "event.raw == expected.raw",
+                     "event.included == expected.included",
+                     "if (events.size() != expected.size())",
+                     "SMART_TEMPO_CI_NATIVE_RAW_FALLBACK=PASS",
+                     "MirAlias::one_third", "MirAlias::quarter",
+                     "MirAlias::direct"):
+            self.assertIn(text, probe)
+        self.assertIn("SMART_TEMPO_NATIVE_RAW_FALLBACK_{0}_{1}=PASS", host)
+        self.assertIn(
+            "Original host did not prove native raw alias/support fallback sequence",
+            host)
+        for reason in ("raw_alias_fallback_readmitted",
+                       "raw_support_fallback_readmitted",
+                       "raw_alias_provisional_exclusion",
+                       "raw_support_provisional_exclusion"):
+            self.assertIn('"' + reason + '"', source)
+        self.assertIn("const MirRawCandidate* select_mir_raw_conservative", source)
+        self.assertNotIn("metadb_io::get()->update_info", probe)
+
+    def test_native_raw_fallback_no_private_artifacts_and_frozen_oracle(self):
+        probe = (ROOT / "tests" / "smart_tempo_ci_probe.cpp").read_text(
+            encoding="utf-8")
+        workflow = (ROOT / ".github" / "workflows" / "source.yml").read_text(
+            encoding="utf-8")
+        self.assertIn("CREATE_NEW", probe)
+        self.assertIn("g_ci_fixture + L\".native-raw-fallback\"", probe)
+        self.assertNotIn("reference_bpm", probe)
+        self.assertNotIn("upload-artifact", workflow)
+
 if __name__ == "__main__":
     unittest.main()

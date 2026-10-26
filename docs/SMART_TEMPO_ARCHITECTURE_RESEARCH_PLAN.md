@@ -930,3 +930,32 @@ for **every** collapsed source; it is a chronology/conservation subgate, not
 permission to start Phase C. No productive DSP/selector/policy/writer change,
 private audio, public binaries or user writes. This change requires an
 exact-head original-host Windows CI PASS before native qualification.
+
+
+### 26 October 2026: source-indexed native raw alias/support fallback on actual foobar hosts
+
+The CI-only original-host driver now calls the unchanged real C++
+`compute_mir_primary_selection` on three variants of a fixed two-source
+(103/129 BPM) board under the actual `sparse_or_acapella` lane. The
+independent exact native-event order is checked for three paths: (A)
+both raw aliases provisionally excluded and **both readmitted**, then
+support filtered and **both readmitted**; (B) only the 129 BPM direct
+alias admitted, with no fallback; (C) both aliases readmitted but only
+the 129 BPM source surviving the support floor, thus **no support
+fallback**. Every path checks native score/rank/compare adjacency,
+source-index identity, event reason/outcome, and the same 129 BPM
+terminal clustered source. The variants exercise the original selector,
+not synthetic Python or a new production threshold.
+
+Win32 and x64 original foobar driver must emit their unique runner-temp
+`.native-raw-fallback` marker only after **all three** paths pass;
+PowerShell validates the exact marker in each original-host media test.
+The frozen four-case decoded-audio accuracy denominator stays unchanged.
+A provisional `raw_alias_provisional_exclusion` must never be claimed
+as a decisive veto when a later fallback readmits the same source.
+This proves these *in-process* C++ branches, not that ordinary decoded
+WAV/CUE naturally took those particular paths. Remaining Phase B
+first-decisive universal veto and selected supplemental decoded-source
+Policy/writer lineage gates are still INCOMPLETE; Phase C CLOSED and
+musical NO_GO. No private media, productive DSP/threshold/writer,
+user metadata/DB writes, merge, tag, release or public binary.

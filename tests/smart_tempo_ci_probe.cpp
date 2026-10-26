@@ -324,6 +324,144 @@ bool write_native_low_nested_marker() {
     return ok;
 }
 
+
+/*
+ * Actual original selector raw alias / support fallback. All three cases
+ * execute native C++ on CI-FABRICATED same input objects; the ONLY changes:
+ * raw alias on second candidate and its support.
+ * 0: all aliases rejected, all support rejected -> both FALLBACKs
+ * 1: second is direct/high support -> NO fallback; first never ranked
+ * 2: all aliases rejected, only second supported -> alias fallback ONLY
+ * This never modifies metadata, DSP, the production selector or writer.
+ */
+bool native_raw_fallback_contract(int variant) {
+    using namespace smart_tempo;
+    using namespace smart_tempo::mir_pipeline;
+    if (variant < 0 || variant > 2) return false;
+    MirCandidateBoard board{};
+    board.segment_count = 10;
+    for (int index = 0; index < 2; ++index) {
+        MirRawCandidate raw{};
+        raw.bpm = index == 0 ? 103.0 : 129.0;
+        raw.alias_bit = index == 0
+            ? static_cast<uint16_t>(MirAlias::one_third)
+            : static_cast<uint16_t>(variant == 1
+                ? MirAlias::direct : MirAlias::quarter);
+        raw.alias_class = index == 0 ? "one_third" :
+            variant == 1 ? "direct" : "quarter";
+        raw.synthetic_support = index == 0 ? .01 :
+                                variant == 0 ? .02 : .80;
+        raw.synthetic_winner_support = 0.01;
+        raw.score_sum = index == 0 ? .10 : 3.0;
+        raw.best_combined_score = index == 0 ? .10 : .90;
+        raw.rows = 1;
+        board.raw_candidates.push_back(raw);
+    }
+    MirRoutingContext route{};
+    route.source_genres = "Acapella";
+    route.matched_token = "Acapella";
+    route.route_matched = true;
+    const HodgkinsonTatumProbeResult mir{};
+    const HodgkinsonMaterialRiskEvidence risk{};
+    const auto result = compute_mir_primary_selection(
+        board, mir, risk, &route, 111.0, 157.0, true);
+    if (std::string_view(result.lane) != "sparse_or_acapella" ||
+        std::string_view(result.lane_variant) != "conservative" ||
+        result.selected_bpm != 129.0 ||
+        !mir_ci_primary_selector_trace_complete())
+        return false;
+
+    struct Expected {
+        const char* reason;
+        std::size_t source;
+        bool raw;
+        bool included;
+    };
+    using E = Expected;
+    const std::array<E, 15> fallbackBoth{{
+        E{"raw_alias_provisional_exclusion", 0, true, false},
+        E{"raw_alias_provisional_exclusion", 1, true, false},
+        E{"raw_alias_fallback_readmitted", 0, true, true},
+        E{"raw_alias_fallback_readmitted", 1, true, true},
+        E{"raw_support_provisional_exclusion", 0, true, false},
+        E{"raw_support_provisional_exclusion", 1, true, false},
+        E{"raw_support_fallback_readmitted", 0, true, true},
+        E{"raw_support_fallback_readmitted", 1, true, true},
+        E{"raw_rank_scored", 0, true, true},
+        E{"raw_compare_won", 0, true, true},
+        E{"raw_rank_scored", 1, true, true},
+        E{"raw_compare_won", 1, true, true},
+        E{"terminal_lane_choice", 1, false, true},
+        E{"terminal_residual_choice", 1, false, true},
+        E{"terminal_final_choice", 1, false, true},
+    }};
+    const std::array<E, 8> directOnly{{
+        E{"raw_alias_provisional_exclusion", 0, true, false},
+        E{"raw_alias_allowed", 1, true, true},
+        E{"raw_support_allowed", 1, true, true},
+        E{"raw_rank_scored", 1, true, true},
+        E{"raw_compare_won", 1, true, true},
+        E{"terminal_lane_choice", 1, false, true},
+        E{"terminal_residual_choice", 1, false, true},
+        E{"terminal_final_choice", 1, false, true},
+    }};
+    const std::array<E, 11> aliasOnly{{
+        E{"raw_alias_provisional_exclusion", 0, true, false},
+        E{"raw_alias_provisional_exclusion", 1, true, false},
+        E{"raw_alias_fallback_readmitted", 0, true, true},
+        E{"raw_alias_fallback_readmitted", 1, true, true},
+        E{"raw_support_provisional_exclusion", 0, true, false},
+        E{"raw_support_allowed", 1, true, true},
+        E{"raw_rank_scored", 1, true, true},
+        E{"raw_compare_won", 1, true, true},
+        E{"terminal_lane_choice", 1, false, true},
+        E{"terminal_residual_choice", 1, false, true},
+        E{"terminal_final_choice", 1, false, true},
+    }};
+    const auto eventMatches = [](const MirCiSelectorEvent& event,
+                                 const E& expected) {
+        return std::strcmp(event.reason, expected.reason) == 0 &&
+               event.source_index == expected.source &&
+               event.raw == expected.raw &&
+               event.included == expected.included &&
+               event.bpm == (expected.source == 0 ? 103.0 : 129.0);
+    };
+    const auto events = mir_ci_primary_selector_events();
+    const auto check = [&](const auto& expected) {
+        if (events.size() != expected.size()) return false;
+        for (std::size_t i = 0; i < expected.size(); ++i) {
+            if (!eventMatches(events[i], expected[i]))
+                return false;
+        }
+        return true;
+    };
+    if (variant == 0 && !check(fallbackBoth)) return false;
+    if (variant == 1 && !check(directOnly)) return false;
+    if (variant == 2 && !check(aliasOnly)) return false;
+    // Exact native source-index terminal and at least one genuine raw
+    // comparator; first alias exclusion must NOT be called a final veto.
+    return true;
+}
+
+bool write_native_raw_fallback_marker() {
+    if (!native_raw_fallback_contract(0) ||
+        !native_raw_fallback_contract(1) ||
+        !native_raw_fallback_contract(2))
+        return false;
+    const std::wstring output = g_ci_fixture + L".native-raw-fallback";
+    const HANDLE handle = ::CreateFileW(
+        output.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_NEW,
+        FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (handle == INVALID_HANDLE_VALUE) return false;
+    constexpr char kPass[] = "SMART_TEMPO_CI_NATIVE_RAW_FALLBACK=PASS\n";
+    DWORD written = 0;
+    const bool ok = ::WriteFile(handle, kPass,
+        static_cast<DWORD>(sizeof(kPass) - 1), &written, nullptr) &&
+        written == sizeof(kPass) - 1;
+    ::CloseHandle(handle);
+    return ok;
+}
+
 bool write_native_continuous_marker() {
     // Run both centers on exactly the SAME fabricated sources. Reversing
     // only the route-center distance must reverse the measured incumbent
@@ -364,6 +502,11 @@ void CALLBACK run_ci_probe(HWND, UINT, UINT_PTR timer, DWORD) {
             return;
         }
         FB2K_console_formatter() << "SMART_TEMPO_CI_NATIVE_LOW_NESTED=PASS";
+        if (!write_native_raw_fallback_marker()) {
+            FB2K_console_formatter() << "SMART_TEMPO_CI_NATIVE_RAW_FALLBACK=FAIL";
+            return;
+        }
+        FB2K_console_formatter() << "SMART_TEMPO_CI_NATIVE_RAW_FALLBACK=PASS";
         if (!write_native_continuous_marker()) {
             FB2K_console_formatter() << "SMART_TEMPO_CI_NATIVE_CONTINUOUS=FAIL";
             return;
