@@ -138,7 +138,8 @@ class TraceError(ValueError):
 
 
 def validate(rows: list[dict], *, require_windows: bool = False,
-             require_segments: bool = False) -> dict:
+             require_segments: bool = False,
+             require_native_comparator: bool = False) -> dict:
     # Library callers may test legacy minimal traces. The real host CLI
     # always requires both actual windows and actual native MIR segments.
     if require_segments and not require_windows:
@@ -723,7 +724,7 @@ def validate(rows: list[dict], *, require_windows: bool = False,
             lane_continuous_rescue_unranked = 1
         else:
             raise TraceError("terminal lane candidate was not a native comparator winner")
-    if require_windows and terminal and not comparisons:
+    if require_native_comparator and terminal and not comparisons:
         raise TraceError("native lane terminal has no executed comparator provenance")
     if terminal:
         actual = [row["reason_code"] for row in terminal]
@@ -1020,7 +1021,8 @@ def main() -> None:
     parser.add_argument("--require-windows", action="store_true")
     a = parser.parse_args()
     result = validate(load(a.trace), require_windows=a.require_windows,
-                      require_segments=a.require_windows)
+                      require_segments=a.require_windows,
+                      require_native_comparator=a.require_windows)
     print("SMART_TEMPO_CI_PIPELINE_TRACE_SCHEMA=PASS")
     for key, value in result.items():
         print(f"SMART_TEMPO_TRACE_{key.upper()}={value}")
