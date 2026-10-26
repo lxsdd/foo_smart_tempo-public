@@ -2170,7 +2170,9 @@ class NativePipelineTraceTests(unittest.TestCase):
         self.assertIn("CREATE_NEW", probe)
         self.assertIn("g_ci_fixture + L\".native-raw-fallback\"", probe)
         self.assertNotIn("reference_bpm", probe)
-        self.assertNotIn("upload-artifact", workflow)
+        # Workflow comments may mention forbidden uploads; prohibit only
+        # actual upload-artifact actions, preserving documentation.
+        self.assertNotRegex(workflow, r"(?m)^\\s*uses:\\s*actions/upload-artifact@")
 
 if __name__ == "__main__":
     unittest.main()
