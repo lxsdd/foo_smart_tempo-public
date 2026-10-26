@@ -137,6 +137,31 @@ jobs:
           # BPM accuracy is NOT asserted here; future CI will analyze these
           # fixtures with the real component and compare its reported BPMs.
 
+      - name: Verify recovered frozen synthetic research portfolio contracts
+        shell: pwsh
+        run: |
+          # Reuse original source tests from #37 and #38, with NO private
+          # audio and NO duplicated fixture generator implementation.
+          $suites = @(
+            'test_synthetic_frozen_oracle_anchors.py',
+            'test_synthetic_meter_challenge.py',
+            'test_synthetic_window_sweep.py',
+            'test_synthetic_temporal_sweep.py',
+            'test_prospective_bpm_scorer.py',
+            'test_prospective_pass_sweep.py',
+            'test_synthetic_complex_challenge.py',
+            'test_synthetic_export_rank.py',
+            'test_synthetic_genre_prior.py',
+            'test_synthetic_policy_stage.py',
+            'test_synthetic_source_bits.py',
+            'test_synthetic_stage_shadow.py'
+          )
+          foreach ($suite in $suites) {
+            python -m unittest discover -s tests -p $suite -v
+            if ($LASTEXITCODE -ne 0) { throw "Recovered research suite failed: $suite" }
+          }
+          Write-Host 'SMART_TEMPO_REUSED_PORTFOLIO_REGRESSION=PASS'
+
       - name: Verify BPM oracle scoring and ambiguous/held cases
         shell: pwsh
         run: |
