@@ -414,7 +414,7 @@ def validate(rows: list[dict], *, require_windows: bool = False,
             if previous is None:
                 expected_win = True
             else:
-                prior_score, prior_tie = previous
+                prior_score, prior_tie, _ = previous
                 expected_win = (
                     score > prior_score + 1e-9 or
                     (abs(score - prior_score) <= 1e-9 and tie > prior_tie)
@@ -422,7 +422,7 @@ def validate(rows: list[dict], *, require_windows: bool = False,
             if won != expected_win:
                 raise TraceError("native comparator score/tie chronology contradicted")
             if won:
-                current_best[comparator_key] = (score, tie)
+                current_best[comparator_key] = (score, tie, row["candidate_id"])
     for single in ("primary_select", "policy_resolution",
                    "policy_pointer", "policy_change", "final_output",
                    "measured_witness", "write_guard"):
@@ -687,6 +687,44 @@ def validate(rows: list[dict], *, require_windows: bool = False,
                  for p in primary["parent_candidate_ids"]))):
         raise TraceError("selected primary candidate has no matching clustered witness")
     terminal = stage_indices["primary_terminal"]
+    # Replay the actual terminal lane object against the final winner of
+    # each executed comparator pool. A ranked loser cannot become the lane
+    # terminal by simply retaining a valid candidate ID and matching BPM.
+    # Raw lanes select a collapsed object by the raw winner's first-match
+    # parent; nested low-pulse bestBy pools each have their own incumbent.
+    # The separate low continuous-center rescue is only a source-indexed
+    # allowed gate (no comparator tuple), so it is explicitly UNPROVEN.
+    lane_comparator_winner_proven = 0
+    lane_continuous_rescue_unranked = 0
+    if terminal and comparisons:
+        lane_id = terminal[0]["candidate_id"]
+        winning_clusters = {
+            state[2] for family, state in current_best.items()
+            if family != "raw"
+        }
+        winning_raw = {
+            state[2] for family, state in current_best.items()
+            if family == "raw"
+        }
+        lane_cluster = next(
+            (cluster for cluster in collapsed
+             if cluster["candidate_id"] == lane_id), None)
+        raw_parent_won = bool(lane_cluster and any(
+            parent in winning_raw
+            for parent in lane_cluster["parent_candidate_ids"]))
+        continuous_allowed = any(
+            row["candidate_id"] == lane_id and
+            row["reason_code"] == "low_continuous_allowed" and
+            row["outcome"] == "included"
+            for row in stage_indices["candidate_filter"])
+        if lane_id in winning_clusters or raw_parent_won:
+            lane_comparator_winner_proven = 1
+        elif continuous_allowed:
+            lane_continuous_rescue_unranked = 1
+        else:
+            raise TraceError("terminal lane candidate was not a native comparator winner")
+    if require_windows and terminal and not comparisons:
+        raise TraceError("native lane terminal has no executed comparator provenance")
     if terminal:
         actual = [row["reason_code"] for row in terminal]
         allowed = ("terminal_lane_choice", "terminal_residual_choice",
@@ -917,6 +955,8 @@ def validate(rows: list[dict], *, require_windows: bool = False,
         "selector_compare_low_losses": sum(
             x["reason_code"] == "low_compare_lost" for x in comparisons),
         "selector_terminal_observations": len(stage_indices["primary_terminal"]),
+        "selector_lane_comparator_winner_proven": lane_comparator_winner_proven,
+        "selector_lane_continuous_rescue_unranked": lane_continuous_rescue_unranked,
         "selector_disposition_observations": len(dispositions),
         "disposition_ranked_not_final": sum(
             row["reason_code"] == "ranked_not_final" for row in dispositions),
