@@ -721,15 +721,14 @@ class NativePipelineTraceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             p = Path(temp) / "pipeline.jsonl"
             baseline = "".join(json.dumps(x) + "\n" for x in trace())
-            p.write_text(baseline, encoding="utf-8")
+            p.write_bytes(baseline.encode("utf-8"))
             self.assertEqual(validate(load(p))["rows"], 11)
             for original, duplicate in (
                 ('"schema": ', '"schema": "forged", "schema": '),
                 ('"metrics": {', '"metrics": {"bpm": 666, '),
             ):
                 with self.subTest(original=original):
-                    p.write_text(baseline.replace(original, duplicate, 1),
-                                 encoding="utf-8")
+                    p.write_bytes(baseline.replace(original, duplicate, 1).encode("utf-8"))
                     with self.assertRaises(TraceError):
                         load(p)
 
