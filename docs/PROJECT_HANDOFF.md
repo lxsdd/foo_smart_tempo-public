@@ -47,3 +47,13 @@ No actual user's tracks, reference labels, paths, titles, artists, private telem
 **Next largest coherent block:** finish true positive original-host native source-ID witness for selected supplemental Policy→final writer (do not create it by merely matching BPM), complete **ordered branch-specific first-decisive veto vs provisional exclusion/fallback and never-visited semantics**, and implement independent positive/negative source/harness qualification as one block. Protect baseline regression and no-write gates. Once an independent *different review* accepts Phase B, freeze broad synthetic rhythm/alias/sparse/3:2/half/double/genre/window matrix before any new results and compete source-only selector/hold hypotheses on genuine independent cases. Later perform private owner-blind real-music acceptance locally; only request a user installation/test action after a source- and CI-frozen candidate qualifies. Currently **no user action required**.
 
 **Authoritative later checkpoint:** this document's own exact commit SHA and its CI results must be taken from live GitHub PR #39; don't inherit `3ae50d19e9970a4611308459f3a7f47bf79ff449`'s PASS. If GitHub inaccessible, treat a copied Markdown handoff as UNVERIFIED and never claim a repository write.
+
+
+### 26 Oct 2026 next exact-HEAD native low nested control
+
+CI-only in-process positive/negative selector control added in the draft
+branch: three distinct native low-pulse `bestBy` episodes, expected 60→80→71
+vs a one-alias-change control that must stop at 80 after two episodes.
+Windows Win32/x64 exact SHA CI **must pass** before qualifying this milestone;
+actual decoded-audio natural nested rescue remains unmeasured. Production
+BPM and privacy gates unchanged; Phase B INCOMPLETE, release NO_GO.

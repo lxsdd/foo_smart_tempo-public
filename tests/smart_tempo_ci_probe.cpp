@@ -207,6 +207,123 @@ bool write_native_supplemental_marker() {
     return ok;
 }
 
+
+// Phase-B actual native low-pulse NESTED rescue, executed inside original
+// Win32/x64 foobar with a disposable fabricated three-source board.
+// Both runs differ in ONE alias bit only. This is NOT decoded WAV accuracy,
+// a metadata selector override, or a modified productive comparator.
+bool native_low_nested_rescue_contract(bool twoThirdsAlias,
+                                       double expectedBpm,
+                                       std::size_t expectedEpochs) {
+    using namespace smart_tempo;
+    using namespace smart_tempo::mir_pipeline;
+    MirCandidateBoard board{};
+    board.segment_count = 10;
+    for (double bpm : {60.0, 80.0, 71.0}) {
+        MirRawCandidate candidate{};
+        candidate.bpm = bpm;
+        candidate.alias_bit = bpm == 60.0
+            ? static_cast<uint16_t>(MirAlias::direct)
+            : bpm == 80.0
+                ? static_cast<uint16_t>(twoThirdsAlias
+                    ? MirAlias::two_thirds : MirAlias::direct)
+                : static_cast<uint16_t>(MirAlias::half) |
+                    static_cast<uint16_t>(MirAlias::three_quarters);
+        candidate.alias_class = "direct";
+        candidate.synthetic_support = bpm == 60.0 ? .65 : bpm == 80.0 ? .95 : .70;
+        candidate.synthetic_winner_support = .20;
+        candidate.best_combined_score = .20;
+        candidate.score_sum = 1.0;
+        candidate.rows = 1;
+        candidate.pulse_score = bpm == 60.0 ? 4.0 : .04;
+        candidate.pulse_section_support = bpm == 60.0 ? 1.0 : .05;
+        board.raw_candidates.push_back(candidate);
+    }
+    MirRoutingContext route{};
+    route.source_genres = "Chill";
+    route.matched_token = "Chill";
+    route.route_matched = true;
+    const HodgkinsonTatumProbeResult mir{};
+    const HodgkinsonMaterialRiskEvidence risk{};
+    const auto result = compute_mir_primary_selection(
+        board, mir, risk, &route, 50.0, 88.0, true);
+    if (std::string_view(result.lane) != "low_pulse_context" ||
+        std::string_view(result.lane_variant) != "low_pulse_targeted_rescue_v4" ||
+        result.selected_bpm != expectedBpm ||
+        !mir_ci_primary_selector_trace_complete()) return false;
+
+    // Adjacent source-indexed rank/compare witnesses for every *actual*
+    // invocation of bestBy. Each new pool must reset its incumbent.
+    const auto events = mir_ci_primary_selector_events();
+    std::array<std::size_t, 4> ranks{}, comparisons{}, wins{}, losses{};
+    const double expectedWinners[4] = {0.0, 60.0, 80.0, 71.0};
+    bool pendingRank = false;
+    std::size_t rankIndex = 0, maxEpoch = 0, finalTerminals = 0;
+    for (const auto& event : events) {
+        if (std::strcmp(event.reason, "low_rank_scored") == 0) {
+            if (pendingRank || !event.has_low_pool_epoch ||
+                event.low_pool_epoch < 1 || event.low_pool_epoch > expectedEpochs ||
+                event.raw || event.source_index >= 3) return false;
+            pendingRank = true;
+            rankIndex = event.source_index;
+            ++ranks[event.low_pool_epoch];
+            if (event.low_pool_epoch > maxEpoch + 1) return false;
+            maxEpoch = (std::max)(maxEpoch, event.low_pool_epoch);
+        } else if (std::strcmp(event.reason, "low_compare_won") == 0 ||
+                   std::strcmp(event.reason, "low_compare_lost") == 0) {
+            if (!pendingRank || event.raw || !event.has_low_pool_epoch ||
+                event.low_pool_epoch < 1 || event.low_pool_epoch > maxEpoch ||
+                event.source_index != rankIndex || event.source_index >= 3)
+                return false;
+            pendingRank = false;
+            const std::size_t ep = event.low_pool_epoch;
+            ++comparisons[ep];
+            if (std::strcmp(event.reason, "low_compare_won") == 0) {
+                ++wins[ep];
+                if (event.bpm != expectedWinners[ep]) return false;
+            } else {
+                ++losses[ep];
+            }
+        } else if (std::strcmp(event.reason, "terminal_lane_choice") == 0) {
+            if (event.raw || event.bpm != expectedBpm ||
+                event.source_index != (twoThirdsAlias ? 2u : 1u))
+                return false;
+            ++finalTerminals;
+        }
+    }
+    if (pendingRank || maxEpoch != expectedEpochs || finalTerminals != 1 ||
+        ranks[1] != 3 || ranks[2] != 2 ||
+        wins[1] != 1 || wins[2] != 1 ||
+        losses[1] != 2 || losses[2] != 1)
+        return false;
+    if (twoThirdsAlias)
+        return expectedEpochs == 3 && ranks[3] == 1 &&
+               comparisons[3] == 1 && wins[3] == 1 && losses[3] == 0;
+    return expectedEpochs == 2 && ranks[3] == 0 &&
+           comparisons[1] == 3 && comparisons[2] == 2;
+}
+
+bool write_native_low_nested_marker() {
+    // Positive 3-episode rescue: 60 -> 80 -> 71.
+    // Negative one-bit control: same evidence except missing 80 two-thirds
+    // alias; the *third* rescue must never execute, leaving final 80.
+    if (!native_low_nested_rescue_contract(true, 71.0, 3) ||
+        !native_low_nested_rescue_contract(false, 80.0, 2))
+        return false;
+    const std::wstring output = g_ci_fixture + L".native-low-nested";
+    const HANDLE handle = ::CreateFileW(
+        output.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_NEW,
+        FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (handle == INVALID_HANDLE_VALUE) return false;
+    constexpr char kPass[] = "SMART_TEMPO_CI_NATIVE_LOW_NESTED=PASS\n";
+    DWORD written = 0;
+    const bool ok = ::WriteFile(handle, kPass,
+        static_cast<DWORD>(sizeof(kPass) - 1), &written, nullptr) &&
+        written == sizeof(kPass) - 1;
+    ::CloseHandle(handle);
+    return ok;
+}
+
 bool write_native_continuous_marker() {
     // Run both centers on exactly the SAME fabricated sources. Reversing
     // only the route-center distance must reverse the measured incumbent
@@ -242,6 +359,11 @@ void CALLBACK run_ci_probe(HWND, UINT, UINT_PTR timer, DWORD) {
             return;
         }
         FB2K_console_formatter() << "SMART_TEMPO_CI_NATIVE_SUPPLEMENTAL=PASS";
+        if (!write_native_low_nested_marker()) {
+            FB2K_console_formatter() << "SMART_TEMPO_CI_NATIVE_LOW_NESTED=FAIL";
+            return;
+        }
+        FB2K_console_formatter() << "SMART_TEMPO_CI_NATIVE_LOW_NESTED=PASS";
         if (!write_native_continuous_marker()) {
             FB2K_console_formatter() << "SMART_TEMPO_CI_NATIVE_CONTINUOUS=FAIL";
             return;

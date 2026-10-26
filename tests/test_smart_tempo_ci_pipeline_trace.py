@@ -2071,5 +2071,56 @@ class NativePipelineTraceTests(unittest.TestCase):
         self.assertNotIn("metadb_io::get()->update_info", probe)
         self.assertNotIn("upload-artifact", probe)
 
+
+    def test_native_nested_low_rescue_three_epochs_and_missing_alias_host_contract(self):
+        # One source ID, three sequential bestBy episodes, and an independent
+        # one-bit absence-of-rescue variant must execute inside original host.
+        probe = (ROOT / "tests" / "smart_tempo_ci_probe.cpp").read_text(
+            encoding="utf-8")
+        host = (ROOT / "tests" / "diagnostic_live_host_smoke.ps1").read_text(
+            encoding="utf-8")
+        source = (ROOT / "src" / "foo_smart_tempo" /
+                  "mir_candidate_pipeline.cpp").read_text(encoding="utf-8")
+        for snippet in (
+            "native_low_nested_rescue_contract(true, 71.0, 3)",
+            "native_low_nested_rescue_contract(false, 80.0, 2)",
+            "MirAlias::two_thirds : MirAlias::direct",
+            "MirAlias::half",
+            "MirAlias::three_quarters",
+            "const double expectedWinners[4] = {0.0, 60.0, 80.0, 71.0}",
+            "ranks[1] != 3 || ranks[2] != 2",
+            "wins[1] != 1 || wins[2] != 1",
+            "losses[1] != 2 || losses[2] != 1",
+            "maxEpoch != expectedEpochs",
+            "event.source_index != rankIndex",
+            "event.low_pool_epoch < 1",
+            "event.bpm != expectedWinners[ep]",
+            "event.source_index != (twoThirdsAlias ? 2u : 1u)",
+            "CREATE_NEW", "SMART_TEMPO_CI_NATIVE_LOW_NESTED=PASS",
+        ):
+            self.assertIn(snippet, probe)
+        self.assertIn("SMART_TEMPO_NATIVE_LOW_NESTED_{0}_{1}=PASS", host)
+        self.assertIn("Original foobar host did not prove native nested low rescue", host)
+        self.assertIn("const auto bestBy =", source)
+        self.assertIn("const std::size_t ciThisPoolEpoch = ++ciLowBestByEpoch;", source)
+        self.assertNotIn("metadb_io::get()->update_info", probe)
+        self.assertNotIn("upload-artifact", probe)
+
+    def test_native_nested_low_rescue_mutation_contract_fails_closed(self):
+        # Textual source-to-test negative parity: removing either case, the
+        # run-local epoch bound or the exact source-ID edge is unacceptable.
+        probe = (ROOT / "tests" / "smart_tempo_ci_probe.cpp").read_text(
+            encoding="utf-8")
+        required = (
+            "!native_low_nested_rescue_contract(true, 71.0, 3)",
+            "!native_low_nested_rescue_contract(false, 80.0, 2)",
+            "if (pendingRank || maxEpoch != expectedEpochs",
+            "event.source_index != rankIndex",
+            "event.bpm != expectedWinners[ep]",
+        )
+        for guard in required:
+            with self.subTest(guard=guard):
+                self.assertNotEqual(probe.find(guard), -1)
+
 if __name__ == "__main__":
     unittest.main()

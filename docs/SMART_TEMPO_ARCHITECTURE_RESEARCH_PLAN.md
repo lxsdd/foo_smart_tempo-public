@@ -878,3 +878,28 @@ denominators per architecture; Phase B remains **INCOMPLETE** and Phase C
 **CLOSED**. No productive DSP/selector/Policy/writer/threshold changes.
 The exact-commit CI result must be read before claiming this new control
 passed; no user audio, tags, CUE, databases, artifacts or binaries are written.
+
+
+### 26 October 2026: actual native three-stage low-pulse nested rescue with negative alias control
+
+A separate CI-only original-host C++ control now runs the productive
+`compute_mir_primary_selection` twice on small, publicly fabricated
+same-evidence candidate boards containing 60/80/71 BPM. With an 80-BPM
+**two-thirds alias** bit, the executed low-pulse ranking chain must consist
+of three independent bestBy episodes (3, 2 and 1 source comparisons),
+selecting winners 60 → 80 → 71. Without that one alias bit, the same
+candidate values must take **only two** episodes and retain 80 BPM. Exact
+source-index, per-episode score/comparator adjacency, 1-based contiguous
+epoch resets, 3/2/1 ranking counts, actual terminal pointer and winning BPM
+are asserted from native CI-only observer events. Failure emits NO PASS marker.
+The real original foobar Win32 and x64 host runs require a unique
+runner-temp marker generated only after both productive selector calls
+pass; a fabricated marker cannot be accepted as decoded-audio evidence.
+
+This positive/negative *in-process selector branch* qualification is not an
+additional decoded-WAV BPM reference, not actual MIR front-end natural
+selection of this branch, and does not alter four-case accuracy denominators.
+It cannot establish global per-candidate first-veto completeness or natural
+selected supplemental Policy→Writer witness; those remain Phase-B blockers.
+No production DSP, comparator, threshold, Policy, CUE, writer, preference,
+user audio or private data is modified. Fail-closed release NO_GO retained.

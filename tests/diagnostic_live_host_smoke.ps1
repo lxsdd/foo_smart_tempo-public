@@ -201,6 +201,15 @@ function Run-Case([string]$installer,[string]$root,[string]$inputFile,[string[]]
       throw 'Original host did not prove native supplemental object and writer guard'
     }
     Write-Host ("SMART_TEMPO_NATIVE_SUPPLEMENTAL_{0}_{1}=PASS" -f $Architecture,$label)
+    # Additional positive/negative in-process low bestBy sequence, 60->80->71.
+    # This is a separate synthetic board, NOT decoded-audio BPM quality.
+    $nestedProof=$inputFile+'.native-low-nested'
+    if (-not (Test-Path -LiteralPath $nestedProof -PathType Leaf) -or
+        (Get-Content -LiteralPath $nestedProof -Raw) -cne
+        "SMART_TEMPO_CI_NATIVE_LOW_NESTED=PASS`n") {
+      throw 'Original foobar host did not prove native nested low rescue'
+    }
+    Write-Host ("SMART_TEMPO_NATIVE_LOW_NESTED_{0}_{1}=PASS" -f $Architecture,$label)
     $rows=[STUI]::Rows($dialog)
     if ($rows -lt $minimum) { throw "Only $rows result rows for $label; expected $minimum" }
     if (-not [STUI]::ButtonDisabled($dialog)) { throw 'Diagnostic Update control enabled' }
