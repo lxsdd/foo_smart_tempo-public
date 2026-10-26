@@ -903,3 +903,30 @@ It cannot establish global per-candidate first-veto completeness or natural
 selected supplemental Policy→Writer witness; those remain Phase-B blockers.
 No production DSP, comparator, threshold, Policy, CUE, writer, preference,
 user audio or private data is modified. Fail-closed release NO_GO retained.
+
+
+### Phase B: independent executed-comparator candidate-fate ledger (26 Oct 2026)
+
+The new source-only Python auditor `tools/audit_smart_tempo_b_candidate_fates.py`
+replays the **same native source IDs**, executed rank/compare pairs, actual
+score/tie incumbents and per-source dispositions **after** the strict native
+trace validator. For each collapsed source it assigns exactly one observable
+fate: final selected, winner of an unselected comparator pool, earlier winner
+later displaced, comparator loser, gate-only observed, or never visited. The
+six disjoint counts must equal the native collapsed-board count. Provisional
+exclusions and exact-source later readmissions are counted separately; no
+BPM-nearest joins or ground-truth labels are allowed. Positive/adversarial
+regressions cover source substitution, fake comparator win, incumbent score
+drift, invented readmission, false disposition, missing rank, duplicate
+terminal, and empty-board abstention. The original Win32 and x64 foobar host
+script now demands this independent partition for every bounded synthetic
+WAV/CUE case and checks it against the actual native source inventory.
+
+**Important limitation:** an executed comparator loss or provisional gate is
+not automatically a *first decisive exclusion*. Candidates can win another
+pool, be readmitted, or be bypassed by a branch that never executed. The
+ledger intentionally leaves the first-decisive-veto denominator unresolved
+for **every** collapsed source; it is a chronology/conservation subgate, not
+permission to start Phase C. No productive DSP/selector/policy/writer change,
+private audio, public binaries or user writes. This change requires an
+exact-head original-host Windows CI PASS before native qualification.

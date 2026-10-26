@@ -298,6 +298,184 @@ function Run-Case([string]$installer,[string]$root,[string]$inputFile,[string[]]
           throw "Incomplete native pilot trace evidence: $required"
         }
       }
+      # Independently replay source-ID comparator fates without oracle labels.
+      # The per-source partition must reconcile with the native inventory.
+      # This does NOT claim first-decisive-veto completeness.
+      $fateOutput=@(python ./tools/audit_smart_tempo_b_candidate_fates.py --trace $trace --require-windows 2>&1)
+      if ($LASTEXITCODE -ne 0 -or
+          @($fateOutput | Where-Object { $_ -ceq 'SMART_TEMPO_B_FATES_LEDGER=PASS' }).Count -ne 1) {
+        throw ('Original-host source-ID candidate-fate ledger failed: '+($fateOutput -join '; '))
+      }
+      $fateOutput | ForEach-Object { Write-Host $_ }
+      $fateCounts=@{}
+      foreach ($line in $fateOutput) {
+        if ([string]$line -cmatch '^SMART_TEMPO_B_FATES_([A-Z_]+)=([0-9]+)
+      if (-not $RequireLowPulseCoverage) {
+        # Shadow models run ONLY after actual worker completion, using the
+        # frozen case oracle solely to SCORE predictions after selection.
+        $shadowOutput=@(python ./tools/audit_smart_tempo_b_shadow_rank.py --manifest $reference --observed $observed --trace $trace --case $label.Substring(10) 2>&1)
+        if ($LASTEXITCODE -ne 0 -or
+            @($shadowOutput | Where-Object { $_ -ceq 'SMART_TEMPO_B_SHADOW_VERIFIED=1' }).Count -ne 1) {
+          throw ('Synthetic source-only shadow audit failed: '+($shadowOutput -join '; '))
+        }
+        $shadowOutput | ForEach-Object { Write-Host $_ }
+        foreach ($line in $shadowOutput) {
+          if ([string]$line -cmatch '^SMART_TEMPO_B_SHADOW_([A-Z0-9_]+)=([0-9]+)$' -and
+              $Matches[1] -cin $script:pilotShadowKeys) {
+            if ($shadowEvidence.ContainsKey($Matches[1])) {
+              throw 'Duplicate shadow model evidence'
+            }
+            $shadowEvidence[$Matches[1]]=[int]$Matches[2]
+          }
+        }
+        if ($shadowEvidence.Count -ne $script:pilotShadowKeys.Count) {
+          throw 'Missing independent shadow model counter'
+        }
+        if ($shadowEvidence['CANDIDATES'] -ne $traceEvidence['COLLAPSED'] -or
+            $shadowEvidence['NATIVE_FINAL_CORRECT'] -ne $scoreEvidence['ACCEPTED_WITHIN_0_20_BPM']) {
+          throw 'Shadow source cardinality/final BPM diverges from original host'
+        }
+        Write-Host ("SMART_TEMPO_B_SHADOW_{0}_{1}=PASS" -f $Architecture,$label)
+      }
+      if ($RequireLowPulseCoverage) {
+        # The real CUE -> title-format -> default genre mapper must choose
+        # the native low-pulse selector, never a synthetic C++ route override.
+        foreach ($key in @('SELECTOR_LOW_BESTBY_EPISODES',
+                           'SELECTOR_COMPARE_LOW_WINS',
+                           'SELECTOR_COMPARE_LOW_LOSSES')) {
+          if (-not $traceEvidence.ContainsKey($key)) {
+            throw "Missing native low-pulse evidence: $key"
+          }
+        }
+        $episodes=$traceEvidence['SELECTOR_LOW_BESTBY_EPISODES']
+        $wins=$traceEvidence['SELECTOR_COMPARE_LOW_WINS']
+        $losses=$traceEvidence['SELECTOR_COMPARE_LOW_LOSSES']
+        if ($episodes -lt 1 -or $wins -lt 1 -or ($wins+$losses) -lt 1) {
+          throw "Real CUE genre route did not exercise low selector: episodes=$episodes wins=$wins losses=$losses"
+        }
+        Write-Host ("SMART_TEMPO_NATIVE_LOW_PULSE_{0}_EPISODES={1}" -f $Architecture,$episodes)
+        Write-Host ("SMART_TEMPO_NATIVE_LOW_PULSE_{0}_COMPARISONS={1}" -f $Architecture,($wins+$losses))
+        Write-Host ("SMART_TEMPO_NATIVE_LOW_PULSE_{0}=PASS" -f $Architecture)
+      } else {
+        # Historical accuracy cohort remains fixed at exactly four WAVs.
+        [void]$script:pilotEvidence.Add([pscustomobject]@{
+          case=$label.Substring(10);score=$scoreEvidence;trace=$traceEvidence;
+          shadow=$shadowEvidence;media_no_write=$true
+        })
+        Write-Host ("SMART_TEMPO_NATIVE_B_PILOT_TRACE_{0}_{1}=PASS" -f $Architecture,$label)
+      }
+      Write-Host 'SMART_TEMPO_PRIMARY_VETO_INDIVIDUAL_REASONS=UNMEASURED'
+    }
+    Write-Host ("DIAGNOSTIC_MENU_{0}_{1}=PASS" -f $Architecture,$label)
+    Write-Host ("DIAGNOSTIC_ROWS_{0}_{1}={2}" -f $Architecture,$label,$rows)
+    Write-Host ("MEDIA_WRITE_SAFETY_{0}_{1}=PASS" -f $Architecture,$label)
+  } finally {
+    if ($null -ne $hostProcess -and -not $hostProcess.HasExited) {
+      Stop-Process -Id $hostProcess.Id -Force -ErrorAction SilentlyContinue
+      [void]$hostProcess.WaitForExit(5000)
+    }
+    foreach ($file in $files) { if ((Stamp $file) -cne $baseline[$file]) { throw 'Fixture changed after exit' } }
+  }
+}
+$root=Join-Path $env:RUNNER_TEMP ('smart-tempo-'+$Architecture+'-'+[guid]::NewGuid().ToString('N'))
+try {
+  New-Item -ItemType Directory $root -Force | Out-Null
+  $installer=Join-Path $root 'official.exe'
+  Invoke-WebRequest -Uri $spec[0] -OutFile $installer
+  if ((Get-FileHash $installer -Algorithm SHA256).Hash -ine $spec[1]) { throw 'Official host hash mismatch' }
+  $wav=Join-Path $root 'rhythm.wav'
+  $cue=Join-Path $root 'rhythm.cue'
+  [byte[]]$audio=[byte[]]::new(16000*40*2)
+  for ($beat=0; $beat -lt 80; $beat++) {
+    for ($j=0; $j -lt 160; $j++) {
+      $p=2*($beat*8000+$j)
+      $audio[$p]=[byte]0
+      $audio[$p+1]=[byte](($j%2)*90)
+    }
+  }
+  $file=[IO.File]::Open($wav,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
+  $writer=[IO.BinaryWriter]::new($file)
+  try {
+    $writer.Write([Text.Encoding]::ASCII.GetBytes('RIFF'))
+    $writer.Write([int](36+$audio.Length))
+    $writer.Write([Text.Encoding]::ASCII.GetBytes('WAVEfmt '))
+    $writer.Write([int]16)
+    $writer.Write([UInt16]1)
+    $writer.Write([UInt16]1)
+    $writer.Write([int]16000)
+    $writer.Write([int]32000)
+    $writer.Write([UInt16]2)
+    $writer.Write([UInt16]16)
+    $writer.Write([Text.Encoding]::ASCII.GetBytes('data'))
+    $writer.Write([int]$audio.Length)
+    $writer.Write($audio)
+  } finally { $writer.Dispose();$file.Dispose() }
+  [IO.File]::WriteAllLines($cue,@('FILE "rhythm.wav" WAVE','  TRACK 01 AUDIO','    INDEX 01 00:00:00','  TRACK 02 AUDIO','    INDEX 01 00:20:00'),[Text.Encoding]::ASCII)
+  Run-Case $installer $root $wav @($wav) 1 'WAV'
+  Run-Case $installer $root $cue @($wav,$cue) 2 'CUE'
+  # Fixed, small Phase-B causal-coverage pilot, NOT the frozen Phase-C
+  # campaign. One fresh original foobar process per synthetic WAV/architecture.
+  $pilotCases=@('pulse_60','pulse_128','pulse_120_sparse','silence')
+  foreach ($caseId in $pilotCases) {
+    $syntheticRoot=Join-Path (Join-Path $root ('pilot-'+$caseId)) 'synthetic-oracle'
+    python ./tools/generate_synthetic_bpm_reference.py --output $syntheticRoot --case $caseId
+    if ($LASTEXITCODE -ne 0) { throw "Synthetic B-pilot WAV creation failed: $caseId" }
+    $reference=Join-Path $syntheticRoot 'reference.json'
+    $cases=@((Get-Content -LiteralPath $reference -Raw | ConvertFrom-Json).cases)
+    if ($cases.Count -ne 1 -or $cases[0].id -cne $caseId) {
+      throw "Unexpected B-pilot oracle identity: $caseId"
+    }
+    $wavFile=Join-Path $syntheticRoot ($caseId+'.wav')
+    Run-Case $installer $root $wavFile @($wavFile,$reference) 1 ('SYNTHETIC_'+$caseId)
+    if ($caseId -ceq 'pulse_60') {
+      # Standard external CUE metadata, using the unchanged default mapper.
+      $lowCue=Join-Path $syntheticRoot 'pulse_60_chill.cue'
+      if (Test-Path -LiteralPath $lowCue) { throw 'Stale synthetic route CUE' }
+      [IO.File]::WriteAllLines($lowCue,@(
+        'REM GENRE "Chill"',
+        'FILE "pulse_60.wav" WAVE',
+        '  TRACK 01 AUDIO',
+        '    INDEX 01 00:00:00'
+      ),[Text.Encoding]::ASCII)
+      Run-Case $installer $root $lowCue @($wavFile,$lowCue,$reference) 1 `
+        'SYNTHETIC_pulse_60_chill' -RequireLowPulseCoverage
+    }
+  }
+  # CI-only bounded numeric report; consumed again by cross-architecture gate.
+  $pilotReport=Join-Path $env:RUNNER_TEMP ("smart-tempo-b-pilot-"+$Architecture+".json")
+  if (Test-Path -LiteralPath $pilotReport) { throw 'Stale pilot report' }
+  $sourceSha=((& git rev-parse HEAD) | Out-String).Trim().ToLowerInvariant()
+  $payload=[ordered]@{
+    schema='smart_tempo_b_pilot_cohort_v1'
+    architecture=$Architecture
+    source_sha=$sourceSha
+    cases=@($script:pilotEvidence.ToArray())
+  }
+  [IO.File]::WriteAllText($pilotReport,($payload | ConvertTo-Json -Depth 8 -Compress),
+                          [Text.UTF8Encoding]::new($false))
+  python ./tools/audit_smart_tempo_b_pilot_cohort.py --expected-source-sha $sourceSha --report $pilotReport --single-architecture
+  if ($LASTEXITCODE -ne 0) { throw 'Original-host B-pilot cohort integrity failed' }
+  Write-Host ("SMART_TEMPO_DIAGNOSTIC_RUNTIME_{0}=PASS" -f $Architecture)
+} finally { if (Test-Path $root) { Remove-Item $root -Recurse -Force -ErrorAction SilentlyContinue } }
+) {
+          if ($fateCounts.ContainsKey($Matches[1])) { throw 'Duplicate candidate-fate counter' }
+          $fateCounts[$Matches[1]]=[int]$Matches[2]
+        }
+      }
+      foreach ($required in @('TOTAL','SELECTED','UNSELECTED_POOL_WINNER',
+          'DISPLACED_WINNER','COMPARATOR_LOSER','GATE_ONLY','UNVISITED',
+          'FIRST_DECISIVE_VETO_UNPROVEN')) {
+        if (-not $fateCounts.ContainsKey($required)) {
+          throw "Missing source-ID fate counter: $required"
+        }
+      }
+      if ($fateCounts['TOTAL'] -ne $traceEvidence['COLLAPSED'] -or
+          $fateCounts['FIRST_DECISIVE_VETO_UNPROVEN'] -ne $traceEvidence['COLLAPSED'] -or
+          ($fateCounts['SELECTED']+$fateCounts['UNSELECTED_POOL_WINNER']+
+           $fateCounts['DISPLACED_WINNER']+$fateCounts['COMPARATOR_LOSER']+
+           $fateCounts['GATE_ONLY']+$fateCounts['UNVISITED']) -ne $fateCounts['TOTAL']) {
+        throw 'Source-ID fate conservation or unresolved-veto status contradicted'
+      }
       $shadowEvidence=@{}
       if (-not $RequireLowPulseCoverage) {
         # Shadow models run ONLY after actual worker completion, using the
