@@ -26,7 +26,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - uses: lxsdd/dev-infrastructure-public/.github/actions/portable-core@850b89b57d5cddaa6525d83ad7877ac1377c9cb3
+      - uses: lxsdd/dev-infrastructure-public/.github/actions/portable-core@d85499b0f6363821173d8c7ffc6efed5285dc4b3
         with:
           language: cmake
           source-directory: tests
