@@ -95,15 +95,123 @@ jobs:
         run: |
           python -m unittest discover -s tests -p 'test_synthetic_bpm_reference.py' -v
           if ($LASTEXITCODE -ne 0) { throw 'Synthetic WAV oracle regressions failed' }
-          # Generated WAV files exist only inside unittest temporary folders.
-          # BPM accuracy is NOT asserted here; future CI will analyze these
-          # fixtures with the real component and compare its reported BPMs.
+          # These deterministic public WAVs are structural fixtures only.
+          # The full x64 real-host matrix later scores actual MIR outputs;
+          # green build/host checks never imply musical accuracy.
+
+      - name: Verify independent complex-rhythm synthetic oracle and scorer
+        shell: pwsh
+        run: |
+          python -m unittest discover -s tests -p 'test_synthetic_complex_challenge.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'Complex synthetic BPM oracle regressions failed' }
+
+      - name: Verify strict public complex final-policy stage attribution
+        shell: pwsh
+        run: |
+          python -m unittest discover -s tests -p 'test_synthetic_policy_stage.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'Complex final-policy stage attribution regressions failed' }
+
+      - name: Verify independent stage-versus-frozen-shadow transitions
+        shell: pwsh
+        run: |
+          python -m unittest discover -s tests -p 'test_synthetic_stage_shadow.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'Stage-shadow join regressions failed' }
+          # Observational read-only cross-tab; no new production BPM decisions.
+
+      - name: Verify independent exported-board rank versus final-stage attribution
+        shell: pwsh
+        run: |
+          python -m unittest discover -s tests -p 'test_synthetic_export_rank.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'Exported-board rank attribution regressions failed' }
+          # Evidence rank is NOT hidden MIR candidate provenance or selector reachability.
+
+      - name: Verify bounded CI-only candidate origin-bit stage join
+        shell: pwsh
+        run: |
+          python -m unittest discover -s tests -p 'test_synthetic_source_bits.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'Public candidate source-bit provenance regressions failed' }
+          # Observational merged-review source masks; not selector eligibility.
+          # Fail fast on malformed PowerShell before costly SDK/host builds.
+          $tokens = $null
+          $parseErrors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path './tests/diagnostic_live_host_smoke.ps1').Path, [ref]$tokens, [ref]$parseErrors) | Out-Null
+          if ($parseErrors.Count -ne 0) {
+            $parseErrors | Format-List | Out-String | Write-Host
+            throw 'CI diagnostic PowerShell parser regression'
+          }
+
+      - name: Verify read-only soft genre-prior safety counterfactuals
+        shell: pwsh
+        run: |
+          python -m unittest discover -s tests -p 'test_synthetic_genre_prior.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'Synthetic genre-prior counterfactual tests failed' }
+          # This is NOT a real genre-tagged A/B/C host comparison.
+
+      - name: Verify both preserved frozen research portfolios before SDK
+        shell: pwsh
+        run: |
+          python -m unittest discover -s tests -p 'test_research_portfolio_integration.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'Combined existing-portfolio conservation gate failed' }
+
+      - name: Verify independently frozen synthetic WAV and beat-grid anchors
+        shell: pwsh
+        run: |
+          python -m unittest discover -s tests -p 'test_synthetic_frozen_oracle_anchors.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'Independent frozen synthetic oracle anchors failed' }
+          # Seen public fixtures, not a blind holdout. Literal independent hashes.
+
+      - name: Verify distinct 3/4 versus 6/8 musical beat-unit challenges
+        shell: pwsh
+        run: |
+          python -m unittest discover -s tests -p 'test_synthetic_meter_challenge.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'Separate synthetic meter challenge regressions failed' }
+          # Catch syntax errors in ANY host-script branch before expensive builds.
+          $tokens = $null
+          $parseErrors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path -LiteralPath './tests/diagnostic_live_host_smoke.ps1').Path,
+            [ref]$tokens, [ref]$parseErrors) | Out-Null
+          if (@($parseErrors).Count -ne 0) {
+            $parseErrors | Format-List | Out-String | Write-Host
+            throw 'Synthetic meter host PowerShell parser gate failed'
+          }
+          # Generator/scorer only; host-BPM measurement has NOT yet run.
 
       - name: Verify BPM oracle scoring and ambiguous/held cases
         shell: pwsh
         run: |
           python -m unittest discover -s tests -p 'test_synthetic_bpm_scorer.py' -v
           if ($LASTEXITCODE -ne 0) { throw 'Synthetic BPM scorer unit tests failed' }
+
+      - name: Verify public 120-second window sweep scoring and provenance
+        shell: pwsh
+        run: |
+          python -m unittest discover -s tests -p 'test_synthetic_window_sweep.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'Window-sweep scorer regressions failed' }
+
+      - name: Verify public early/late temporal phase evidence scorer
+        shell: pwsh
+        run: |
+          python -m unittest discover -s tests -p 'test_synthetic_temporal_sweep.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'Temporal phase scorer regressions failed' }
+
+      - name: Verify predeclared prospective synthetic BPM scorer
+        shell: pwsh
+        run: |
+          python -m unittest discover -s tests -p 'test_prospective_bpm_scorer.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'Prospective synthetic scorer regressions failed' }
+
+      - name: Verify batched public prospective pass-count scorer
+        shell: pwsh
+        run: |
+          python -m unittest discover -s tests -p 'test_prospective_pass_sweep.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'Batched prospective pass-sweep scorer regressions failed' }
+
+      - name: Verify local-only BPM holdout scorer using synthetic telemetry
+        shell: pwsh
+        run: |
+          python -m unittest discover -s tests -p 'test_private_bpm_holdout.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'Private holdout scorer synthetic regression failed' }
 
       - name: Run privacy-safe MW1 evidence comparator tests
         shell: pwsh
@@ -178,7 +286,7 @@ jobs:
         run: |
           & ./tests/diagnostic_live_host_smoke.ps1 -Architecture Win32 -ComponentDll 'build/ci-probe/Win32/foo_smart_tempo.dll'
 
-      - name: HARD GATE - x64 diagnostic menu and media no-write
+      - name: HARD GATE - x64 batched 80 BPM, 78 windows, 12 temporal, 20 prospective plus 33 pass probes
         shell: pwsh
         run: |
           & ./tests/diagnostic_live_host_smoke.ps1 -Architecture x64 -ComponentDll 'build/ci-probe/x64/foo_smart_tempo.dll'
