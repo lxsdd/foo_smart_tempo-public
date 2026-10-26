@@ -76,6 +76,30 @@ class ShadowRankTests(unittest.TestCase):
         self.assertEqual(report["MODEL_SUPPORT_MATCHES_PRIMARY"], 1)
         self.assertEqual(report["MODEL_SCORE_SUM_MATCHES_PRIMARY"], 0)
 
+    def test_native_review_hold_keeps_exact_primary_source_before_policy_release(self):
+        rows, manifest, observed = fixture("pulse_60")
+        rows[-3]["outcome"] = "review_hold"
+        out = shadow_result(rows, manifest, observed, "pulse_60")
+        self.assertEqual(out["NATIVE_PRIMARY_SOURCE_INDEXED"], 1)
+        self.assertEqual(out["NATIVE_PRIMARY_CORRECT"], 0)
+        self.assertEqual(out["NATIVE_FINAL_CORRECT"], 0)
+        self.assertEqual(out["REFERENCE_LOST_AT_PRIMARY"], 1)
+        # Even a held Primary has a genuinely selected source object. An
+        # orphaned alias and a fake automatic selection must still fail.
+        bad = copy.deepcopy(rows)
+        bad[-3]["parent_candidate_ids"] = ["c77"]
+        with self.assertRaises(RecallError):
+            shadow_result(bad, manifest, observed, "pulse_60")
+
+    def test_primary_no_candidate_has_no_invented_shadow_identity(self):
+        rows, manifest, observed = fixture("pulse_60")
+        rows[-3]["outcome"] = "no_candidate"
+        rows[-3]["metrics"]["bpm"] = 0.
+        rows[-3]["parent_candidate_ids"] = []
+        out = shadow_result(rows, manifest, observed, "pulse_60")
+        self.assertEqual(out["NATIVE_PRIMARY_SOURCE_INDEXED"], 0)
+        self.assertTrue(out["REFERENCE_PRESENT"])
+
     def test_negative_abstention_no_oracle_generated_candidate(self):
         rows, manifest, observed = fixture("silence")
         report = shadow_result(rows, manifest, observed, "silence")

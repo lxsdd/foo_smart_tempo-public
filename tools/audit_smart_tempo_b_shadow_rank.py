@@ -97,11 +97,21 @@ def shadow_result(rows: list[dict], manifest: dict, observed: list[dict],
             raise RecallError("silence acquired a false Primary source")
         chosen = None
     else:
-        if item["outcome"] != "selected" or len(parents) != 1 or parents[0] not in by_id:
-            raise RecallError("rhythmic Primary source unindexed")
-        chosen = parents[0]
-        if abs(by_id[chosen] - item["metrics"]["bpm"]) >= .001:
-            raise RecallError("selected Primary ID BPM mismatch")
+        # A real Primary can select an exact measured source AND put it on
+        # Review Hold. The downstream Policy may still release a different
+        # measured FullBoard object. Neither outcome invalidates the
+        # original source-indexed Primary comparator provenance.
+        if len(parents) == 1 and item["outcome"] in ("selected", "review_hold"):
+            if parents[0] not in by_id:
+                raise RecallError("rhythmic Primary source unindexed")
+            chosen = parents[0]
+            if abs(by_id[chosen] - item["metrics"]["bpm"]) >= .001:
+                raise RecallError("Primary selected-object BPM mismatch")
+        elif not parents and item["outcome"] == "no_candidate" and (
+                item["metrics"]["bpm"] == 0):
+            chosen = None
+        else:
+            raise RecallError("rhythmic Primary source/outcome inconsistent")
     correct = lambda cid: int(
         cid is not None and expected is not None and
         abs(by_id[cid] - expected) <= .20
