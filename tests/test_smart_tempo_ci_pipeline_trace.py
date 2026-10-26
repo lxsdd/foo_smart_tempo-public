@@ -1794,10 +1794,10 @@ class NativePipelineTraceTests(unittest.TestCase):
                     bad = copy.deepcopy(rows)
                     gate = next(r for r in bad if r["reason_code"].endswith(
                         "_gate_allowed"))
-                    rank = next(r for r in bad if r["reason_code"].endswith(
-                        "_rank_scored"))
-                    compare = next(r for r in bad if r["reason_code"].endswith(
-                        "_compare_won"))
+                    rank = next(r for r in bad if r["reason_code"] ==
+                                family + "_rank_scored")
+                    compare = next(r for r in bad if r["reason_code"] ==
+                                   family + "_compare_won")
                     if mutation == "gate_removed":
                         bad.remove(gate)
                     elif mutation == "rank_removed":
@@ -1829,6 +1829,32 @@ class NativePipelineTraceTests(unittest.TestCase):
                         row["sequence"] = i
                     with self.assertRaises(TraceError, msg=f"{kind}:{mutation}"):
                         validate(bad)
+
+    def test_lane_comparator_after_terminal_is_not_laundered_as_provenance(self):
+        rows = lineage_trace([128., 130.], [128., 130.], [[0], [1]])
+        at = next(i for i, r in enumerate(rows) if r["stage"] == "primary_select")
+        rank = event("primary_rank", "c2", [], 128., "included",
+                     "general_baseline_rank_scored", 0)
+        comp = event("primary_compare", "c2", [], 128., "included",
+                     "general_baseline_compare_won", 0)
+        terminals = [event("primary_terminal", "c2", [], 128., "selected",
+                           reason, 0) for reason in
+                     ("terminal_lane_choice", "terminal_residual_choice",
+                      "terminal_final_choice")]
+        rows[at:at] = [rank, comp] + terminals
+        for i, row in enumerate(rows):
+            row["sequence"] = i
+        self.assertEqual(validate(rows)["selector_lane_comparator_winner_proven"], 1)
+        bad = copy.deepcopy(rows)
+        bad.remove(bad[at])
+        bad.remove(bad[at])
+        final_index = next(i for i, r in enumerate(bad)
+                           if r["reason_code"] == "terminal_final_choice")
+        bad[final_index+1:final_index+1] = [rank, comp]
+        for i, row in enumerate(bad):
+            row["sequence"] = i
+        with self.assertRaises(TraceError):
+            validate(bad)
 
     def test_rescue_trace_source_guarded_and_not_production_mutation(self):
         source = (ROOT / "src/foo_smart_tempo/mir_candidate_pipeline.cpp").read_text(
