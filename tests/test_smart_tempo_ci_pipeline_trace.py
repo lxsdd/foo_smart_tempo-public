@@ -1827,7 +1827,7 @@ class NativePipelineTraceTests(unittest.TestCase):
                         bad.remove(compare)
                     for i, row in enumerate(bad):
                         row["sequence"] = i
-                    with self.assertRaises(TraceError):
+                    with self.assertRaises(TraceError, msg=f"{kind}:{mutation}"):
                         validate(bad)
 
     def test_rescue_trace_source_guarded_and_not_production_mutation(self):
