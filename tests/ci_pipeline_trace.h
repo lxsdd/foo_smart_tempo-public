@@ -80,8 +80,32 @@ struct WindowObservation {
   unsigned analysis_rate_hz = 0;
 };
 
+// The native MIR evaluator's own first-return reason per actually executed
+// segment. No waveform, metadata, filename or reference BPM is retained.
+struct MirSegmentObservation {
+  std::size_t segment_index = 0;
+  std::size_t odf_peak_count = 0;
+  std::size_t top_k_count = 0;
+  double bpm = 0.0;
+  double score = 0.0;
+  bool candidate = false;
+  bool aggregated = false;
+  const char* reason = "not_evaluated";
+};
+inline bool permitted_mir_segment_reason(const char* reason) noexcept {
+  if (!reason) return false;
+  constexpr const char* known[] = {
+      "invalid_input", "insufficient_odf", "insufficient_onsets",
+      "single_event", "no_loop_hypotheses", "ambiguous_tatum_fit",
+      "missing_bar_division", "audacity_mir_full",
+      "audacity_mir_full_below_threshold"};
+  for (const auto* item : known)
+    if (std::strcmp(item, reason) == 0) return true;
+  return false;
+}
 // Real native MIR source-supply, numeric and CI-only.
 struct MirSourceSupplyObservation {
+  std::vector<MirSegmentObservation> segments;
   std::size_t segments_evaluated = 0;
   std::size_t segment_results = 0;
   std::size_t topk_rows_seen = 0;
@@ -242,6 +266,7 @@ inline bool record(
       collapsed.size() != primary.candidate_count)
     return false;
   if (supply.segments_evaluated > windows.size() ||
+      supply.segments.size() != supply.segments_evaluated ||
       supply.segment_results > supply.segments_evaluated ||
       supply.topk_add_calls > supply.topk_rows_seen ||
       supply.topk_new_raw > supply.topk_add_calls * 16 ||
@@ -280,6 +305,40 @@ inline bool record(
       return false;
     out.push_window(w);
   }
+  std::size_t segmentTopK = 0, segmentResults = 0;
+  std::size_t previousSegment = 0;
+  for (std::size_t i = 0; i < supply.segments.size(); ++i) {
+    const auto& s = supply.segments[i];
+    const bool late = std::strcmp(s.reason ? s.reason : "", "audacity_mir_full") == 0 ||
+        std::strcmp(s.reason ? s.reason : "", "audacity_mir_full_below_threshold") == 0;
+    if (!permitted_mir_segment_reason(s.reason) ||
+        s.segment_index >= windows.size() ||
+        (i && s.segment_index <= previousSegment) ||
+        !finite_bpm(s.bpm) || !std::isfinite(s.score) ||
+        s.score < 0.0 || s.score > 1.0 ||
+        s.odf_peak_count > 10000000 || s.top_k_count > 5 ||
+        (!late && (s.bpm != 0.0 || s.score != 0.0 ||
+                   s.top_k_count != 0 || s.candidate || s.aggregated)) ||
+        (late && (s.odf_peak_count < 3 ||
+                  s.candidate != (std::strcmp(s.reason, "audacity_mir_full") == 0) ||
+                  s.aggregated != (s.bpm > 0.0 || s.score > 0.0))) ||
+        (std::strcmp(s.reason, "insufficient_onsets") == 0 &&
+         s.odf_peak_count >= 3))
+      return false;
+    previousSegment = s.segment_index;
+    segmentTopK += s.top_k_count;
+    segmentResults += s.aggregated ? 1 : 0;
+    out.push("mir_segment", "observed", s.reason, "", {},
+             s.bpm, s.score, 0.0);
+    out.lines.insert(out.lines.size() - 3,
+        ",\"segment_index\":" + std::to_string(s.segment_index) +
+        ",\"odf_peak_count\":" + std::to_string(s.odf_peak_count) +
+        ",\"top_k_count\":" + std::to_string(s.top_k_count) +
+        ",\"candidate\":" + std::to_string(s.candidate ? 1 : 0) +
+        ",\"aggregated\":" + std::to_string(s.aggregated ? 1 : 0));
+  }
+  if (segmentTopK != supply.topk_rows_seen ||
+      segmentResults != supply.segment_results) return false;
   for (const auto& raw : board.raw_candidates) {
     if (!finite_bpm(raw.bpm) || raw.bpm == 0.0 ||
         !std::isfinite(raw.score_sum) || !std::isfinite(raw.synthetic_support))
@@ -615,7 +674,8 @@ inline bool record(
       ",\"mir_alias_new_raw\":" + std::to_string(supply.alias_new_raw) +
       ",\"mir_continuous_add_calls\":" + std::to_string(supply.continuous_add_calls) +
       ",\"mir_continuous_new_raw\":" + std::to_string(supply.continuous_new_raw));
-  if (out.sequence != windows.size() + board.raw_candidates.size() + 2 * collapsed.size() +
+  if (out.sequence != windows.size() + supply.segments.size() +
+                      board.raw_candidates.size() + 2 * collapsed.size() +
                       fullboard.size() + selectorEvents.size() +
                       supplemental_id.size() + collapsed.size() + 9 ||
       out.lines.size() > 2 * 1024 * 1024) return false;

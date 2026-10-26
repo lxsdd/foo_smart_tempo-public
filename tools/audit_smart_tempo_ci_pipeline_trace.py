@@ -29,6 +29,13 @@ INVENTORY_METRICS = METRICS | frozenset((
     "mir_topk_add_calls", "mir_topk_new_raw", "mir_family_rank_rows",
     "mir_alias_add_calls", "mir_alias_new_raw",
     "mir_continuous_add_calls", "mir_continuous_new_raw"))
+SEGMENT_METRICS = METRICS | frozenset((
+    "segment_index", "odf_peak_count", "top_k_count", "candidate", "aggregated"))
+MIR_SEGMENT_REASONS = frozenset((
+    "invalid_input", "insufficient_odf", "insufficient_onsets",
+    "single_event", "no_loop_hypotheses", "ambiguous_tatum_fit",
+    "missing_bar_division", "audacity_mir_full",
+    "audacity_mir_full_below_threshold"))
 WINDOW_METRICS = METRICS | frozenset(("pass_index", "pass_total", "start_sec",
     "requested_frames", "decoded_frames", "analysis_frames",
     "source_rate_hz", "analysis_rate_hz"))
@@ -36,6 +43,7 @@ CREATORS = frozenset(("candidate_create", "candidate_transform",
                       "policy_eligibility", "supplemental_candidate"))
 ENUMS = {
     "decode_window": ("observed", "actual_decoded_extent"),
+    "mir_segment": ("observed", None),
     "candidate_create": ("observed", None),
     "candidate_transform": ("observed", "cluster_from_raw"),
     "primary_eligibility": ("observed", "pool_only_gate_unresolved"),
@@ -127,14 +135,19 @@ class TraceError(ValueError):
     pass
 
 
-def validate(rows: list[dict], *, require_windows: bool = False) -> dict:
+def validate(rows: list[dict], *, require_windows: bool = False,
+             require_segments: bool = False) -> dict:
+    # Library callers may test legacy minimal traces. The real host CLI
+    # always requires both actual windows and actual native MIR segments.
+    if require_segments and not require_windows:
+        raise TraceError("segment proof requires native window proof")
     if not isinstance(rows, list) or not 8 <= len(rows) <= MAX_LINES:
         raise TraceError("trace missing or out of row bound")
     ids: dict[str, str] = {}
     candidate_bpm: dict[str, float] = {}
     stage_indices: dict[str, list[dict]] = {name: [] for name in ENUMS}
     stage_order = {
-        "decode_window": -1,
+        "decode_window": -1, "mir_segment": -1,
         "candidate_create": 0, "candidate_transform": 1,
         "primary_eligibility": 1, "policy_eligibility": 2,
         "supplemental_candidate": 2,
@@ -175,7 +188,8 @@ def validate(rows: list[dict], *, require_windows: bool = False) -> dict:
         has_native_tie = (stage == "primary_compare" and
                           item["reason_code"].startswith(("raw_compare_",
                                                           "general_baseline_compare_")))
-        expected_metrics = (WINDOW_METRICS if stage == "decode_window" else
+        expected_metrics = (SEGMENT_METRICS if stage == "mir_segment" else
+                            WINDOW_METRICS if stage == "decode_window" else
                             RESOURCE_METRICS if stage == "resource_usage" else
                             INVENTORY_METRICS if stage == "source_inventory" else
                             TIE_METRICS if has_native_tie else METRICS)
@@ -196,8 +210,34 @@ def validate(rows: list[dict], *, require_windows: bool = False) -> dict:
             raise TraceError("invalid candidate parents")
         if any(type(p) is not str or p not in ids for p in parents):
             raise TraceError("orphan or forward candidate parent")
-        if stage in ("decode_window", "resource_usage", "source_inventory") and (candidate_id is not None or parents):
+        if stage in ("decode_window", "mir_segment", "resource_usage", "source_inventory") and (candidate_id is not None or parents):
             raise TraceError("window/resource must not contain candidate identity")
+        if stage == "decode_window" and stage_indices["mir_segment"]:
+            raise TraceError("decode window emitted after MIR evaluator")
+        if stage == "mir_segment":
+            m = item["metrics"]
+            if item["reason_code"] not in MIR_SEGMENT_REASONS:
+                raise TraceError("unknown native MIR first-return reason")
+            for key in SEGMENT_METRICS - METRICS:
+                if m[key] != int(m[key]):
+                    raise TraceError("fractional MIR segment counter")
+            if (not 0 <= m["segment_index"] < 128 or
+                    not 0 <= m["odf_peak_count"] <= 10000000 or
+                    not 0 <= m["top_k_count"] <= 5 or
+                    m["candidate"] not in (0, 1) or
+                    m["aggregated"] not in (0, 1) or
+                    not 0 <= m["score"] <= 1 or m["support"] != 0):
+                raise TraceError("invalid native MIR segment metrics")
+            late = item["reason_code"].startswith("audacity_mir_full")
+            if (not late and (m["bpm"] != 0 or m["score"] != 0 or
+                              m["top_k_count"] != 0 or m["candidate"] or
+                              m["aggregated"]) or
+                late and (m["odf_peak_count"] < 3 or
+                          m["candidate"] != int(item["reason_code"] == "audacity_mir_full") or
+                          m["aggregated"] != int(m["bpm"] > 0 or m["score"] > 0)) or
+                item["reason_code"] == "insufficient_onsets" and
+                m["odf_peak_count"] >= 3):
+                raise TraceError("MIR first-return reason contradicts native evidence")
         if stage == "resource_usage":
             m = item["metrics"]
             for key in ("process_peak_rss_before_bytes",
@@ -450,6 +490,23 @@ def validate(rows: list[dict], *, require_windows: bool = False) -> dict:
     if inventories and windows and (
             inventories[0]["metrics"]["mir_segments_evaluated"] > len(windows)):
         raise TraceError("MIR evaluated more segments than decoded windows")
+    segments = stage_indices["mir_segment"]
+    if segments or require_segments:
+        if not inventories:
+            raise TraceError("MIR evaluator has no native source inventory")
+        native = inventories[0]["metrics"]
+        if (len(segments) != native["mir_segments_evaluated"] or
+                sum(row["metrics"]["top_k_count"] for row in segments) !=
+                    native["mir_topk_rows_seen"] or
+                sum(row["metrics"]["aggregated"] for row in segments) !=
+                    native["mir_segment_results"]):
+            raise TraceError("MIR first-return/TopK/source counts do not conserve")
+        previous_index = -1
+        for row in segments:
+            index = int(row["metrics"]["segment_index"])
+            if index <= previous_index or index >= len(windows):
+                raise TraceError("MIR evaluator segment order/window identity drift")
+            previous_index = index
     covered = 0.0
     end = -1.0
     for start, stop in intervals:
@@ -524,6 +581,10 @@ def validate(rows: list[dict], *, require_windows: bool = False) -> dict:
                 resources[0]["metrics"]["process_peak_rss_after_bytes"]),
             "native_source_inventory_verified": int(bool(inventories)),
             "native_empty_board_boundary_verified": int(bool(inventories)),
+            "mir_segment_reason_counts": ",".join(
+                f"{reason}:{sum(x['reason_code'] == reason for x in segments)}"
+                for reason in sorted({x["reason_code"] for x in segments})),
+            "mir_segment_native_verified": int(bool(segments) and require_segments),
             "negative_no_candidate_trace": 1,
             "primary_auto": 0, "final_accept": 0,
             "write_guard_blocked": 1,
@@ -759,6 +820,10 @@ def validate(rows: list[dict], *, require_windows: bool = False) -> dict:
         "rows": len(rows), "raw": len(raw), "collapsed": len(collapsed),
         "native_source_inventory_verified": int(bool(inventories)),
         "native_empty_board_boundary_verified": 0,
+        "mir_segment_reason_counts": ",".join(
+            f"{reason}:{sum(x['reason_code'] == reason for x in segments)}"
+            for reason in sorted({x["reason_code"] for x in segments})),
+        "mir_segment_native_verified": int(bool(segments) and require_segments),
         "raw_cluster_partition_verified": len(raw),
         "raw_lineage_overlap_disambiguated": overlapping_raw,
         "policy_board_unique_cluster_sources": len(seen_policy_sources),
@@ -882,7 +947,8 @@ def main() -> None:
     parser.add_argument("--trace", required=True, type=Path)
     parser.add_argument("--require-windows", action="store_true")
     a = parser.parse_args()
-    result = validate(load(a.trace), require_windows=a.require_windows)
+    result = validate(load(a.trace), require_windows=a.require_windows,
+                      require_segments=a.require_windows)
     print("SMART_TEMPO_CI_PIPELINE_TRACE_SCHEMA=PASS")
     for key, value in result.items():
         print(f"SMART_TEMPO_TRACE_{key.upper()}={value}")

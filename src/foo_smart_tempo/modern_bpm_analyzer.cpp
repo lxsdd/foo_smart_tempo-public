@@ -1934,6 +1934,23 @@ double ModernBpmAnalyzer::analyze(metadb_handle_ptr track, threaded_process_stat
 #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
         ++ciSupply.segments_evaluated;
         ciSupply.topk_rows_seen += fullMirEvaluation.top_k_count;
+        // Snapshot the REAL MIR evaluator's first-return reason, not an
+        // inference from a later empty candidate board. CI fixture only.
+        if (!ciWindowCaptureFailed &&
+            !smart_tempo::ci_pipeline_trace::permitted_fixture().empty()) {
+          try {
+            ciSupply.segments.push_back({
+                fullMirResult.segment_index, fullMirResult.odf_peak_count,
+                fullMirEvaluation.top_k_count, fullMirResult.candidate_bpm,
+                fullMirResult.loop_fit_score, fullMirResult.candidate,
+                fullMirResult.loop_fit_score > 0.0 ||
+                    fullMirResult.candidate_bpm > 0.0,
+                fullMirResult.reason});
+          } catch (...) {
+            ciWindowCaptureFailed = true;
+            ciSupply.segments.clear();
+          }
+        }
 #endif
         if (verboseLogs) {
           smart_tempo::log_hodgkinson_primary_segment(trackLabel.get_ptr(),

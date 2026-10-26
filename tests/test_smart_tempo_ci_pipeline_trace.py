@@ -212,6 +212,65 @@ def empty_board_native_trace():
 
 
 class NativePipelineTraceTests(unittest.TestCase):
+
+    def test_actual_mir_evaluator_first_return_conservation_and_mutations(self):
+        # This fixture checks the native evaluator boundary, NOT musical GO.
+        # The existing synthetic 1-window/1-candidate trace is reused.
+        rows = with_resource(trace())
+        w = event("decode_window", None, [], 0., "observed",
+                  "actual_decoded_extent", 0)
+        w["metrics"] = dict(bpm=0., score=0., support=0.,
+                            pass_index=0, pass_total=1, start_sec=0.,
+                            requested_frames=16000, decoded_frames=16000,
+                            analysis_frames=16000, source_rate_hz=16000,
+                            analysis_rate_hz=16000)
+        seg = event("mir_segment", None, [], 128., "observed",
+                    "audacity_mir_full", 0)
+        seg["metrics"] = dict(bpm=128., score=.9, support=0.,
+                              segment_index=0, odf_peak_count=8,
+                              top_k_count=1, candidate=1, aggregated=1)
+        rows[0:0] = [w, seg]
+        attach_inventory(rows)
+        self.assertEqual(validate(rows, require_windows=True,
+                                  require_segments=True)["mir_segment_native_verified"], 1)
+        mutations = (
+            ("unknown_reason", lambda x: x.update(reason_code="unknown")),
+            ("candidate_disagreement", lambda x: x["metrics"].update(candidate=0)),
+            ("invented_topk", lambda x: x["metrics"].update(top_k_count=2)),
+            ("fractional_index", lambda x: x["metrics"].update(segment_index=.5)),
+            ("foreign_path", lambda x: x.update(path="private.wav")),
+            ("bad_peak_count", lambda x: x["metrics"].update(odf_peak_count=2)),
+            ("bad_aggregated", lambda x: x["metrics"].update(aggregated=0)),
+        )
+        for name, mutate in mutations:
+            bad = copy.deepcopy(rows)
+            mutate(bad[1])
+            with self.subTest(name=name), self.assertRaises(TraceError):
+                validate(bad, require_windows=True, require_segments=True)
+        missing = [x for x in rows if x["stage"] != "mir_segment"]
+        for i, x in enumerate(missing): x["sequence"] = i
+        with self.assertRaises(TraceError):
+            validate(missing, require_windows=True, require_segments=True)
+
+        empty = empty_board_native_trace()
+        reason = event("mir_segment", None, [], 0., "observed",
+                       "insufficient_onsets", 0)
+        reason["metrics"] = dict(bpm=0., score=0., support=0.,
+                                 segment_index=0, odf_peak_count=0,
+                                 top_k_count=0, candidate=0, aggregated=0)
+        empty.insert(1, reason)
+        for i, x in enumerate(empty): x["sequence"] = i
+        self.assertEqual(validate(empty, require_windows=True,
+                                  require_segments=True)["mir_segment_reason_counts"],
+                         "insufficient_onsets:1")
+        for field, value in (("odf_peak_count", 3), ("candidate", 1),
+                             ("top_k_count", 1), ("aggregated", 1)):
+            bad = copy.deepcopy(empty)
+            bad[1]["metrics"][field] = value
+            with self.subTest(field=field), self.assertRaises(TraceError):
+                validate(bad, require_windows=True, require_segments=True)
+
+
     def test_native_source_supply_origin_conservation_and_negative_mutations(self):
         positive = attach_inventory(with_resource(trace()))
         self.assertEqual(validate(positive)["raw"], 1)

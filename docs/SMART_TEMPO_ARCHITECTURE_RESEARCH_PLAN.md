@@ -560,3 +560,24 @@ negative gate is not an irreversible veto. This source/trace coverage does not
 change production DSP, policy, writer, preferences or user files and does
 **not** authorize Phase C or musical release. The source gate and exact-head
 original Win32/x64 host must pass before these observations count as measured.
+
+### Phase B: native MIR evaluator first-return causal ledger (26 October 2026)
+
+The CI-only source observer now captures one bounded, source-reason-whitelisted
+`mir_segment` row per **actually executed** Hodgkinson MIR evaluation,
+including pass identity, onset-peak count, native first-return reason,
+actual TopK cardinality, candidate flag and whether the segment entered the
+track-level MIR result accumulator. It uses the evaluator's existing reason,
+not an inferred cause from a later empty board. The independent parser
+reconciles segment indices to decoded windows, per-segment TopK sums to the
+native source inventory, and accumulator counts to actual producer counts.
+A separate strict host flag enforces the full ledger while legacy source-only
+minimal trace fixtures remain testable. Positive and adversarial negatives
+cover forged reasons, peak thresholds, missing rows, TopK count drift,
+nonintegral indices and private fields. The **first MIR early-return gate**
+can now be identified on zero-board audio when actually observed; later
+TopK/alias rail filtering still requires distinct evidence. No source-oracle
+BPM, real-music data, DSP/selector/policy/writer modification or user-file
+write is introduced. Package B remains incomplete until branch-specific
+first-veto and positive actual supplemental Policy-to-writer provenance are
+independently proven on native Win32/x64; Phase C CLOSED, musical NO_GO.
