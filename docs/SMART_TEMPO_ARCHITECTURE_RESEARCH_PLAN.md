@@ -686,3 +686,33 @@ checkout. This differentiates candidate-supply problems from ranking/policy
 problems without changing any production audio logic or making an external BPM
 oracle into an engine input. The four cases are still a SMALL synthetic pilot;
 no Phase C, measured improvement, real-music generalization or musical GO.
+
+### 26 October 2026: original-host native low-pulse branch from synthetic external CUE
+
+The four untagged BPM-pilot WAVs cannot establish matched low-genre
+routing, and the host trace correctly reports zero low bestBy episodes.
+A **separate** synthetic external-CUE control declares standard
+`REM GENRE "Chill"`, references the already-generated pulse_60.wav,
+and runs the ordinary foobar file/metadata/genre mapper and original
+MIR selector on both Win32 and x64. No routing context, BPM reference,
+genre field or threshold is injected into the productive code.
+
+The bounded original-host source-indexed observer MUST show a
+low-pulse bestBy epoch and a winning low-lane comparison; otherwise
+the host gate fails closed. The generated WAV, external CUE and one-case
+reference manifest are verified by SHA-256+size+mtime across host setup,
+diagnostics, disabled Update and teardown, on each platform. The
+compiled temporary file allowlist admits exactly the new CUE suffix
+under RUNNER_TEMP. The synthetic reference score is checked, but the
+new CUE remains OUTSIDE the frozen 4-case accuracy/cohort and post-host
+candidate-recall localization denominators. The strict four-case
+joined audit remains unchanged; it may carry allowlisted numeric
+low-comparator count fields without accepting new/private sources.
+This branch fixture must pass exact original-host Win32+x64 qualification
+before being called an observed positive selector transition.
+
+This is Phase-B source/host branch-coverage only, NOT causal first-veto
+completeness, a positive supplemental Policy source, performance
+improvement, real music qualification or musical GO. Production DSP,
+genre rules, preferences, selector, Policy, writer and owner media
+remain unchanged.

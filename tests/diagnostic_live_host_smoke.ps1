@@ -93,12 +93,13 @@ $script:pilotTraceKeys=@('NATIVE_SOURCE_INVENTORY_VERIFIED','RAW','COLLAPSED','W
   'FINAL_ACCEPT','PROCESS_CPU_SECONDS','PROCESS_PEAK_RSS_BYTES','PRIMARY_VETO_REASON_UNKNOWN',
   'INDEXED_NATIVE_FINAL_WITNESS','UNINDEXED_SUPPLEMENTAL_FINAL_WITNESS',
   'SUPPLEMENTAL_SELECTED_SOURCES','POLICY_SUPPLEMENTAL_POINTER_IDENTITY_COMPLETE',
-  'NEGATIVE_NO_CANDIDATE_TRACE')
+  'NEGATIVE_NO_CANDIDATE_TRACE','SELECTOR_LOW_BESTBY_EPISODES',
+  'SELECTOR_COMPARE_LOW_WINS','SELECTOR_COMPARE_LOW_LOSSES')
 $script:pilotScoreKeys=@('EVALUATED','REFERENCE_RHYTHMIC','ACCEPTED_RHYTHMIC',
   'HELD_RHYTHMIC','ACCEPTED_WITHIN_0_05_BPM','ACCEPTED_WITHIN_0_20_BPM',
   'ACCEPTED_OUTSIDE_0_20_BPM','NEGATIVE_TOTAL','NEGATIVE_FALSEACCEPTS',
   'HALF_DOUBLE_ALIAS','CORRECT_ABSTENTION')
-function Run-Case([string]$installer,[string]$root,[string]$inputFile,[string[]]$files,[int]$minimum,[string]$label) {
+function Run-Case([string]$installer,[string]$root,[string]$inputFile,[string[]]$files,[int]$minimum,[string]$label,[switch]$RequireLowPulseCoverage) {
   $hostDir=Join-Path $root ('host-'+$label)
   $install=Start-Process $installer -ArgumentList @('/S',"/D=$hostDir") -Wait -PassThru
   if ($install.ExitCode -ne 0) { throw 'Official host installer failed' }
@@ -214,12 +215,16 @@ function Run-Case([string]$installer,[string]$root,[string]$inputFile,[string[]]
       # Independent post-host recall audit: the predeclared reference BPM is
       # read only by this Python scorer AFTER the native worker has exited.
       # Crucially, neither MIR, Policy nor the host component sees the oracle.
-      $recallOutput=@(python ./tools/audit_smart_tempo_b_candidate_recall.py --manifest $reference --observed $observed --trace $trace --case $label.Substring(10) 2>&1)
-      if ($LASTEXITCODE -ne 0 -or
-          @($recallOutput | Where-Object { $_ -ceq 'SMART_TEMPO_B_RECALL_VERIFIED=1' }).Count -ne 1) {
-        throw ('Native source/ground-truth recall audit failed: '+($recallOutput -join '; '))
+      if (-not $RequireLowPulseCoverage) {
+        # The recall scorer is deliberately frozen to exactly the original
+        # four cases; the additional low-genre CUE probes branch coverage.
+        $recallOutput=@(python ./tools/audit_smart_tempo_b_candidate_recall.py --manifest $reference --observed $observed --trace $trace --case $label.Substring(10) 2>&1)
+        if ($LASTEXITCODE -ne 0 -or
+            @($recallOutput | Where-Object { $_ -ceq 'SMART_TEMPO_B_RECALL_VERIFIED=1' }).Count -ne 1) {
+          throw ('Native source/ground-truth recall audit failed: '+($recallOutput -join '; '))
+        }
+        $recallOutput | ForEach-Object { Write-Host $_ }
       }
-      $recallOutput | ForEach-Object { Write-Host $_ }
       $traceEvidence=@{}
       foreach ($line in $traceOutput) {
         if ([string]$line -cmatch '^SMART_TEMPO_TRACE_([A-Z0-9_]+)=([A-Za-z0-9_.]+)$' -and
@@ -243,10 +248,32 @@ function Run-Case([string]$installer,[string]$root,[string]$inputFile,[string[]]
           throw "Incomplete native pilot trace evidence: $required"
         }
       }
-      [void]$script:pilotEvidence.Add([pscustomobject]@{
-        case=$label.Substring(10);score=$scoreEvidence;trace=$traceEvidence;media_no_write=$true
-      })
-      Write-Host ("SMART_TEMPO_NATIVE_B_PILOT_TRACE_{0}_{1}=PASS" -f $Architecture,$label)
+      if ($RequireLowPulseCoverage) {
+        # The real CUE -> title-format -> default genre mapper must choose
+        # the native low-pulse selector, never a synthetic C++ route override.
+        foreach ($key in @('SELECTOR_LOW_BESTBY_EPISODES',
+                           'SELECTOR_COMPARE_LOW_WINS',
+                           'SELECTOR_COMPARE_LOW_LOSSES')) {
+          if (-not $traceEvidence.ContainsKey($key)) {
+            throw "Missing native low-pulse evidence: $key"
+          }
+        }
+        $episodes=$traceEvidence['SELECTOR_LOW_BESTBY_EPISODES']
+        $wins=$traceEvidence['SELECTOR_COMPARE_LOW_WINS']
+        $losses=$traceEvidence['SELECTOR_COMPARE_LOW_LOSSES']
+        if ($episodes -lt 1 -or $wins -lt 1 -or ($wins+$losses) -lt 1) {
+          throw "Real CUE genre route did not exercise low selector: episodes=$episodes wins=$wins losses=$losses"
+        }
+        Write-Host ("SMART_TEMPO_NATIVE_LOW_PULSE_{0}_EPISODES={1}" -f $Architecture,$episodes)
+        Write-Host ("SMART_TEMPO_NATIVE_LOW_PULSE_{0}_COMPARISONS={1}" -f $Architecture,($wins+$losses))
+        Write-Host ("SMART_TEMPO_NATIVE_LOW_PULSE_{0}=PASS" -f $Architecture)
+      } else {
+        # Historical accuracy cohort remains fixed at exactly four WAVs.
+        [void]$script:pilotEvidence.Add([pscustomobject]@{
+          case=$label.Substring(10);score=$scoreEvidence;trace=$traceEvidence;media_no_write=$true
+        })
+        Write-Host ("SMART_TEMPO_NATIVE_B_PILOT_TRACE_{0}_{1}=PASS" -f $Architecture,$label)
+      }
       Write-Host 'SMART_TEMPO_PRIMARY_VETO_INDIVIDUAL_REASONS=UNMEASURED'
     }
     Write-Host ("DIAGNOSTIC_MENU_{0}_{1}=PASS" -f $Architecture,$label)
@@ -310,6 +337,19 @@ try {
     }
     $wavFile=Join-Path $syntheticRoot ($caseId+'.wav')
     Run-Case $installer $root $wavFile @($wavFile,$reference) 1 ('SYNTHETIC_'+$caseId)
+    if ($caseId -ceq 'pulse_60') {
+      # Standard external CUE metadata, using the unchanged default mapper.
+      $lowCue=Join-Path $syntheticRoot 'pulse_60_chill.cue'
+      if (Test-Path -LiteralPath $lowCue) { throw 'Stale synthetic route CUE' }
+      [IO.File]::WriteAllLines($lowCue,@(
+        'REM GENRE "Chill"',
+        'FILE "pulse_60.wav" WAVE',
+        '  TRACK 01 AUDIO',
+        '    INDEX 01 00:00:00'
+      ),[Text.Encoding]::ASCII)
+      Run-Case $installer $root $lowCue @($wavFile,$lowCue,$reference) 1 `
+        'SYNTHETIC_pulse_60_chill' -RequireLowPulseCoverage
+    }
   }
   # CI-only bounded numeric report; consumed again by cross-architecture gate.
   $pilotReport=Join-Path $env:RUNNER_TEMP ("smart-tempo-b-pilot-"+$Architecture+".json")

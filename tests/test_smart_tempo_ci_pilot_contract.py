@@ -15,6 +15,9 @@ class PilotContract(unittest.TestCase):
         for case in CASES:
             self.assertEqual(header.count(case + ".wav"), 1)
         self.assertEqual(header.count(".wav"), len(CASES))
+        self.assertEqual(header.count("pulse_60_chill.cue"), 1)
+        self.assertEqual(header.count(".cue"), 1)
+
         self.assertIn("runner_temp", header)
         self.assertIn("_wcsnicmp", header)
         for path in ("tests/ci_bpm_oracle_sink.h", "tests/ci_pipeline_trace.h"):
@@ -33,6 +36,33 @@ class PilotContract(unittest.TestCase):
         self.assertIn("Missing native B-pilot lineage", script)
         auditor = self.read("tools/audit_smart_tempo_ci_pipeline_trace.py")
         self.assertIn("INCOMPLETE_EMPTY_BOARD_CAUSAL", auditor)
+
+    def test_independent_external_cue_low_pulse_host_coverage(self):
+        script = self.read("tests/diagnostic_live_host_smoke.ps1")
+        config = self.read("src/foo_smart_tempo/preferences.cpp")
+        cohort = self.read("tools/audit_smart_tempo_b_pilot_cohort.py")
+        self.assertIn("Chill; Chillout; Easy Listening", config)
+        self.assertIn("'REM GENRE \"Chill\"'", script)
+        self.assertIn("'FILE \"pulse_60.wav\" WAVE'", script)
+        self.assertIn("Run-Case $installer $root $lowCue", script)
+        self.assertIn("'SYNTHETIC_pulse_60_chill' -RequireLowPulseCoverage", script)
+        self.assertIn("@($wavFile,$lowCue,$reference)", script)
+        self.assertIn("if ($episodes -lt 1 -or $wins -lt 1", script)
+        self.assertIn("SMART_TEMPO_NATIVE_LOW_PULSE_", script)
+        self.assertIn("if ($RequireLowPulseCoverage)", script)
+        self.assertIn("} else {\n        # The frozen four-case BPM accuracy", script)
+        self.assertIn("SELECTOR_LOW_BESTBY_EPISODES", cohort)
+        self.assertLess(script.index("Run-Case $installer $root $lowCue"),
+                        script.index("$pilotReport=Join-Path"))
+
+    def test_low_pulse_fixture_cannot_expand_production_paths(self):
+        guard = self.read("tests/ci_fixture_allowlist.h")
+        script = self.read("tests/diagnostic_live_host_smoke.ps1")
+        self.assertIn("synthetic-oracle\\\\pulse_60_chill.cue", guard)
+        self.assertIn("runner_temp", guard)
+        self.assertNotIn("SMART_TEMPO_CI_ROUTE_OVERRIDE", script)
+        self.assertEqual(script.count("-RequireLowPulseCoverage"), 1)
+        self.assertIn("if ($caseId -ceq 'pulse_60')", script)
 
     def test_original_host_script_not_truncated_or_repeated(self):
         script = self.read("tests/diagnostic_live_host_smoke.ps1")
