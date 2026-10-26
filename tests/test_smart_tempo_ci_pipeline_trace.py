@@ -142,7 +142,93 @@ def with_resource(rows):
     return rows
 
 
+def empty_board_native_trace():
+    """Independent negative fixture: actual windows, no candidate objects."""
+    w = event("decode_window", None, [], 0., "observed",
+              "actual_decoded_extent", 0)
+    w["metrics"] = {
+        "bpm": 0., "score": 0., "support": 0.,
+        "pass_index": 0, "pass_total": 1, "start_sec": 0.,
+        "requested_frames": 16000, "decoded_frames": 16000,
+        "analysis_frames": 16000, "source_rate_hz": 16000,
+        "analysis_rate_hz": 16000,
+    }
+    rows = [
+        w,
+        event("primary_select", None, [], 0., "no_candidate",
+              "primary_no_candidate", 1),
+        event("policy_resolution", None, [], 0., "observed",
+              "policy_no_output", 2),
+        event("policy_pointer", None, [], 0., "observed",
+              "pointer_no_output", 3),
+        event("policy_change", None, [], 0., "review_hold",
+              "no_policy_write", 4),
+        event("final_output", None, [], 0., "review_hold",
+              "final_abstained", 5),
+        event("measured_witness", None, [], 0., "rejected",
+              "not_accepted", 6),
+        resource_event(),
+        event("write_guard", None, [], 0., "write_blocked",
+              "ci_dry_run", 8),
+    ]
+    for row in rows:
+        if row["stage"] not in ("decode_window", "resource_usage"):
+            row["metrics"] = {"bpm": 0., "score": 0., "support": 0.}
+    for i, row in enumerate(rows):
+        row["sequence"] = i
+    return rows
+
+
 class NativePipelineTraceTests(unittest.TestCase):
+    def test_native_empty_board_negative_chain_is_verified_but_not_qualified(self):
+        rows = empty_board_native_trace()
+        result = validate(rows, require_windows=True)
+        self.assertEqual((result["raw"], result["collapsed"],
+                          result["primary_auto"], result["final_accept"],
+                          result["write_guard_blocked"]), (0, 0, 0, 0, 1))
+        self.assertEqual(result["negative_no_candidate_trace"], 1)
+        self.assertEqual(result["phase_b_causal_completeness"],
+                         "INCOMPLETE_EMPTY_BOARD_CAUSAL")
+        rows[1]["outcome"], rows[1]["reason_code"] = (
+            "review_hold", "primary_review_hold")
+        self.assertEqual(validate(rows, require_windows=True)["final_accept"], 0)
+
+    def test_native_empty_board_forgery_matrix_fails_closed(self):
+        base = empty_board_native_trace()
+        for index, field, value in (
+            (1, "outcome", "selected"),
+            (2, "reason_code", "policy_one_same_bpm"),
+            (3, "reason_code", "pointer_not_observed"),
+            (4, "outcome", "selected"),
+            (5, "outcome", "selected"),
+            (6, "outcome", "included"),
+            (8, "outcome", "selected"),
+        ):
+            with self.subTest(index=index, field=field):
+                rows = copy.deepcopy(base)
+                rows[index][field] = value
+                with self.assertRaises(TraceError):
+                    validate(rows, require_windows=True)
+        for index, key, value in (
+            (1, "bpm", 128.0), (2, "score", 1.0),
+            (3, "support", 1.0), (4, "bpm", 128.0),
+            (5, "bpm", 128.0), (6, "bpm", 128.0),
+            (8, "score", 1.0),
+        ):
+            with self.subTest(index=index, metric=key):
+                rows = copy.deepcopy(base)
+                rows[index]["metrics"][key] = value
+                with self.assertRaises(TraceError):
+                    validate(rows, require_windows=True)
+        for removed in (0, 7, 8):
+            rows = copy.deepcopy(base)
+            rows.pop(removed)
+            for i, row in enumerate(rows):
+                row["sequence"] = i
+            with self.subTest(removed=removed), self.assertRaises(TraceError):
+                validate(rows, require_windows=True)
+
+
     def test_positive_exact_lineage_and_unknown_gate_reported_not_hidden(self):
         result = validate(trace())
         self.assertEqual((result["raw"], result["collapsed"], result["primary_pool"],

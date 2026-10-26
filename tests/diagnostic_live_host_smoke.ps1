@@ -182,15 +182,12 @@ function Run-Case([string]$installer,[string]$root,[string]$inputFile,[string[]]
           -not ($scoreOutput -contains 'SYNTHETIC_BPM_NEGATIVE_FALSEACCEPTS=0')) {
         throw 'Safety negative control auto-accepted an unmeasured BPM'
       }
-      if (Test-Path -LiteralPath $trace -PathType Leaf) {
-        python ./tools/audit_smart_tempo_ci_pipeline_trace.py --trace $trace --require-windows
-        if ($LASTEXITCODE -ne 0) { throw 'Real foobar native BPM lineage contract failed' }
-        Write-Host ("SMART_TEMPO_NATIVE_B_PILOT_TRACE_{0}_{1}=PASS" -f $Architecture,$label)
-      } elseif ($label -eq 'SYNTHETIC_silence') {
-        Write-Host ("SMART_TEMPO_NATIVE_B_NEGATIVE_TRACE_{0}=INCOMPLETE_NO_CANDIDATES" -f $Architecture)
-      } else {
+      if (-not (Test-Path -LiteralPath $trace -PathType Leaf)) {
         throw "Missing native B-pilot lineage for $label"
       }
+      python ./tools/audit_smart_tempo_ci_pipeline_trace.py --trace $trace --require-windows
+      if ($LASTEXITCODE -ne 0) { throw 'Real foobar native BPM lineage contract failed' }
+      Write-Host ("SMART_TEMPO_NATIVE_B_PILOT_TRACE_{0}_{1}=PASS" -f $Architecture,$label)
       Write-Host 'SMART_TEMPO_PRIMARY_VETO_INDIVIDUAL_REASONS=UNMEASURED'
     }
     Write-Host ("DIAGNOSTIC_MENU_{0}_{1}=PASS" -f $Architecture,$label)

@@ -430,3 +430,24 @@ candidate trace and is reported INCOMPLETE_NO_CANDIDATES, never causal
 completeness. All first-veto and supplemental-witness gates remain
 unresolved; musical GO, genre-B, unseen music and production writes
 remain blocked pending independent proof.
+
+
+### 26 October 2026: independently verified zero-candidate negative lineage
+
+The new Win32 pilot exposed an actual no-tempo native trace with **zero raw
+and zero collapsed MIR objects**. The old validator rejected every such
+trace as "missing raw/collapsed MIR", although the native reporter correctly
+wrote the disposable trace and the independent BPM observer reported
+silence abstention. The auditor now accepts this *only* when it proves the
+complete zero-candidate terminal chain: no fabricated selector, FullBoard,
+supplemental or parent identities; zero BPM at Primary, Policy, final and
+witness; actual complete decoded windows and process resource observation;
+no Policy write; rejected measured witness and blocked CI write guard.
+Positive and adversarial source tests include forged acceptance, fake
+Policy pointers, nonzero values and missing windows/resources/guard.
+Both original hosts now REQUIRE the negative trace; no silent omission.
+
+The accepted trace is explicitly
+`INCOMPLETE_EMPTY_BOARD_CAUSAL`—a verified negative *no-candidate* path,
+not a proof of all positive selector vetoes, a genre-B result or a musical
+GO. Production MIR, policy, DSP and writer behavior remain untouched.

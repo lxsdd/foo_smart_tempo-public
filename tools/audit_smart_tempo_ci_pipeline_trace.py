@@ -378,6 +378,71 @@ def validate(rows: list[dict], *, require_windows: bool = False) -> dict:
     supplemental = stage_indices["supplemental_candidate"]
     if len(supplemental) > 1:
         raise TraceError("multiple selected supplemental objects")
+    # An actual no-tempo negative can legitimately produce zero raw and
+    # collapsed MIR candidates. Prove its ENTIRE no-candidate/no-write
+    # terminal chain rather than treating it as an absent/broken trace.
+    # This remains a distinct incomplete-causal outcome, never a B PASS.
+    if not raw and not collapsed:
+        forbidden = ("primary_eligibility", "policy_eligibility",
+                     "supplemental_candidate", "candidate_filter",
+                     "primary_rank", "primary_compare", "primary_terminal",
+                     "primary_disposition")
+        if any(stage_indices[name] for name in forbidden):
+            raise TraceError("empty MIR fabricated candidate provenance")
+        primary = stage_indices["primary_select"][0]
+        resolution = stage_indices["policy_resolution"][0]
+        pointer = stage_indices["policy_pointer"][0]
+        policy = stage_indices["policy_change"][0]
+        final = stage_indices["final_output"][0]
+        witness = stage_indices["measured_witness"][0]
+        guard = stage_indices["write_guard"][0]
+        terminals = (primary, resolution, pointer, policy, final, witness, guard)
+        if any(row["candidate_id"] is not None or row["parent_candidate_ids"]
+               or any(row["metrics"][key] != 0 for key in METRICS)
+               for row in terminals):
+            raise TraceError("empty MIR terminal has fabricated candidate or BPM")
+        if (primary["outcome"], primary["reason_code"]) not in (
+                ("no_candidate", "primary_no_candidate"),
+                ("review_hold", "primary_review_hold")):
+            raise TraceError("empty MIR primary not held/no-candidate")
+        if (resolution["outcome"], resolution["reason_code"]) != (
+                "observed", "policy_no_output"):
+            raise TraceError("empty MIR fabricated Policy comparison")
+        if (pointer["outcome"], pointer["reason_code"]) != (
+                "observed", "pointer_no_output"):
+            raise TraceError("empty MIR fabricated Policy pointer")
+        if (policy["outcome"] not in ("review_hold", "rejected") or
+                policy["reason_code"] != "no_policy_write"):
+            raise TraceError("empty MIR Policy would write")
+        if (final["outcome"], final["reason_code"]) != (
+                "review_hold", "final_abstained"):
+            raise TraceError("empty MIR fabricated final acceptance")
+        if (witness["outcome"], witness["reason_code"]) != (
+                "rejected", "not_accepted"):
+            raise TraceError("empty MIR fabricated measured witness")
+        if (guard["outcome"], guard["reason_code"]) != (
+                "write_blocked", "ci_dry_run"):
+            raise TraceError("empty MIR media write safety drift")
+        if not windows or len(windows) != declared_passes or len(resources) != 1:
+            raise TraceError("empty MIR native window/resource evidence incomplete")
+        return {
+            "rows": len(rows), "raw": 0, "collapsed": 0,
+            "primary_pool": 0, "policy_board": 0,
+            "decoded_windows": len(windows), "declared_windows": declared_passes,
+            "windows_complete": 1,
+            "requested_window_seconds": round(total_requested, 6),
+            "decoded_window_seconds": round(total_decoded, 6),
+            "unique_covered_seconds": round(covered, 6),
+            "repeat_factor": round(total_decoded / covered, 6) if covered else 0.0,
+            "process_wall_seconds": round(resources[0]["metrics"]["wall_seconds"], 6),
+            "process_cpu_seconds": round(resources[0]["metrics"]["process_cpu_seconds"], 6),
+            "process_peak_rss_bytes": int(
+                resources[0]["metrics"]["process_peak_rss_after_bytes"]),
+            "negative_no_candidate_trace": 1,
+            "primary_auto": 0, "final_accept": 0,
+            "write_guard_blocked": 1,
+            "phase_b_causal_completeness": "INCOMPLETE_EMPTY_BOARD_CAUSAL",
+        }
     if not raw or not collapsed:
         raise TraceError("missing raw/collapsed MIR")
     # Independently replay collapse_mir_candidates' ordered first-match

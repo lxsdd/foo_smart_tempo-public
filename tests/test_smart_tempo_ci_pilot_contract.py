@@ -30,7 +30,9 @@ class PilotContract(unittest.TestCase):
         self.assertNotIn("if ($Architecture -eq 'x64')", script)
         self.assertIn("Run-Case $installer $root $wavFile", script)
         self.assertIn("SYNTHETIC_BPM_NEGATIVE_FALSEACCEPTS=0", script)
-        self.assertIn("INCOMPLETE_NO_CANDIDATES", script)
+        self.assertIn("Missing native B-pilot lineage", script)
+        auditor = self.read("tools/audit_smart_tempo_ci_pipeline_trace.py")
+        self.assertIn("INCOMPLETE_EMPTY_BOARD_CAUSAL", auditor)
 
     def test_no_false_causal_or_release_pass(self):
         workflow = self.read(".github/workflows/source.yml")
