@@ -644,6 +644,71 @@ class NativePipelineTraceTests(unittest.TestCase):
         with self.assertRaisesRegex(TraceError, "matching clustered witness|exact terminal object"):
             validate(rows)
 
+    def test_native_lane_terminal_must_descend_from_actual_pool_winner(self):
+        # This closes the gap between individually valid comparator rows and
+        # a forged terminal lane ID. No reference BPM or private audio enters
+        # selection; the independent oracle uses only executed source IDs.
+        families = {
+            "raw": ("c0", "c1", "raw_rank_scored"),
+            "harmonic": ("c2", "c3", "harmonic_rank_scored"),
+            "general_baseline": ("c2", "c3", "general_baseline_rank_scored"),
+            "general_alt": ("c2", "c3", "general_alt_rank_scored"),
+            "low": ("c2", "c3", "low_rank_scored"),
+        }
+
+        def case(family, second_wins=False, continuous_rescue=False):
+            first, second, rank_reason = families[family]
+            rows = lineage_trace([128., 140.], [128., 140.],
+                                 [[0], [1]])
+            insert_at = next(i for i, row in enumerate(rows)
+                             if row["stage"] == "primary_select")
+            observed = []
+            for idx, (cid, bpm) in enumerate(((first, 128.), (second, 140.))):
+                score = 1.0 if idx == 0 else (2.0 if second_wins else .5)
+                won = idx == 0 or second_wins
+                rank = event("primary_rank", cid, [], bpm, "included",
+                             rank_reason, 0)
+                compare = event("primary_compare", cid, [], bpm,
+                                "included" if won else "excluded",
+                                family + ("_compare_won" if won else "_compare_lost"), 0)
+                for row in (rank, compare):
+                    row["metrics"]["score"] = score
+                    row["metrics"]["support"] = 0.
+                    if family == "low":
+                        row["metrics"]["low_pool_epoch"] = 1
+                observed.extend((rank, compare))
+            if continuous_rescue:
+                observed.append(event("candidate_filter", "c2", [], 128.,
+                                      "included", "low_continuous_allowed", 0))
+            observed.extend(
+                event("primary_terminal", "c2", [], 128., "selected", reason, 0)
+                for reason in ("terminal_lane_choice", "terminal_residual_choice",
+                               "terminal_final_choice"))
+            rows[insert_at:insert_at] = observed
+            for idx, row in enumerate(rows):
+                row["sequence"] = idx
+            return rows
+
+        for family in families:
+            with self.subTest(family=family):
+                positive = validate(case(family))
+                self.assertEqual(positive["selector_lane_comparator_winner_proven"], 1)
+                self.assertEqual(positive["selector_lane_continuous_rescue_unranked"], 0)
+                # A legitimate final comparator replacement must invalidate
+                # the stale lane pointer even if its BPM and object still exist.
+                with self.assertRaisesRegex(
+                        TraceError, "terminal lane candidate was not"):
+                    validate(case(family, second_wins=True))
+
+        rescue = validate(case("low", second_wins=True, continuous_rescue=True))
+        self.assertEqual(rescue["selector_lane_comparator_winner_proven"], 0)
+        self.assertEqual(rescue["selector_lane_continuous_rescue_unranked"], 1)
+        forged = case("low", second_wins=True, continuous_rescue=True)
+        next(x for x in forged if x["reason_code"] == "low_continuous_allowed")[
+            "outcome"] = "excluded"
+        with self.assertRaises(TraceError):
+            validate(forged)
+
     def test_raw_aliased_candidates_can_exceed_output_rail_but_not_safety_limit(self):
         # A 512 BPM raw alias may be present without becoming a 40-220 BPM
         # policy candidate. Never launder it through an unknown source.
