@@ -18,13 +18,19 @@ concurrency:
 
 jobs:
   portable:
-    uses: lxsdd/dev-infrastructure-public/.github/workflows/portable-core.yml@1fd8aa0693472d3d7ba2f5821571c1804c1550d5
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: read
-    with:
-      language: cmake
-      source-directory: tests
-      python-test-patterns: test_synthetic_bpm_*.py,test_mw1_comparator.py
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: lxsdd/dev-infrastructure-public/.github/actions/portable-core@850b89b57d5cddaa6525d83ad7877ac1377c9cb3
+        with:
+          language: cmake
+          source-directory: tests
+          python-test-patterns: test_synthetic_bpm_*.py,test_mw1_comparator.py
 
   source:
     needs: portable
