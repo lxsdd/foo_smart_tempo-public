@@ -38,14 +38,17 @@ inline void ci_policy_supplemental(double bpm, MirCiSupplementalKind kind,
 inline void ci_primary_event(std::size_t sourceIndex, double bpm, double score,
                              bool raw, bool included, const char* reason,
                              std::array<double, 4> tieMetrics = {},
-                             bool hasTieMetrics = false) noexcept {
+                             bool hasTieMetrics = false,
+                             std::size_t lowPoolEpoch = 0,
+                             bool hasLowPoolEpoch = false) noexcept {
   if (g_ci_primary_events.size() >= 4096) {
     g_ci_primary_trace_complete = false;
     return;
   }
   try {
     g_ci_primary_events.push_back({bpm, score, raw, included, reason, sourceIndex,
-                                   tieMetrics, hasTieMetrics});
+                                   tieMetrics, hasTieMetrics,
+                                   lowPoolEpoch, hasLowPoolEpoch});
   } catch (...) {
     // CI-only diagnostics never affect selection; incomplete evidence fails the host gate.
     g_ci_primary_trace_complete = false;
@@ -1227,8 +1230,15 @@ evaluate_mir_high_pulse_interval_conflict_shadow(
            (mir_has_alias(c->alias_bits, MirAlias::direct) ? 0.7
                                                                   : 0.0);
   };
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+  std::size_t ciLowBestByEpoch = 0;
+#endif
   const auto bestBy = [&](const std::vector<const MirCandidate*>& pool,
                           const auto& scoreFn) -> const MirCandidate* {
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+    // Each nested rescue invokes a fresh bestBy with an empty incumbent.
+    const std::size_t ciThisPoolEpoch = ++ciLowBestByEpoch;
+#endif
     const MirCandidate* best = nullptr;
     double bestScore = -std::numeric_limits<double>::infinity();
     for (const auto* candidate : pool) {
@@ -1237,12 +1247,22 @@ evaluate_mir_high_pulse_interval_conflict_shadow(
       // Actual low-pulse score comparison, including nested rescues.
       // Ranking is not an executed terminal veto.
       ci_primary_event(static_cast<std::size_t>(candidate - candidates.data()),
-                       candidate->bpm, score, false, true, "low_rank_scored");
+                       candidate->bpm, score, false, true, "low_rank_scored",
+                       {}, false, ciThisPoolEpoch, true);
+#endif
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+      const bool ciComparisonWon = best == nullptr || score > bestScore;
 #endif
       if (best == nullptr || score > bestScore) {
         best = candidate;
         bestScore = score;
       }
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+      ci_primary_event(static_cast<std::size_t>(candidate - candidates.data()),
+                       candidate->bpm, score, false, ciComparisonWon,
+                       ciComparisonWon ? "low_compare_won" : "low_compare_lost",
+                       {}, false, ciThisPoolEpoch, true);
+#endif
     }
     return best;
   };

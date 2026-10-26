@@ -932,7 +932,7 @@ class NativePipelineTraceTests(unittest.TestCase):
         source = (ROOT / "src/foo_smart_tempo/mir_candidate_pipeline.cpp").read_text(
             encoding="utf-8")
         reporter = (ROOT / "tests/ci_pipeline_trace.h").read_text(encoding="utf-8")
-        for family in ("raw", "harmonic", "general_baseline", "general_alt"):
+        for family in ("raw", "harmonic", "general_baseline", "general_alt", "low"):
             self.assertEqual(source.count('"' + family + '_compare_won"'), 1)
             self.assertEqual(source.count('"' + family + '_compare_lost"'), 1)
         self.assertIn('comparison ? "primary_compare"', reporter)
@@ -943,7 +943,7 @@ class NativePipelineTraceTests(unittest.TestCase):
         insert_at = next(i for i, row in enumerate(rows)
                          if row["stage"] == "primary_disposition")
         events = []
-        families = ("raw", "harmonic", "general_baseline", "general_alt")
+        families = ("raw", "harmonic", "general_baseline", "general_alt", "low")
         for family in families:
             candidate = "c0" if family == "raw" else "c1"
             for score, verdict in ((.95, "won"), (.90, "lost")):
@@ -954,15 +954,19 @@ class NativePipelineTraceTests(unittest.TestCase):
                              family + "_compare_" + verdict, 0)
                 rank["metrics"]["score"] = score
                 comp["metrics"]["score"] = score
+                if family == "low":
+                    rank["metrics"]["low_pool_epoch"] = 1
+                    comp["metrics"]["low_pool_epoch"] = 1
                 events.extend((rank, comp))
         rows[insert_at:insert_at] = events
         for index, row in enumerate(rows):
             row["sequence"] = index
         result = validate(rows)
-        self.assertEqual(result["selector_comparator_observations"], 8)
-        self.assertEqual(result["selector_comparator_families"], 4)
+        self.assertEqual(result["selector_comparator_observations"], 10)
+        self.assertEqual(result["selector_comparator_families"], 5)
+        self.assertEqual(result["selector_low_bestby_episodes"], 1)
         self.assertEqual((result["selector_comparator_wins"],
-                          result["selector_comparator_losses"]), (4, 4))
+                          result["selector_comparator_losses"]), (5, 5))
         for family in families:
             self.assertEqual(result["selector_compare_" + family + "_wins"], 1)
             self.assertEqual(result["selector_compare_" + family + "_losses"], 1)
@@ -988,6 +992,64 @@ class NativePipelineTraceTests(unittest.TestCase):
                     with self.assertRaises(TraceError):
                         validate(bad)
 
+
+    def test_nested_low_bestby_epoch_reset_replay_and_poisoning(self):
+        rows = with_resource(trace())
+        i = next(i for i, row in enumerate(rows)
+                 if row["stage"] == "primary_disposition")
+        additions = []
+        for epoch in (1, 2, 3):
+            for score, verdict in ((.9, "won"), (.7, "lost")):
+                rank = event("primary_rank", "c1", [], 128., "included",
+                             "low_rank_scored", 0)
+                comp = event("primary_compare", "c1", [], 128.,
+                             "included" if verdict == "won" else "excluded",
+                             "low_compare_" + verdict, 0)
+                rank["metrics"].update(score=score, low_pool_epoch=epoch)
+                comp["metrics"].update(score=score, low_pool_epoch=epoch)
+                additions.extend((rank, comp))
+        rows[i:i] = additions
+        for n, row in enumerate(rows):
+            row["sequence"] = n
+        result = validate(rows)
+        self.assertEqual(result["selector_low_bestby_episodes"], 3)
+        self.assertEqual(result["selector_comparator_families"], 1)
+        self.assertEqual((result["selector_comparator_wins"],
+                          result["selector_comparator_losses"]), (3, 3))
+        poison = ("no_reset", "missing_rank_epoch", "wrong_comparator_epoch",
+                  "pool_reentry", "first_comp_lost", "fractional_epoch",
+                  "zero_epoch", "duplicate_missing_compare", "reversed_score")
+        for corruption in poison:
+            with self.subTest(corruption=corruption):
+                bad = copy.deepcopy(rows)
+                rank = [x for x in bad if x["stage"] == "primary_rank"]
+                comp = [x for x in bad if x["stage"] == "primary_compare"]
+                if corruption == "no_reset":
+                    comp[2]["reason_code"] = "low_compare_lost"
+                    comp[2]["outcome"] = "excluded"
+                elif corruption == "missing_rank_epoch":
+                    del rank[2]["metrics"]["low_pool_epoch"]
+                elif corruption == "wrong_comparator_epoch":
+                    comp[3]["metrics"]["low_pool_epoch"] = 3
+                elif corruption == "pool_reentry":
+                    for x in (rank[4], rank[5], comp[4], comp[5]):
+                        x["metrics"]["low_pool_epoch"] = 1
+                elif corruption == "first_comp_lost":
+                    comp[0]["reason_code"] = "low_compare_lost"
+                    comp[0]["outcome"] = "excluded"
+                elif corruption == "fractional_epoch":
+                    rank[0]["metrics"]["low_pool_epoch"] = 1.5
+                elif corruption == "zero_epoch":
+                    rank[0]["metrics"]["low_pool_epoch"] = 0
+                elif corruption == "duplicate_missing_compare":
+                    bad.remove(comp[1])
+                else:
+                    rank[1]["metrics"]["score"] = 1.2
+                    comp[1]["metrics"]["score"] = 1.2
+                for n, row in enumerate(bad):
+                    row["sequence"] = n
+                with self.assertRaises(TraceError):
+                    validate(bad)
 
     def test_exact_native_raw_and_baseline_tie_tuple_replay(self):
         # The independent scorer must reproduce lexicographic tie decisions,
@@ -1095,7 +1157,7 @@ class NativePipelineTraceTests(unittest.TestCase):
     def test_ci_comparator_shadow_is_guarded_and_matches_production(self):
         source = (ROOT / "src/foo_smart_tempo/mir_candidate_pipeline.cpp").read_text(
             encoding="utf-8")
-        families = ("raw", "general_baseline", "harmonic", "general_alt")
+        families = ("raw", "general_baseline", "harmonic", "general_alt", "low")
         pattern = re.compile(
             r"#if defined\(SMART_TEMPO_CI_ORACLE_PROBE\)\s+"
             r"const bool ciComparisonWon =\s*(.*?);\s*#endif\s*if\s*\(",
@@ -1103,7 +1165,7 @@ class NativePipelineTraceTests(unittest.TestCase):
 
         def verify(content):
             matches = list(pattern.finditer(content))
-            self.assertEqual(len(matches), 4)
+            self.assertEqual(len(matches), 5)
             observed = set()
             for match in matches:
                 pos = match.end() - 1

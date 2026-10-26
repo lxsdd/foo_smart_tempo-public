@@ -17,6 +17,7 @@ MAX_BYTES, MAX_LINES = 2 * 1024 * 1024, 12300
 FIELDS = frozenset(("schema", "analysis_id", "sequence", "stage", "outcome",
                     "reason_code", "candidate_id", "parent_candidate_ids", "metrics"))
 METRICS = frozenset(("bpm", "score", "support"))
+LOW_POOL_METRICS = METRICS | frozenset(("low_pool_epoch",))
 TIE_METRICS = METRICS | frozenset(("tie_0", "tie_1", "tie_2", "tie_3"))
 RESOURCE_METRICS = METRICS | frozenset((
     "wall_seconds", "process_cpu_seconds",
@@ -101,6 +102,7 @@ ALLOWED_RANK_REASONS = frozenset((
 COMPARE_TO_RANK = {
     "raw": "raw_rank_scored",
     "harmonic": "harmonic_rank_scored",
+    "low": "low_rank_scored",
     "general_baseline": "general_baseline_rank_scored",
     "general_alt": "general_alt_rank_scored"
 }
@@ -185,6 +187,10 @@ def validate(rows: list[dict], *, require_windows: bool = False,
         if (not isinstance(item["reason_code"], str) or
                 not REASON_PATTERN.fullmatch(item["reason_code"])):
             raise TraceError("unbounded reason")
+        low_episode = (stage in ("primary_compare", "primary_rank") and
+                       item["reason_code"] in ("low_rank_scored",
+                                               "low_compare_won",
+                                               "low_compare_lost"))
         has_native_tie = (stage == "primary_compare" and
                           item["reason_code"].startswith(("raw_compare_",
                                                           "general_baseline_compare_")))
@@ -192,12 +198,17 @@ def validate(rows: list[dict], *, require_windows: bool = False,
                             WINDOW_METRICS if stage == "decode_window" else
                             RESOURCE_METRICS if stage == "resource_usage" else
                             INVENTORY_METRICS if stage == "source_inventory" else
-                            TIE_METRICS if has_native_tie else METRICS)
+                            TIE_METRICS if has_native_tie else
+                            LOW_POOL_METRICS if low_episode else METRICS)
         if type(item["metrics"]) is not dict or set(item["metrics"]) != expected_metrics:
             raise TraceError("non-numeric-only telemetry")
         for key, value in item["metrics"].items():
             if type(value) not in (float, int) or not math.isfinite(value):
                 raise TraceError("nonfinite or nonnumeric metrics")
+        if low_episode and (item["metrics"]["low_pool_epoch"] !=
+                            int(item["metrics"]["low_pool_epoch"]) or
+                            not 1 <= item["metrics"]["low_pool_epoch"] <= 128):
+            raise TraceError("invalid native low-pulse pool epoch")
         bpm = item["metrics"]["bpm"]
         if bpm < 0 or bpm > (220 if stage in ("final_output", "policy_change") else 2000):
             raise TraceError("out-of-rail BPM")
@@ -354,10 +365,12 @@ def validate(rows: list[dict], *, require_windows: bool = False,
             raise TraceError("policy candidate parent not collapsed")
         stage_indices[stage].append(item)
     # Executed rank/comparator pairs prove actual incumbent displacement.
-    # Nested low-pulse pool membership is observed, but bestBy comparison
-    # still requires an independently replayed per-pool reset.
+    # Nested low-pulse bestBy comparisons reset their independent incumbent
+    # at every strictly ordered source-observed pool invocation.
     comparisons = stage_indices["primary_compare"]
     current_best = {}
+    low_last_epoch = 0
+    low_closed_epochs = set()
     if comparisons or require_windows:
         for index, row in enumerate(rows):
             if row["stage"] == "primary_rank" and row["reason_code"] in COMPARE_TO_RANK.values():
@@ -367,6 +380,8 @@ def validate(rows: list[dict], *, require_windows: bool = False,
                     raise TraceError("native rank missing adjacent comparator")
                 comp = rows[index + 1]
                 if (comp["stage"] != "primary_compare" or
+                        (prefix == "low" and comp["metrics"].get("low_pool_epoch") !=
+                         row["metrics"].get("low_pool_epoch")) or
                         comp["reason_code"] not in (prefix + "_compare_won",
                                                      prefix + "_compare_lost") or
                         comp["candidate_id"] != row["candidate_id"] or
@@ -382,9 +397,20 @@ def validate(rows: list[dict], *, require_windows: bool = False,
                 raise TraceError("unknown comparator family")
             score = row["metrics"]["score"]
             won = row["outcome"] == "included"
+            if prefix == "low":
+                epoch = int(row["metrics"]["low_pool_epoch"])
+                if epoch != low_last_epoch:
+                    if epoch != low_last_epoch + 1 or epoch in low_closed_epochs:
+                        raise TraceError("low-pulse bestBy pool skipped or reopened")
+                    if low_last_epoch:
+                        low_closed_epochs.add(low_last_epoch)
+                    low_last_epoch = epoch
+                comparator_key = (prefix, epoch)
+            else:
+                comparator_key = prefix
             uses_tie = prefix in ("raw", "general_baseline")
             tie = tuple(row["metrics"][f"tie_{i}"] for i in range(4)) if uses_tie else ()
-            previous = current_best.get(prefix)
+            previous = current_best.get(comparator_key)
             if previous is None:
                 expected_win = True
             else:
@@ -396,7 +422,7 @@ def validate(rows: list[dict], *, require_windows: bool = False,
             if won != expected_win:
                 raise TraceError("native comparator score/tie chronology contradicted")
             if won:
-                current_best[prefix] = (score, tie)
+                current_best[comparator_key] = (score, tie)
     for single in ("primary_select", "policy_resolution",
                    "policy_pointer", "policy_change", "final_output",
                    "measured_witness", "write_guard"):
@@ -863,7 +889,9 @@ def validate(rows: list[dict], *, require_windows: bool = False,
             for x in stage_indices["candidate_filter"]),
         "selector_rank_observations": len(stage_indices["primary_rank"]),
         "selector_comparator_observations": len(comparisons),
-        "selector_comparator_families": len(current_best),
+        "selector_comparator_families": len(set(
+            prefix[0] if isinstance(prefix, tuple) else prefix for prefix in current_best)),
+        "selector_low_bestby_episodes": low_last_epoch,
         "selector_comparator_wins": sum(x["outcome"] == "included" for x in comparisons),
         "selector_comparator_losses": sum(x["outcome"] == "excluded" for x in comparisons),
         # Per-family actual executed comparator outcomes, never a claim of

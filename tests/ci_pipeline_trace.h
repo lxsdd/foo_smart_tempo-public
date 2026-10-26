@@ -492,6 +492,18 @@ inline bool record(
              item.reason, ids[item.source_index], {}, item.bpm, item.score, 0.0);
     // Only the two native tie-based comparator families carry four ordered
     // tie fields. All fields are numeric and generated from executed C++.
+    const bool lowEpisodeExpected =
+        std::strcmp(item.reason, "low_rank_scored") == 0 ||
+        std::strcmp(item.reason, "low_compare_won") == 0 ||
+        std::strcmp(item.reason, "low_compare_lost") == 0;
+    if (item.has_low_pool_epoch != lowEpisodeExpected ||
+        (lowEpisodeExpected && (item.low_pool_epoch == 0 ||
+                                item.low_pool_epoch > 128)) ||
+        (!lowEpisodeExpected && item.low_pool_epoch != 0))
+      return false;
+    if (lowEpisodeExpected)
+      out.lines.insert(out.lines.size() - 3,
+          ",\"low_pool_epoch\":" + std::to_string(item.low_pool_epoch));
     const bool tieExpected = comparison &&
         (std::strncmp(item.reason, "raw_compare_", 12) == 0 ||
          std::strncmp(item.reason, "general_baseline_compare_", 25) == 0);

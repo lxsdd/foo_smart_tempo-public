@@ -581,3 +581,22 @@ BPM, real-music data, DSP/selector/policy/writer modification or user-file
 write is introduced. Package B remains incomplete until branch-specific
 first-veto and positive actual supplemental Policy-to-writer provenance are
 independently proven on native Win32/x64; Phase C CLOSED, musical NO_GO.
+
+
+### 26 October 2026: executed nested low-pulse bestBy comparator episodes
+
+The previously untraced low-pulse bestBy branch now records exact C++
+incumbent comparisons in the disposable CI-only synthetic host, including
+all nested rescue calls. Each nonempty bestBy invocation receives an ordered,
+numeric, per-analysis pool epoch; *rank and immediately adjacent comparison*
+share the exact epoch and actual cluster object ID. The independent Python
+auditor resets its score incumbent only on a strictly increasing adjacent
+pool epoch and replays all score-only > comparisons. Forged omitted/mismatched
+rank, renamed candidate, false winner, missing/duplicate/revisited/skipped
+pool or nonintegral epoch is rejected. Source-parity tests prove the CI
+comparison predicate matches the productive selection predicate, without
+changing productive comparison itself. This closes a meaningful previously
+untraced low-lane nested ranking chain, but not branch-specific final
+first-veto, positive real-host supplemental Policy->Writer identity, or
+musical precision. Those still block Phase C and release. No user data,
+metadata writer, production DSP, policy, preferences or thresholds changed.

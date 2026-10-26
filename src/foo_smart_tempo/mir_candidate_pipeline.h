@@ -228,6 +228,10 @@ struct MirCiSelectorEvent {
   // CI-only comparator tie tuple; the production selection ABI is unchanged.
   std::array<double, 4> tie_metrics{};
   bool has_tie_metrics = false;
+  // One call to low-pulse bestBy is one independent comparator episode.
+  // 0 means not a low-pulse ranking; never serialized in production.
+  std::size_t low_pool_epoch = 0;
+  bool has_low_pool_epoch = false;
 };
 [[nodiscard]] std::span<const MirCiSelectorEvent>
 mir_ci_primary_selector_events() noexcept;
