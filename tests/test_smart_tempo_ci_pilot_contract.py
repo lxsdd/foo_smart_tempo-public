@@ -41,6 +41,12 @@ class PilotContract(unittest.TestCase):
             self.assertIn("HARD GATE - " + arch + " diagnostic menu and media no-write", workflow)
         script = self.read("tests/diagnostic_live_host_smoke.ps1")
         self.assertNotIn("PHASE_B_CAUSAL_COMPLETENESS=PASS", script)
+        self.assertIn("audit_smart_tempo_b_pilot_cohort.py", script)
+        self.assertIn("smart-tempo-b-pilot-", script)
+        self.assertIn("media_no_write=$true", script)
+        workflow = self.read(".github/workflows/source.yml")
+        self.assertIn("joined Win32/x64 native B-pilot cohort evidence", workflow)
+        self.assertIn("test_smart_tempo_b_pilot_cohort.py", workflow)
         self.assertNotIn("MUSICAL_BPM_QUALITY=PASS", script)
 
 

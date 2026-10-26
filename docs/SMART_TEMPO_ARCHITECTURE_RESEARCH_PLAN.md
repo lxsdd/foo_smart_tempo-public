@@ -473,3 +473,21 @@ The accepted trace is explicitly
 `INCOMPLETE_EMPTY_BOARD_CAUSAL`—a verified negative *no-candidate* path,
 not a proof of all positive selector vetoes, a genre-B result or a musical
 GO. Production MIR, policy, DSP and writer behavior remain untouched.
+
+### 26 October 2026: joined original-host Phase-B pilot cohort gate
+
+The eight fixed, predeclared synthetic pilot observations are now
+joined across original foobar Win32 and x64 by one independent, bounded
+CI-only source→host→scorer→trace→privacy/no-write aggregate.
+It requires exact source SHA parity, case order, class parity,
+correct/wrong/held and negative denominators, source-inventory
+conservation, actual decode windows, same-run indexed witness and
+process CPU/peak RSS. The positive and adversarial tests run before
+SDK downloads. Only numeric allowlisted reports are held in
+RUNNER_TEMP; nothing is uploaded.
+
+**Evidence boundary:** `PHASE_B_CAUSAL_COMPLETENESS=INCOMPLETE`,
+`PHASE_C_GATE=CLOSED`, `MUSICAL_RELEASE=NO_GO`.
+A green cohort-integrity gate is NOT first-veto exhaustiveness,
+positive supplemental Policy→Writer identity, no-raw causal origin,
+real-music holdout, or measured speedup. No production code changed.

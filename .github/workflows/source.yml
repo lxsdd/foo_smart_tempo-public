@@ -47,6 +47,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'CI-only candidate lineage integrity regressions failed' }
           python -m unittest discover -s tests -p 'test_smart_tempo_ci_pilot_contract.py' -v
           if ($LASTEXITCODE -ne 0) { throw 'Cross-architecture Phase-B pilot contract failed' }
+          python -m unittest discover -s tests -p 'test_smart_tempo_b_pilot_cohort.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'Phase-B pilot cohort adversarial tests failed' }
           Write-Host 'SMART_TEMPO_ARCHITECTURE_PHASE_A_SOURCE_CONTRACT=PASS'
           Write-Host 'SMART_TEMPO_MUSICAL_BPM_QUALITY=NOT_INFERRED'
 
@@ -197,6 +199,15 @@ jobs:
         shell: pwsh
         run: |
           & ./tests/diagnostic_live_host_smoke.ps1 -Architecture x64 -ComponentDll 'build/ci-probe/x64/foo_smart_tempo.dll'
+
+      # CI-only, no artifact uploads: join both host observations at exact source.
+      - name: HARD GATE - joined Win32/x64 native B-pilot cohort evidence
+        shell: pwsh
+        run: |
+          python ./tools/audit_smart_tempo_b_pilot_cohort.py `
+            --report "$env:RUNNER_TEMP/smart-tempo-b-pilot-Win32.json" `
+            --report "$env:RUNNER_TEMP/smart-tempo-b-pilot-x64.json"
+          if ($LASTEXITCODE -ne 0) { throw 'Dual-architecture B-pilot evidence incomplete' }
 
       - name: Package foobar2000 component
         shell: cmd

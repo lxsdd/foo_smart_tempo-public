@@ -87,6 +87,17 @@ function Launch([string]$exe,[string[]]$args) {
   foreach ($a in $args) { [void]$i.ArgumentList.Add($a) }
   return [Diagnostics.Process]::Start($i)
 }
+$script:pilotEvidence=[Collections.Generic.List[object]]::new()
+$script:pilotTraceKeys=@('NATIVE_SOURCE_INVENTORY_VERIFIED','RAW','COLLAPSED','WRITE_GUARD_BLOCKED',
+  'PHASE_B_CAUSAL_COMPLETENESS','DECODED_WINDOWS','DECLARED_WINDOWS','WINDOWS_COMPLETE',
+  'FINAL_ACCEPT','PROCESS_CPU_SECONDS','PROCESS_PEAK_RSS_BYTES','PRIMARY_VETO_REASON_UNKNOWN',
+  'INDEXED_NATIVE_FINAL_WITNESS','UNINDEXED_SUPPLEMENTAL_FINAL_WITNESS',
+  'SUPPLEMENTAL_SELECTED_SOURCES','POLICY_SUPPLEMENTAL_POINTER_IDENTITY_COMPLETE',
+  'NEGATIVE_NO_CANDIDATE_TRACE')
+$script:pilotScoreKeys=@('EVALUATED','REFERENCE_RHYTHMIC','ACCEPTED_RHYTHMIC',
+  'HELD_RHYTHMIC','ACCEPTED_WITHIN_0_05_BPM','ACCEPTED_WITHIN_0_20_BPM',
+  'ACCEPTED_OUTSIDE_0_20_BPM','NEGATIVE_TOTAL','NEGATIVE_FALSEACCEPTS',
+  'HALF_DOUBLE_ALIAS','CORRECT_ABSTENTION')
 function Run-Case([string]$installer,[string]$root,[string]$inputFile,[string[]]$files,[int]$minimum,[string]$label) {
   $hostDir=Join-Path $root ('host-'+$label)
   $install=Start-Process $installer -ArgumentList @('/S',"/D=$hostDir") -Wait -PassThru
@@ -177,6 +188,427 @@ function Run-Case([string]$installer,[string]$root,[string]$inputFile,[string[]]
       $scoreOutput=@(python ./tools/score_synthetic_bpm_reference.py --manifest $reference --observed $observed 2>&1)
       if ($LASTEXITCODE -ne 0) { throw ('Real foobar synthetic BPM evaluation failed: '+($scoreOutput -join '; ')) }
       $scoreOutput | ForEach-Object { Write-Host $_ }
+      $scoreEvidence=@{}
+      foreach ($line in $scoreOutput) {
+        if ([string]$line -cmatch '^SYNTHETIC_BPM_([A-Z0-9_]+)=([0-9]+)
+      $trace=$inputFile+'.pipeline.jsonl'
+      if ($label -eq 'SYNTHETIC_silence' -and
+          -not ($scoreOutput -contains 'SYNTHETIC_BPM_NEGATIVE_FALSEACCEPTS=0')) {
+        throw 'Safety negative control auto-accepted an unmeasured BPM'
+      }
+      if (-not (Test-Path -LiteralPath $trace -PathType Leaf)) {
+        throw "Missing native B-pilot lineage for $label"
+      }
+      $traceOutput=@(python ./tools/audit_smart_tempo_ci_pipeline_trace.py --trace $trace --require-windows 2>&1)
+      if ($LASTEXITCODE -ne 0) { throw ('Real foobar native BPM lineage contract failed: '+($traceOutput -join '; ')) }
+      $traceOutput | ForEach-Object { Write-Host $_ }
+      $traceEvidence=@{}
+      foreach ($line in $traceOutput) {
+        if ([string]$line -cmatch '^SMART_TEMPO_TRACE_([A-Z0-9_]+)=([A-Za-z0-9_.]+)
+      Write-Host ("SMART_TEMPO_NATIVE_B_PILOT_TRACE_{0}_{1}=PASS" -f $Architecture,$label)
+      Write-Host 'SMART_TEMPO_PRIMARY_VETO_INDIVIDUAL_REASONS=UNMEASURED'
+    }
+    Write-Host ("DIAGNOSTIC_MENU_{0}_{1}=PASS" -f $Architecture,$label)
+    Write-Host ("DIAGNOSTIC_ROWS_{0}_{1}={2}" -f $Architecture,$label,$rows)
+    Write-Host ("MEDIA_WRITE_SAFETY_{0}_{1}=PASS" -f $Architecture,$label)
+  } finally {
+    if ($null -ne $hostProcess -and -not $hostProcess.HasExited) {
+      Stop-Process -Id $hostProcess.Id -Force -ErrorAction SilentlyContinue
+      [void]$hostProcess.WaitForExit(5000)
+    }
+    foreach ($file in $files) { if ((Stamp $file) -cne $baseline[$file]) { throw 'Fixture changed after exit' } }
+  }
+}
+$root=Join-Path $env:RUNNER_TEMP ('smart-tempo-'+$Architecture+'-'+[guid]::NewGuid().ToString('N'))
+try {
+  New-Item -ItemType Directory $root -Force | Out-Null
+  $installer=Join-Path $root 'official.exe'
+  Invoke-WebRequest -Uri $spec[0] -OutFile $installer
+  if ((Get-FileHash $installer -Algorithm SHA256).Hash -ine $spec[1]) { throw 'Official host hash mismatch' }
+  $wav=Join-Path $root 'rhythm.wav'
+  $cue=Join-Path $root 'rhythm.cue'
+  [byte[]]$audio=[byte[]]::new(16000*40*2)
+  for ($beat=0; $beat -lt 80; $beat++) {
+    for ($j=0; $j -lt 160; $j++) {
+      $p=2*($beat*8000+$j)
+      $audio[$p]=[byte]0
+      $audio[$p+1]=[byte](($j%2)*90)
+    }
+  }
+  $file=[IO.File]::Open($wav,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
+  $writer=[IO.BinaryWriter]::new($file)
+  try {
+    $writer.Write([Text.Encoding]::ASCII.GetBytes('RIFF'))
+    $writer.Write([int](36+$audio.Length))
+    $writer.Write([Text.Encoding]::ASCII.GetBytes('WAVEfmt '))
+    $writer.Write([int]16)
+    $writer.Write([UInt16]1)
+    $writer.Write([UInt16]1)
+    $writer.Write([int]16000)
+    $writer.Write([int]32000)
+    $writer.Write([UInt16]2)
+    $writer.Write([UInt16]16)
+    $writer.Write([Text.Encoding]::ASCII.GetBytes('data'))
+    $writer.Write([int]$audio.Length)
+    $writer.Write($audio)
+  } finally { $writer.Dispose();$file.Dispose() }
+  [IO.File]::WriteAllLines($cue,@('FILE "rhythm.wav" WAVE','  TRACK 01 AUDIO','    INDEX 01 00:00:00','  TRACK 02 AUDIO','    INDEX 01 00:20:00'),[Text.Encoding]::ASCII)
+  Run-Case $installer $root $wav @($wav) 1 'WAV'
+  Run-Case $installer $root $cue @($wav,$cue) 2 'CUE'
+  # Fixed, small Phase-B causal-coverage pilot, NOT the frozen Phase-C
+  # campaign. One fresh original foobar process per synthetic WAV/architecture.
+  $pilotCases=@('pulse_60','pulse_128','pulse_120_sparse','silence')
+  foreach ($caseId in $pilotCases) {
+    $syntheticRoot=Join-Path (Join-Path $root ('pilot-'+$caseId)) 'synthetic-oracle'
+    python ./tools/generate_synthetic_bpm_reference.py --output $syntheticRoot --case $caseId
+    if ($LASTEXITCODE -ne 0) { throw "Synthetic B-pilot WAV creation failed: $caseId" }
+    $reference=Join-Path $syntheticRoot 'reference.json'
+    $cases=@((Get-Content -LiteralPath $reference -Raw | ConvertFrom-Json).cases)
+    if ($cases.Count -ne 1 -or $cases[0].id -cne $caseId) {
+      throw "Unexpected B-pilot oracle identity: $caseId"
+    }
+    $wavFile=Join-Path $syntheticRoot ($caseId+'.wav')
+    Run-Case $installer $root $wavFile @($wavFile,$reference) 1 ('SYNTHETIC_'+$caseId)
+  }
+  # CI-only bounded numeric report; consumed again by cross-architecture gate.
+  $pilotReport=Join-Path $env:RUNNER_TEMP ("smart-tempo-b-pilot-"+$Architecture+".json")
+  if (Test-Path -LiteralPath $pilotReport) { throw 'Stale pilot report' }
+  $sourceSha=((& git rev-parse HEAD) | Out-String).Trim().ToLowerInvariant()
+  $payload=[ordered]@{
+    schema='smart_tempo_b_pilot_cohort_v1'
+    architecture=$Architecture
+    source_sha=$sourceSha
+    cases=@($script:pilotEvidence.ToArray())
+  }
+  [IO.File]::WriteAllText($pilotReport,($payload | ConvertTo-Json -Depth 8 -Compress),
+                          [Text.Encoding]::UTF8)
+  python ./tools/audit_smart_tempo_b_pilot_cohort.py --report $pilotReport --single-architecture
+  if ($LASTEXITCODE -ne 0) { throw 'Original-host B-pilot cohort integrity failed' }
+  Write-Host ("SMART_TEMPO_DIAGNOSTIC_RUNTIME_{0}=PASS" -f $Architecture)
+} finally { if (Test-Path $root) { Remove-Item $root -Recurse -Force -ErrorAction SilentlyContinue } }
+ -and
+            $Matches[1] -cin $script:pilotScoreKeys) {
+          if ($scoreEvidence.ContainsKey($Matches[1])) { throw 'Duplicate scorer key' }
+          $scoreEvidence[$Matches[1]]=[int]$Matches[2]
+        }
+      }
+      $trace=$inputFile+'.pipeline.jsonl'
+      if ($label -eq 'SYNTHETIC_silence' -and
+          -not ($scoreOutput -contains 'SYNTHETIC_BPM_NEGATIVE_FALSEACCEPTS=0')) {
+        throw 'Safety negative control auto-accepted an unmeasured BPM'
+      }
+      if (-not (Test-Path -LiteralPath $trace -PathType Leaf)) {
+        throw "Missing native B-pilot lineage for $label"
+      }
+      python ./tools/audit_smart_tempo_ci_pipeline_trace.py --trace $trace --require-windows
+      if ($LASTEXITCODE -ne 0) { throw 'Real foobar native BPM lineage contract failed' }
+      Write-Host ("SMART_TEMPO_NATIVE_B_PILOT_TRACE_{0}_{1}=PASS" -f $Architecture,$label)
+      Write-Host 'SMART_TEMPO_PRIMARY_VETO_INDIVIDUAL_REASONS=UNMEASURED'
+    }
+    Write-Host ("DIAGNOSTIC_MENU_{0}_{1}=PASS" -f $Architecture,$label)
+    Write-Host ("DIAGNOSTIC_ROWS_{0}_{1}={2}" -f $Architecture,$label,$rows)
+    Write-Host ("MEDIA_WRITE_SAFETY_{0}_{1}=PASS" -f $Architecture,$label)
+  } finally {
+    if ($null -ne $hostProcess -and -not $hostProcess.HasExited) {
+      Stop-Process -Id $hostProcess.Id -Force -ErrorAction SilentlyContinue
+      [void]$hostProcess.WaitForExit(5000)
+    }
+    foreach ($file in $files) { if ((Stamp $file) -cne $baseline[$file]) { throw 'Fixture changed after exit' } }
+  }
+}
+$root=Join-Path $env:RUNNER_TEMP ('smart-tempo-'+$Architecture+'-'+[guid]::NewGuid().ToString('N'))
+try {
+  New-Item -ItemType Directory $root -Force | Out-Null
+  $installer=Join-Path $root 'official.exe'
+  Invoke-WebRequest -Uri $spec[0] -OutFile $installer
+  if ((Get-FileHash $installer -Algorithm SHA256).Hash -ine $spec[1]) { throw 'Official host hash mismatch' }
+  $wav=Join-Path $root 'rhythm.wav'
+  $cue=Join-Path $root 'rhythm.cue'
+  [byte[]]$audio=[byte[]]::new(16000*40*2)
+  for ($beat=0; $beat -lt 80; $beat++) {
+    for ($j=0; $j -lt 160; $j++) {
+      $p=2*($beat*8000+$j)
+      $audio[$p]=[byte]0
+      $audio[$p+1]=[byte](($j%2)*90)
+    }
+  }
+  $file=[IO.File]::Open($wav,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
+  $writer=[IO.BinaryWriter]::new($file)
+  try {
+    $writer.Write([Text.Encoding]::ASCII.GetBytes('RIFF'))
+    $writer.Write([int](36+$audio.Length))
+    $writer.Write([Text.Encoding]::ASCII.GetBytes('WAVEfmt '))
+    $writer.Write([int]16)
+    $writer.Write([UInt16]1)
+    $writer.Write([UInt16]1)
+    $writer.Write([int]16000)
+    $writer.Write([int]32000)
+    $writer.Write([UInt16]2)
+    $writer.Write([UInt16]16)
+    $writer.Write([Text.Encoding]::ASCII.GetBytes('data'))
+    $writer.Write([int]$audio.Length)
+    $writer.Write($audio)
+  } finally { $writer.Dispose();$file.Dispose() }
+  [IO.File]::WriteAllLines($cue,@('FILE "rhythm.wav" WAVE','  TRACK 01 AUDIO','    INDEX 01 00:00:00','  TRACK 02 AUDIO','    INDEX 01 00:20:00'),[Text.Encoding]::ASCII)
+  Run-Case $installer $root $wav @($wav) 1 'WAV'
+  Run-Case $installer $root $cue @($wav,$cue) 2 'CUE'
+  # Fixed, small Phase-B causal-coverage pilot, NOT the frozen Phase-C
+  # campaign. One fresh original foobar process per synthetic WAV/architecture.
+  $pilotCases=@('pulse_60','pulse_128','pulse_120_sparse','silence')
+  foreach ($caseId in $pilotCases) {
+    $syntheticRoot=Join-Path (Join-Path $root ('pilot-'+$caseId)) 'synthetic-oracle'
+    python ./tools/generate_synthetic_bpm_reference.py --output $syntheticRoot --case $caseId
+    if ($LASTEXITCODE -ne 0) { throw "Synthetic B-pilot WAV creation failed: $caseId" }
+    $reference=Join-Path $syntheticRoot 'reference.json'
+    $cases=@((Get-Content -LiteralPath $reference -Raw | ConvertFrom-Json).cases)
+    if ($cases.Count -ne 1 -or $cases[0].id -cne $caseId) {
+      throw "Unexpected B-pilot oracle identity: $caseId"
+    }
+    $wavFile=Join-Path $syntheticRoot ($caseId+'.wav')
+    Run-Case $installer $root $wavFile @($wavFile,$reference) 1 ('SYNTHETIC_'+$caseId)
+  }
+  Write-Host ("SMART_TEMPO_DIAGNOSTIC_RUNTIME_{0}=PASS" -f $Architecture)
+} finally { if (Test-Path $root) { Remove-Item $root -Recurse -Force -ErrorAction SilentlyContinue } }
+ -and
+            $Matches[1] -cin $script:pilotTraceKeys) {
+          $key=$Matches[1]; $value=$Matches[2]
+          if ($traceEvidence.ContainsKey($key)) { throw 'Duplicate trace key' }
+          if ($key -eq 'PHASE_B_CAUSAL_COMPLETENESS') {
+            $traceEvidence[$key]=$value
+          } elseif ($key -in @('PROCESS_CPU_SECONDS','PROCESS_PEAK_RSS_BYTES')) {
+            $traceEvidence[$key]=[double]::Parse($value,[Globalization.CultureInfo]::InvariantCulture)
+          } elseif ($value -cmatch '^[0-9]+
+      Write-Host ("SMART_TEMPO_NATIVE_B_PILOT_TRACE_{0}_{1}=PASS" -f $Architecture,$label)
+      Write-Host 'SMART_TEMPO_PRIMARY_VETO_INDIVIDUAL_REASONS=UNMEASURED'
+    }
+    Write-Host ("DIAGNOSTIC_MENU_{0}_{1}=PASS" -f $Architecture,$label)
+    Write-Host ("DIAGNOSTIC_ROWS_{0}_{1}={2}" -f $Architecture,$label,$rows)
+    Write-Host ("MEDIA_WRITE_SAFETY_{0}_{1}=PASS" -f $Architecture,$label)
+  } finally {
+    if ($null -ne $hostProcess -and -not $hostProcess.HasExited) {
+      Stop-Process -Id $hostProcess.Id -Force -ErrorAction SilentlyContinue
+      [void]$hostProcess.WaitForExit(5000)
+    }
+    foreach ($file in $files) { if ((Stamp $file) -cne $baseline[$file]) { throw 'Fixture changed after exit' } }
+  }
+}
+$root=Join-Path $env:RUNNER_TEMP ('smart-tempo-'+$Architecture+'-'+[guid]::NewGuid().ToString('N'))
+try {
+  New-Item -ItemType Directory $root -Force | Out-Null
+  $installer=Join-Path $root 'official.exe'
+  Invoke-WebRequest -Uri $spec[0] -OutFile $installer
+  if ((Get-FileHash $installer -Algorithm SHA256).Hash -ine $spec[1]) { throw 'Official host hash mismatch' }
+  $wav=Join-Path $root 'rhythm.wav'
+  $cue=Join-Path $root 'rhythm.cue'
+  [byte[]]$audio=[byte[]]::new(16000*40*2)
+  for ($beat=0; $beat -lt 80; $beat++) {
+    for ($j=0; $j -lt 160; $j++) {
+      $p=2*($beat*8000+$j)
+      $audio[$p]=[byte]0
+      $audio[$p+1]=[byte](($j%2)*90)
+    }
+  }
+  $file=[IO.File]::Open($wav,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
+  $writer=[IO.BinaryWriter]::new($file)
+  try {
+    $writer.Write([Text.Encoding]::ASCII.GetBytes('RIFF'))
+    $writer.Write([int](36+$audio.Length))
+    $writer.Write([Text.Encoding]::ASCII.GetBytes('WAVEfmt '))
+    $writer.Write([int]16)
+    $writer.Write([UInt16]1)
+    $writer.Write([UInt16]1)
+    $writer.Write([int]16000)
+    $writer.Write([int]32000)
+    $writer.Write([UInt16]2)
+    $writer.Write([UInt16]16)
+    $writer.Write([Text.Encoding]::ASCII.GetBytes('data'))
+    $writer.Write([int]$audio.Length)
+    $writer.Write($audio)
+  } finally { $writer.Dispose();$file.Dispose() }
+  [IO.File]::WriteAllLines($cue,@('FILE "rhythm.wav" WAVE','  TRACK 01 AUDIO','    INDEX 01 00:00:00','  TRACK 02 AUDIO','    INDEX 01 00:20:00'),[Text.Encoding]::ASCII)
+  Run-Case $installer $root $wav @($wav) 1 'WAV'
+  Run-Case $installer $root $cue @($wav,$cue) 2 'CUE'
+  # Fixed, small Phase-B causal-coverage pilot, NOT the frozen Phase-C
+  # campaign. One fresh original foobar process per synthetic WAV/architecture.
+  $pilotCases=@('pulse_60','pulse_128','pulse_120_sparse','silence')
+  foreach ($caseId in $pilotCases) {
+    $syntheticRoot=Join-Path (Join-Path $root ('pilot-'+$caseId)) 'synthetic-oracle'
+    python ./tools/generate_synthetic_bpm_reference.py --output $syntheticRoot --case $caseId
+    if ($LASTEXITCODE -ne 0) { throw "Synthetic B-pilot WAV creation failed: $caseId" }
+    $reference=Join-Path $syntheticRoot 'reference.json'
+    $cases=@((Get-Content -LiteralPath $reference -Raw | ConvertFrom-Json).cases)
+    if ($cases.Count -ne 1 -or $cases[0].id -cne $caseId) {
+      throw "Unexpected B-pilot oracle identity: $caseId"
+    }
+    $wavFile=Join-Path $syntheticRoot ($caseId+'.wav')
+    Run-Case $installer $root $wavFile @($wavFile,$reference) 1 ('SYNTHETIC_'+$caseId)
+  }
+  Write-Host ("SMART_TEMPO_DIAGNOSTIC_RUNTIME_{0}=PASS" -f $Architecture)
+} finally { if (Test-Path $root) { Remove-Item $root -Recurse -Force -ErrorAction SilentlyContinue } }
+ -and
+            $Matches[1] -cin $script:pilotScoreKeys) {
+          if ($scoreEvidence.ContainsKey($Matches[1])) { throw 'Duplicate scorer key' }
+          $scoreEvidence[$Matches[1]]=[int]$Matches[2]
+        }
+      }
+      $trace=$inputFile+'.pipeline.jsonl'
+      if ($label -eq 'SYNTHETIC_silence' -and
+          -not ($scoreOutput -contains 'SYNTHETIC_BPM_NEGATIVE_FALSEACCEPTS=0')) {
+        throw 'Safety negative control auto-accepted an unmeasured BPM'
+      }
+      if (-not (Test-Path -LiteralPath $trace -PathType Leaf)) {
+        throw "Missing native B-pilot lineage for $label"
+      }
+      python ./tools/audit_smart_tempo_ci_pipeline_trace.py --trace $trace --require-windows
+      if ($LASTEXITCODE -ne 0) { throw 'Real foobar native BPM lineage contract failed' }
+      Write-Host ("SMART_TEMPO_NATIVE_B_PILOT_TRACE_{0}_{1}=PASS" -f $Architecture,$label)
+      Write-Host 'SMART_TEMPO_PRIMARY_VETO_INDIVIDUAL_REASONS=UNMEASURED'
+    }
+    Write-Host ("DIAGNOSTIC_MENU_{0}_{1}=PASS" -f $Architecture,$label)
+    Write-Host ("DIAGNOSTIC_ROWS_{0}_{1}={2}" -f $Architecture,$label,$rows)
+    Write-Host ("MEDIA_WRITE_SAFETY_{0}_{1}=PASS" -f $Architecture,$label)
+  } finally {
+    if ($null -ne $hostProcess -and -not $hostProcess.HasExited) {
+      Stop-Process -Id $hostProcess.Id -Force -ErrorAction SilentlyContinue
+      [void]$hostProcess.WaitForExit(5000)
+    }
+    foreach ($file in $files) { if ((Stamp $file) -cne $baseline[$file]) { throw 'Fixture changed after exit' } }
+  }
+}
+$root=Join-Path $env:RUNNER_TEMP ('smart-tempo-'+$Architecture+'-'+[guid]::NewGuid().ToString('N'))
+try {
+  New-Item -ItemType Directory $root -Force | Out-Null
+  $installer=Join-Path $root 'official.exe'
+  Invoke-WebRequest -Uri $spec[0] -OutFile $installer
+  if ((Get-FileHash $installer -Algorithm SHA256).Hash -ine $spec[1]) { throw 'Official host hash mismatch' }
+  $wav=Join-Path $root 'rhythm.wav'
+  $cue=Join-Path $root 'rhythm.cue'
+  [byte[]]$audio=[byte[]]::new(16000*40*2)
+  for ($beat=0; $beat -lt 80; $beat++) {
+    for ($j=0; $j -lt 160; $j++) {
+      $p=2*($beat*8000+$j)
+      $audio[$p]=[byte]0
+      $audio[$p+1]=[byte](($j%2)*90)
+    }
+  }
+  $file=[IO.File]::Open($wav,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
+  $writer=[IO.BinaryWriter]::new($file)
+  try {
+    $writer.Write([Text.Encoding]::ASCII.GetBytes('RIFF'))
+    $writer.Write([int](36+$audio.Length))
+    $writer.Write([Text.Encoding]::ASCII.GetBytes('WAVEfmt '))
+    $writer.Write([int]16)
+    $writer.Write([UInt16]1)
+    $writer.Write([UInt16]1)
+    $writer.Write([int]16000)
+    $writer.Write([int]32000)
+    $writer.Write([UInt16]2)
+    $writer.Write([UInt16]16)
+    $writer.Write([Text.Encoding]::ASCII.GetBytes('data'))
+    $writer.Write([int]$audio.Length)
+    $writer.Write($audio)
+  } finally { $writer.Dispose();$file.Dispose() }
+  [IO.File]::WriteAllLines($cue,@('FILE "rhythm.wav" WAVE','  TRACK 01 AUDIO','    INDEX 01 00:00:00','  TRACK 02 AUDIO','    INDEX 01 00:20:00'),[Text.Encoding]::ASCII)
+  Run-Case $installer $root $wav @($wav) 1 'WAV'
+  Run-Case $installer $root $cue @($wav,$cue) 2 'CUE'
+  # Fixed, small Phase-B causal-coverage pilot, NOT the frozen Phase-C
+  # campaign. One fresh original foobar process per synthetic WAV/architecture.
+  $pilotCases=@('pulse_60','pulse_128','pulse_120_sparse','silence')
+  foreach ($caseId in $pilotCases) {
+    $syntheticRoot=Join-Path (Join-Path $root ('pilot-'+$caseId)) 'synthetic-oracle'
+    python ./tools/generate_synthetic_bpm_reference.py --output $syntheticRoot --case $caseId
+    if ($LASTEXITCODE -ne 0) { throw "Synthetic B-pilot WAV creation failed: $caseId" }
+    $reference=Join-Path $syntheticRoot 'reference.json'
+    $cases=@((Get-Content -LiteralPath $reference -Raw | ConvertFrom-Json).cases)
+    if ($cases.Count -ne 1 -or $cases[0].id -cne $caseId) {
+      throw "Unexpected B-pilot oracle identity: $caseId"
+    }
+    $wavFile=Join-Path $syntheticRoot ($caseId+'.wav')
+    Run-Case $installer $root $wavFile @($wavFile,$reference) 1 ('SYNTHETIC_'+$caseId)
+  }
+  Write-Host ("SMART_TEMPO_DIAGNOSTIC_RUNTIME_{0}=PASS" -f $Architecture)
+} finally { if (Test-Path $root) { Remove-Item $root -Recurse -Force -ErrorAction SilentlyContinue } }
+) {
+            $traceEvidence[$key]=[int]$value
+          } else { throw 'Malformed trace counter' }
+        }
+      }
+      [void]$script:pilotEvidence.Add([pscustomobject]@{
+        case=$label.Substring(10);score=$scoreEvidence;trace=$traceEvidence;media_no_write=$true
+      })
+      Write-Host ("SMART_TEMPO_NATIVE_B_PILOT_TRACE_{0}_{1}=PASS" -f $Architecture,$label)
+      Write-Host 'SMART_TEMPO_PRIMARY_VETO_INDIVIDUAL_REASONS=UNMEASURED'
+    }
+    Write-Host ("DIAGNOSTIC_MENU_{0}_{1}=PASS" -f $Architecture,$label)
+    Write-Host ("DIAGNOSTIC_ROWS_{0}_{1}={2}" -f $Architecture,$label,$rows)
+    Write-Host ("MEDIA_WRITE_SAFETY_{0}_{1}=PASS" -f $Architecture,$label)
+  } finally {
+    if ($null -ne $hostProcess -and -not $hostProcess.HasExited) {
+      Stop-Process -Id $hostProcess.Id -Force -ErrorAction SilentlyContinue
+      [void]$hostProcess.WaitForExit(5000)
+    }
+    foreach ($file in $files) { if ((Stamp $file) -cne $baseline[$file]) { throw 'Fixture changed after exit' } }
+  }
+}
+$root=Join-Path $env:RUNNER_TEMP ('smart-tempo-'+$Architecture+'-'+[guid]::NewGuid().ToString('N'))
+try {
+  New-Item -ItemType Directory $root -Force | Out-Null
+  $installer=Join-Path $root 'official.exe'
+  Invoke-WebRequest -Uri $spec[0] -OutFile $installer
+  if ((Get-FileHash $installer -Algorithm SHA256).Hash -ine $spec[1]) { throw 'Official host hash mismatch' }
+  $wav=Join-Path $root 'rhythm.wav'
+  $cue=Join-Path $root 'rhythm.cue'
+  [byte[]]$audio=[byte[]]::new(16000*40*2)
+  for ($beat=0; $beat -lt 80; $beat++) {
+    for ($j=0; $j -lt 160; $j++) {
+      $p=2*($beat*8000+$j)
+      $audio[$p]=[byte]0
+      $audio[$p+1]=[byte](($j%2)*90)
+    }
+  }
+  $file=[IO.File]::Open($wav,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
+  $writer=[IO.BinaryWriter]::new($file)
+  try {
+    $writer.Write([Text.Encoding]::ASCII.GetBytes('RIFF'))
+    $writer.Write([int](36+$audio.Length))
+    $writer.Write([Text.Encoding]::ASCII.GetBytes('WAVEfmt '))
+    $writer.Write([int]16)
+    $writer.Write([UInt16]1)
+    $writer.Write([UInt16]1)
+    $writer.Write([int]16000)
+    $writer.Write([int]32000)
+    $writer.Write([UInt16]2)
+    $writer.Write([UInt16]16)
+    $writer.Write([Text.Encoding]::ASCII.GetBytes('data'))
+    $writer.Write([int]$audio.Length)
+    $writer.Write($audio)
+  } finally { $writer.Dispose();$file.Dispose() }
+  [IO.File]::WriteAllLines($cue,@('FILE "rhythm.wav" WAVE','  TRACK 01 AUDIO','    INDEX 01 00:00:00','  TRACK 02 AUDIO','    INDEX 01 00:20:00'),[Text.Encoding]::ASCII)
+  Run-Case $installer $root $wav @($wav) 1 'WAV'
+  Run-Case $installer $root $cue @($wav,$cue) 2 'CUE'
+  # Fixed, small Phase-B causal-coverage pilot, NOT the frozen Phase-C
+  # campaign. One fresh original foobar process per synthetic WAV/architecture.
+  $pilotCases=@('pulse_60','pulse_128','pulse_120_sparse','silence')
+  foreach ($caseId in $pilotCases) {
+    $syntheticRoot=Join-Path (Join-Path $root ('pilot-'+$caseId)) 'synthetic-oracle'
+    python ./tools/generate_synthetic_bpm_reference.py --output $syntheticRoot --case $caseId
+    if ($LASTEXITCODE -ne 0) { throw "Synthetic B-pilot WAV creation failed: $caseId" }
+    $reference=Join-Path $syntheticRoot 'reference.json'
+    $cases=@((Get-Content -LiteralPath $reference -Raw | ConvertFrom-Json).cases)
+    if ($cases.Count -ne 1 -or $cases[0].id -cne $caseId) {
+      throw "Unexpected B-pilot oracle identity: $caseId"
+    }
+    $wavFile=Join-Path $syntheticRoot ($caseId+'.wav')
+    Run-Case $installer $root $wavFile @($wavFile,$reference) 1 ('SYNTHETIC_'+$caseId)
+  }
+  Write-Host ("SMART_TEMPO_DIAGNOSTIC_RUNTIME_{0}=PASS" -f $Architecture)
+} finally { if (Test-Path $root) { Remove-Item $root -Recurse -Force -ErrorAction SilentlyContinue } }
+ -and
+            $Matches[1] -cin $script:pilotScoreKeys) {
+          if ($scoreEvidence.ContainsKey($Matches[1])) { throw 'Duplicate scorer key' }
+          $scoreEvidence[$Matches[1]]=[int]$Matches[2]
+        }
+      }
       $trace=$inputFile+'.pipeline.jsonl'
       if ($label -eq 'SYNTHETIC_silence' -and
           -not ($scoreOutput -contains 'SYNTHETIC_BPM_NEGATIVE_FALSEACCEPTS=0')) {
