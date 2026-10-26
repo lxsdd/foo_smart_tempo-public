@@ -13,6 +13,8 @@
 #include "foobar2000/SDK/menu_helpers.h"
 #include "foobar2000/SDK/playlist_loader.h"
 
+#include <array>
+#include <span>
 #include <cwchar>
 #include <cstring>
 #include <string>
@@ -98,6 +100,113 @@ bool native_continuous_selector_contract(double center,
            laneTerminals == 1;
 }
 
+
+/*
+ * Phase-B native supplemental source-object + measured-writer invariant
+ * control. All candidates are fabricated public values in disposable CI.
+ * This executes the ORIGINAL policy release selector and writer invariant,
+ * but does not claim that decoded WAV audio selected this path.
+ */
+bool native_supplemental_policy_contract() {
+    using namespace smart_tempo;
+    using namespace smart_tempo::mir_pipeline;
+    std::array<HodgkinsonPartialBarTopKExactCandidate, 2> rows{};
+    for (auto& row : rows) {
+        row.family_rank = 2;
+        row.coarse_bpm = 144.0;
+        row.local_exact_bpm = 144.0;
+        row.local_exact_score = .45;
+        row.score_sum = 2.0;
+        row.score_ratio_to_top = .80;
+        row.segment_count = 5;
+        row.total_segment_count = 5;
+        row.top5_hits = 5;
+        row.fullboard_bpm = 96.0;
+    }
+    // Same BPM, distinct objects: the higher-evidence SECOND source must
+    // win; numeric BPM coincidence cannot stand in for pointer identity.
+    rows[1].family_rank = 1;
+    rows[1].local_exact_score = .95;
+    rows[1].score_ratio_to_top = .98;
+    const auto candidates = std::span<const HodgkinsonPartialBarTopKExactCandidate>(
+        rows.data(), rows.size());
+    MirPolicyDecision decision{};
+    decision.enabled = true;
+    decision.family_conflict_review_hold_candidate = true;
+    decision.current_bpm = 96.0;
+    if (!try_apply_mir_policy_partial_bar_topk_exact_release(
+            decision, candidates, 144.0, 8.0, true, false, true))
+        return false;
+    const auto selected = mir_ci_policy_pointer_source();
+    if (!selected.observed || selected.in_fullboard ||
+        selected.kind != MirCiSupplementalKind::partial_bar_topk ||
+        selected.object != &rows[1] || selected.bpm != 144.0 ||
+        !decision.output_would_write || decision.output_would_review_hold ||
+        !decision.writer_override_candidate || decision.output_bpm != 144.0)
+        return false;
+
+    // Exercise the actual same-run measured-candidate writer guard with no
+    // FullBoard, Primary, material-risk or aggregate fallback witnesses.
+    const MirPrimarySelection primary{};
+    const std::span<const MirPolicyMeasuredCandidate> noFullboard{};
+    if (!mir_output_has_measured_candidate_witness(
+            144.0, noFullboard, primary, nullptr, nullptr, candidates) ||
+        !enforce_mir_measured_candidate_invariant(
+            decision, noFullboard, primary, nullptr, nullptr, candidates))
+        return false;
+
+    // Adversarial output substitution must fail closed to ReviewHold, not
+    // be accepted by the selected source object's score or nearby BPM.
+    auto forged = decision;
+    forged.output_bpm = 145.0;
+    if (enforce_mir_measured_candidate_invariant(
+            forged, noFullboard, primary, nullptr, nullptr, candidates) ||
+        forged.output_would_write || !forged.output_would_review_hold ||
+        forged.writer_override_candidate || forged.output_bpm != 0.0)
+        return false;
+    if (mir_output_has_measured_candidate_witness(
+            144.002, noFullboard, primary, nullptr, nullptr, candidates))
+        return false;
+
+    // Negative Policy eligibility and source quality, on the same values.
+    auto reject = [&](bool route, bool generic, bool enabled,
+                      bool conflict, std::span<const HodgkinsonPartialBarTopKExactCandidate> input) {
+        MirPolicyDecision denied{};
+        denied.enabled = true;
+        denied.family_conflict_review_hold_candidate = conflict;
+        denied.current_bpm = 96.0;
+        return !try_apply_mir_policy_partial_bar_topk_exact_release(
+            denied, input, 144.0, 8.0, route, generic, enabled) &&
+            !denied.output_would_write;
+    };
+    auto weak = rows[0];
+    weak.local_exact_score = .01;
+    const std::span<const HodgkinsonPartialBarTopKExactCandidate> badScore(&weak, 1);
+    if (!reject(false, false, true, true, candidates) ||
+        !reject(true, true, true, true, candidates) ||
+        !reject(true, false, false, true, candidates) ||
+        !reject(true, false, true, false, candidates) ||
+        !reject(true, false, true, true, badScore))
+        return false;
+    return true;
+}
+
+bool write_native_supplemental_marker() {
+    if (!native_supplemental_policy_contract()) return false;
+    const std::wstring output = g_ci_fixture + L".native-supplemental";
+    const HANDLE handle = ::CreateFileW(
+        output.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_NEW,
+        FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (handle == INVALID_HANDLE_VALUE) return false;
+    constexpr char kPass[] = "SMART_TEMPO_CI_NATIVE_SUPPLEMENTAL=PASS\n";
+    DWORD written = 0;
+    const bool ok = ::WriteFile(handle, kPass,
+        static_cast<DWORD>(sizeof(kPass) - 1), &written, nullptr) &&
+        written == sizeof(kPass) - 1;
+    ::CloseHandle(handle);
+    return ok;
+}
+
 bool write_native_continuous_marker() {
     // Run both centers on exactly the SAME fabricated sources. Reversing
     // only the route-center distance must reverse the measured incumbent
@@ -128,6 +237,11 @@ void CALLBACK run_ci_probe(HWND, UINT, UINT_PTR timer, DWORD) {
     g_ci_timer = 0;
 
     try {
+        if (!write_native_supplemental_marker()) {
+            FB2K_console_formatter() << "SMART_TEMPO_CI_NATIVE_SUPPLEMENTAL=FAIL";
+            return;
+        }
+        FB2K_console_formatter() << "SMART_TEMPO_CI_NATIVE_SUPPLEMENTAL=PASS";
         if (!write_native_continuous_marker()) {
             FB2K_console_formatter() << "SMART_TEMPO_CI_NATIVE_CONTINUOUS=FAIL";
             return;

@@ -2036,5 +2036,40 @@ class NativePipelineTraceTests(unittest.TestCase):
         self.assertEqual(source.count("const bool ciRescueWon ="), 3)
 
 
+
+    def test_native_supplemental_selected_object_writer_and_negative_host_contract(self):
+        # The real policy selector and measured writer invariant run inside
+        # original Win32/x64 foobar, but only on a fabricated CI candidate
+        # board. Do not equate this with a decoded WAV selecting TopK.
+        probe = (ROOT / "tests" / "smart_tempo_ci_probe.cpp").read_text(
+            encoding="utf-8")
+        host = (ROOT / "tests" / "diagnostic_live_host_smoke.ps1").read_text(
+            encoding="utf-8")
+        pipeline = (ROOT / "src" / "foo_smart_tempo" /
+                    "mir_candidate_pipeline.cpp").read_text(encoding="utf-8")
+        for name in ("native_supplemental_policy_contract",
+                     "try_apply_mir_policy_partial_bar_topk_exact_release",
+                     "mir_ci_policy_pointer_source",
+                     "mir_output_has_measured_candidate_witness",
+                     "enforce_mir_measured_candidate_invariant"):
+            self.assertIn(name, probe)
+        self.assertIn("selected.object != &rows[1]", probe)
+        self.assertIn("rows[1].local_exact_score = .95", probe)
+        self.assertIn("forged.output_bpm = 145.0", probe)
+        self.assertIn("forged.output_would_write", probe)
+        self.assertIn("badScore", probe)
+        self.assertIn("!reject(false, false, true, true, candidates)", probe)
+        self.assertIn("!reject(true, true, true, true, candidates)", probe)
+        self.assertIn("!reject(true, false, false, true, candidates)", probe)
+        self.assertIn("!reject(true, false, true, false, candidates)", probe)
+        self.assertIn("SMART_TEMPO_CI_NATIVE_SUPPLEMENTAL=PASS", probe)
+        self.assertIn("SMART_TEMPO_NATIVE_SUPPLEMENTAL_{0}_{1}=PASS", host)
+        self.assertIn("Original host did not prove native supplemental", host)
+        self.assertIn("ci_policy_supplemental(selected->local_exact_bpm", pipeline)
+        self.assertIn("MirCiSupplementalKind::partial_bar_topk, selected", pipeline)
+        self.assertIn("SMART_TEMPO_CI_ORACLE_PROBE", probe)
+        self.assertNotIn("metadb_io::get()->update_info", probe)
+        self.assertNotIn("upload-artifact", probe)
+
 if __name__ == "__main__":
     unittest.main()

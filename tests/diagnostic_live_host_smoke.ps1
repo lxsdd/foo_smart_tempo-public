@@ -190,6 +190,17 @@ function Run-Case([string]$installer,[string]$root,[string]$inputFile,[string[]]
       throw 'Original host did not prove native five-field continuous comparator'
     }
     Write-Host ("SMART_TEMPO_NATIVE_CONTINUOUS_{0}_{1}=PASS" -f $Architecture,$label)
+    # Same genuine CI-host C++ Policy selector and writer-invariant path,
+    # exercised on a fabricated equal-BPM two-object TopK board. The
+    # independent negative controls run before this marker is created.
+    # This is NOT a decoded-original-audio supplemental selection.
+    $supplementalProof=$inputFile+'.native-supplemental'
+    if (-not (Test-Path -LiteralPath $supplementalProof -PathType Leaf) -or
+        (Get-Content -LiteralPath $supplementalProof -Raw) -cne
+        "SMART_TEMPO_CI_NATIVE_SUPPLEMENTAL=PASS`n") {
+      throw 'Original host did not prove native supplemental object and writer guard'
+    }
+    Write-Host ("SMART_TEMPO_NATIVE_SUPPLEMENTAL_{0}_{1}=PASS" -f $Architecture,$label)
     $rows=[STUI]::Rows($dialog)
     if ($rows -lt $minimum) { throw "Only $rows result rows for $label; expected $minimum" }
     if (-not [STUI]::ButtonDisabled($dialog)) { throw 'Diagnostic Update control enabled' }

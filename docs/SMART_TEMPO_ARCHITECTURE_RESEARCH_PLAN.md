@@ -854,3 +854,27 @@ host-trace audit. A fake marker without native in-process evidence,
 a reordered or stale winner, a missing fifth field or an incorrect
 candidate source must fail closed. No production DSP/selector/writer,
 user files or publication gate is changed.
+
+## Phase-B native supplemental object and writer-invariant control (26 October 2026)
+
+A CI-probe-only C++ control now calls the **actual existing** partial-bar
+TopK Policy release selector on two distinct, equal-BPM, public fabricated
+source objects. It verifies that the stronger second object is the actual
+selected pointer (not an equal-BPM lookup), then executes the production
+measured-candidate writer invariant with only those TopK sources present.
+Negative controls reject an unwitnessed 145 BPM output, a >0.001 BPM
+substitution, disabled/incorrect route and generic-route conditions, an
+unarmed family conflict, and insufficient local-exact evidence. The original
+Win32 and x64 foobar diagnostic harness requires a separate, exact-content
+CI marker from this control on each host case; source-contract tests and
+PowerShell AST parsing run before SDK compilation.
+
+**Evidence boundary:** This is genuine native C++ execution inside the
+original foobar host with a *fabricated in-process* candidate board. It is
+NOT evidence that decoded WAV audio naturally selected a supplemental TopK
+source, nor does it prove final Policy→writer provenance for that decoded
+audio. The four-case original WAV pilot retains 3 rhythmic/1 silence
+denominators per architecture; Phase B remains **INCOMPLETE** and Phase C
+**CLOSED**. No productive DSP/selector/Policy/writer/threshold changes.
+The exact-commit CI result must be read before claiming this new control
+passed; no user audio, tags, CUE, databases, artifacts or binaries are written.
