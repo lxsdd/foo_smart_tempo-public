@@ -602,6 +602,30 @@ musical precision. Those still block Phase C and release. No user data,
 metadata writer, production DSP, policy, preferences or thresholds changed.
 
 
+
+### Phase B: executed comparator winner to actual lane terminal (CI-only)
+
+The independent trace auditor now carries each *executed* raw, harmonic,
+general-baseline, general-alt and low-bestBy comparator's final **source
+candidate ID**, not merely its winning score. It checks the actual first
+`terminal_lane_choice` against a winning collapsed source, the native raw
+winner's first-match cluster parent, or the separately observed low continuous
+rescue eligibility. Every low-bestBy invocation has its own source-indexed
+pool epoch. Positive and adversarial tests cover all five comparator families
+and a later strictly better winner with a deliberately stale terminal ID.
+A valid BPM or existing cluster ID alone cannot launder a lost candidate into
+a selected lane object.
+
+A low continuous-center rescue has only an executed *eligibility* observation,
+not its full native five-field comparator tuple. The audit therefore reports
+`selector_lane_continuous_rescue_unranked=1` separately and **never** claims
+that this branch has a proven winner. Other later residual/direct rescue
+decisions are also not certified by this first-lane check. This source-only
+gate must still pass the exact-HEAD original Win32/x64 host and negative
+regressions; it does not resolve the 51 first-decisive Primary veto reasons
+or provide a positive supplemental Policy-to-writer host witness. Package B
+remains **INCOMPLETE**, C **BLOCKED**, musical release **NO_GO**.
+
 ### 26 October 2026: pre-SDK low-episode fixture + report-key repair
 
 Initial exact-head native low-bestBy instrumentation CI 40293133050 failed
