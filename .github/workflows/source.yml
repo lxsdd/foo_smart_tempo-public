@@ -17,7 +17,23 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  portable:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: lxsdd/dev-infrastructure-public/.github/actions/portable-core@d85499b0f6363821173d8c7ffc6efed5285dc4b3
+        with:
+          language: cmake
+          source-directory: tests
+          python-test-patterns: test_synthetic_bpm_*.py,test_mw1_comparator.py
+
   source:
+    needs: portable
     runs-on: windows-2025-vs2026
     timeout-minutes: 90
     steps:
