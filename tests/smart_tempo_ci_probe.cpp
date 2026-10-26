@@ -337,20 +337,24 @@ bool write_native_low_nested_marker() {
 bool native_raw_fallback_contract(int variant) {
     using namespace smart_tempo;
     using namespace smart_tempo::mir_pipeline;
-    if (variant < 0 || variant > 2) return false;
+    if (variant < 0 || variant > 5) return false;
     MirCandidateBoard board{};
     board.segment_count = 10;
     for (int index = 0; index < 2; ++index) {
         MirRawCandidate raw{};
         raw.bpm = index == 0 ? 103.0 : 129.0;
         raw.alias_bit = index == 0
-            ? static_cast<uint16_t>(MirAlias::one_third)
-            : static_cast<uint16_t>(variant == 1
-                ? MirAlias::direct : MirAlias::quarter);
-        raw.alias_class = index == 0 ? "one_third" :
-            variant == 1 ? "direct" : "quarter";
+            ? static_cast<uint16_t>(
+                variant == 5 ? MirAlias::direct : MirAlias::one_third)
+            : static_cast<uint16_t>(
+                variant == 1 || variant >= 3 ? MirAlias::direct : MirAlias::quarter);
+        raw.alias_class = index == 0
+            ? (variant == 5 ? "direct" : "one_third")
+            : (variant == 1 || variant >= 3 ? "direct" : "quarter");
         raw.synthetic_support = index == 0 ? .01 :
-                                variant == 0 ? .02 : .80;
+                                variant == 0 ? .02 :
+                                variant == 3 ? .08 :
+                                variant == 4 ? .079999 : .80;
         raw.synthetic_winner_support = 0.01;
         raw.score_sum = index == 0 ? .10 : 3.0;
         raw.best_combined_score = index == 0 ? .10 : .90;
@@ -395,9 +399,10 @@ bool native_raw_fallback_contract(int variant) {
         E{"terminal_residual_choice", 1, false, true},
         E{"terminal_final_choice", 1, false, true},
     }};
-    const std::array<E, 8> directOnly{{
+    const std::array<E, 9> directOnly{{
         E{"raw_alias_provisional_exclusion", 0, true, false},
         E{"raw_alias_allowed", 1, true, true},
+        E{"raw_alias_decisive_veto", 0, true, false},
         E{"raw_support_allowed", 1, true, true},
         E{"raw_rank_scored", 1, true, true},
         E{"raw_compare_won", 1, true, true},
@@ -405,13 +410,51 @@ bool native_raw_fallback_contract(int variant) {
         E{"terminal_residual_choice", 1, false, true},
         E{"terminal_final_choice", 1, false, true},
     }};
-    const std::array<E, 11> aliasOnly{{
+    const std::array<E, 12> aliasOnly{{
         E{"raw_alias_provisional_exclusion", 0, true, false},
         E{"raw_alias_provisional_exclusion", 1, true, false},
         E{"raw_alias_fallback_readmitted", 0, true, true},
         E{"raw_alias_fallback_readmitted", 1, true, true},
         E{"raw_support_provisional_exclusion", 0, true, false},
         E{"raw_support_allowed", 1, true, true},
+        E{"raw_support_decisive_veto", 0, true, false},
+        E{"raw_rank_scored", 1, true, true},
+        E{"raw_compare_won", 1, true, true},
+        E{"terminal_lane_choice", 1, false, true},
+        E{"terminal_residual_choice", 1, false, true},
+        E{"terminal_final_choice", 1, false, true},
+    }};
+    // Three independent sparse floor/source-ID controls, all exercising
+    // the unchanged native productive path within isolated foobar CI.
+    const std::array<E, 9> supportAtFloor{{
+        E{"raw_alias_provisional_exclusion", 0, true, false},
+        E{"raw_alias_allowed", 1, true, true},
+        E{"raw_alias_decisive_veto", 0, true, false},
+        E{"raw_support_allowed", 1, true, true},
+        E{"raw_rank_scored", 1, true, true},
+        E{"raw_compare_won", 1, true, true},
+        E{"terminal_lane_choice", 1, false, true},
+        E{"terminal_residual_choice", 1, false, true},
+        E{"terminal_final_choice", 1, false, true},
+    }};
+    const std::array<E, 10> supportBelowFloor{{
+        E{"raw_alias_provisional_exclusion", 0, true, false},
+        E{"raw_alias_allowed", 1, true, true},
+        E{"raw_alias_decisive_veto", 0, true, false},
+        E{"raw_support_provisional_exclusion", 1, true, false},
+        E{"raw_support_fallback_readmitted", 1, true, true},
+        E{"raw_rank_scored", 1, true, true},
+        E{"raw_compare_won", 1, true, true},
+        E{"terminal_lane_choice", 1, false, true},
+        E{"terminal_residual_choice", 1, false, true},
+        E{"terminal_final_choice", 1, false, true},
+    }};
+    const std::array<E, 10> supportVetoOnly{{
+        E{"raw_alias_allowed", 0, true, true},
+        E{"raw_alias_allowed", 1, true, true},
+        E{"raw_support_provisional_exclusion", 0, true, false},
+        E{"raw_support_allowed", 1, true, true},
+        E{"raw_support_decisive_veto", 0, true, false},
         E{"raw_rank_scored", 1, true, true},
         E{"raw_compare_won", 1, true, true},
         E{"terminal_lane_choice", 1, false, true},
@@ -438,6 +481,9 @@ bool native_raw_fallback_contract(int variant) {
     if (variant == 0 && !check(fallbackBoth)) return false;
     if (variant == 1 && !check(directOnly)) return false;
     if (variant == 2 && !check(aliasOnly)) return false;
+    if (variant == 3 && !check(supportAtFloor)) return false;
+    if (variant == 4 && !check(supportBelowFloor)) return false;
+    if (variant == 5 && !check(supportVetoOnly)) return false;
     // Exact native source-index terminal and at least one genuine raw
     // comparator; first alias exclusion must NOT be called a final veto.
     return true;
@@ -446,7 +492,10 @@ bool native_raw_fallback_contract(int variant) {
 bool write_native_raw_fallback_marker() {
     if (!native_raw_fallback_contract(0) ||
         !native_raw_fallback_contract(1) ||
-        !native_raw_fallback_contract(2))
+        !native_raw_fallback_contract(2) ||
+        !native_raw_fallback_contract(3) ||
+        !native_raw_fallback_contract(4) ||
+        !native_raw_fallback_contract(5))
         return false;
     const std::wstring output = g_ci_fixture + L".native-raw-fallback";
     const HANDLE handle = ::CreateFileW(

@@ -2174,5 +2174,81 @@ class NativePipelineTraceTests(unittest.TestCase):
         # actual upload-artifact actions, preserving documentation.
         self.assertNotRegex(workflow, r"(?m)^\\s*uses:\\s*actions/upload-artifact@")
 
+class RawDecisiveVetoTests(unittest.TestCase):
+    """Same-BPM raw objects retain different causal identities."""
+
+    def cases(self, support=False):
+        rows = lineage_trace([128., 128.], [128.], [[0, 1]])
+        gates = (
+            [event("candidate_filter", "c0", [], 128., "included", "raw_alias_allowed", 0),
+             event("candidate_filter", "c1", [], 128., "included", "raw_alias_allowed", 0),
+             event("candidate_filter", "c0", [], 128., "excluded", "raw_support_provisional_exclusion", 0),
+             event("candidate_filter", "c1", [], 128., "included", "raw_support_allowed", 0),
+             event("candidate_filter", "c0", [], 128., "excluded", "raw_support_decisive_veto", 0)]
+            if support else
+            [event("candidate_filter", "c0", [], 128., "excluded", "raw_alias_provisional_exclusion", 0),
+             event("candidate_filter", "c1", [], 128., "included", "raw_alias_allowed", 0),
+             event("candidate_filter", "c0", [], 128., "excluded", "raw_alias_decisive_veto", 0),
+             event("candidate_filter", "c1", [], 128., "included", "raw_support_allowed", 0)])
+        at = next(i for i, r in enumerate(rows) if r["stage"] == "primary_select")
+        rows[at:at] = gates
+        for i, r in enumerate(rows): r["sequence"] = i
+        return rows
+
+    def test_both_native_decisive_veto_types(self):
+        for support in (False, True):
+            with self.subTest(support=support):
+                out = validate(self.cases(support))
+                self.assertEqual(out["selector_raw_decisive_source_ids"], 1)
+                self.assertEqual(out["selector_raw_decisive_support_vetos"], int(support))
+                self.assertEqual(out["selector_raw_decisive_alias_vetos"], int(not support))
+
+    def test_adversarial_source_fate_corruption_rejected(self):
+        for support in (False, True):
+            for mutation in ("source", "readmit", "rank", "duplicate", "precursor", "survivor"):
+                with self.subTest(support=support, mutation=mutation):
+                    bad = copy.deepcopy(self.cases(support))
+                    veto = next(i for i, r in enumerate(bad) if
+                                r["reason_code"].endswith("_decisive_veto"))
+                    if mutation == "source":
+                        bad[veto]["candidate_id"] = "c1"
+                    elif mutation == "readmit":
+                        bad.insert(veto+1, event("candidate_filter", "c0", [], 128.,
+                                   "included", "raw_support_fallback_readmitted" if support
+                                   else "raw_alias_fallback_readmitted", 0))
+                    elif mutation == "rank":
+                        bad.insert(veto+1, event("primary_rank", "c0", [], 128.,
+                                                "included", "raw_rank_scored", 0))
+                    elif mutation == "duplicate":
+                        bad.insert(veto+1, copy.deepcopy(bad[veto]))
+                    elif mutation == "precursor":
+                        bad = [r for r in bad if not (
+                            r["candidate_id"] == "c0" and
+                            r["reason_code"].endswith("_provisional_exclusion"))]
+                    elif mutation == "survivor":
+                        survive = "raw_support_allowed" if support else "raw_alias_allowed"
+                        bad = [r for r in bad if not (
+                            r["candidate_id"] == "c1" and r["reason_code"] == survive)]
+                    for i, r in enumerate(bad): r["sequence"] = i
+                    with self.assertRaises(TraceError): validate(bad)
+
+    def test_six_original_native_branch_scenarios_are_frozen(self):
+        cpp = (ROOT / "tests/smart_tempo_ci_probe.cpp").read_text(encoding="utf-8")
+        src = (ROOT / "src/foo_smart_tempo/mir_candidate_pipeline.cpp").read_text(
+            encoding="utf-8")
+        for i in range(6):
+            self.assertIn(f"native_raw_fallback_contract({i})", cpp)
+        for reason in ("raw_alias_decisive_veto", "raw_support_decisive_veto"):
+            self.assertIn('"' + reason + '"', src)
+            self.assertIn('E{"' + reason + '"', cpp)
+        for marker in ("variant == 3 ? .08", "variant == 4 ? .079999",
+                       "supportAtFloor", "supportBelowFloor", "supportVetoOnly",
+                       "mir_ci_primary_selector_trace_complete()",
+                       "event.source_index == expected.source"):
+            self.assertIn(marker, cpp)
+        self.assertIn("support >= supportFloor", src)
+        self.assertIn("if (!supported.empty())", src)
+
+
 if __name__ == "__main__":
     unittest.main()

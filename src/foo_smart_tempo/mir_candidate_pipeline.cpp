@@ -1014,6 +1014,18 @@ evaluate_mir_high_pulse_interval_conflict_shadow(
       pool.push_back(&candidate);
     }
   }
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+  else {
+    // The native alias fallback did not run. Only NOW can an exclusion
+    // be called decisive. Raw source indexes, not BPM proximity, identify it.
+    for (const auto& candidate : board.raw_candidates)
+      if (!mir_raw_alias_allowed(candidate, lane))
+        ci_primary_event(static_cast<std::size_t>(
+                             &candidate - board.raw_candidates.data()),
+                         candidate.bpm, 0.0, true, false,
+                         "raw_alias_decisive_veto");
+  }
+#endif
   const double supportFloor = std::strcmp(lane, "sparse_or_acapella") == 0 ? 0.08 : 0.15;
   std::vector<const MirRawCandidate*> supported;
   supported.reserve(pool.size());
@@ -1029,6 +1041,17 @@ evaluate_mir_high_pulse_interval_conflict_shadow(
     }
   }
   if (!supported.empty()) {
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+    // No support fallback: record the first actual irrevocable exclusion.
+    // Does not affect score, candidate identity or any production decision.
+    for (const auto* candidate : pool)
+      if (mir_raw_support(*candidate, board.segment_count) < supportFloor)
+        ci_primary_event(static_cast<std::size_t>(
+                             candidate - board.raw_candidates.data()),
+                         candidate->bpm,
+                         mir_raw_support(*candidate, board.segment_count),
+                         true, false, "raw_support_decisive_veto");
+#endif
     pool = std::move(supported);
   }
 #if defined(SMART_TEMPO_CI_ORACLE_PROBE)

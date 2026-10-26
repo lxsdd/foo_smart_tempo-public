@@ -75,6 +75,7 @@ RAW_SOURCE_MASKS = {
 }
 ALLOWED_FILTER_REASONS = frozenset((
     "raw_alias_allowed", "raw_alias_provisional_exclusion",
+    "raw_alias_decisive_veto", "raw_support_decisive_veto",
     "raw_support_allowed", "raw_support_provisional_exclusion",
     "low_upper_gate_allowed", "low_upper_gate_provisional_exclusion",
     "low_threshold_allowed", "low_threshold_provisional_exclusion",
@@ -379,6 +380,58 @@ def validate(rows: list[dict], *, require_windows: bool = False,
         if stage == "policy_eligibility" and any(ids[p] != "candidate_transform" for p in parents):
             raise TraceError("policy candidate parent not collapsed")
         stage_indices[stage].append(item)
+    # Independent source-ID and time-ordered proof. The first provisional
+    # exclusion is not a veto until the productive fallback has resolved.
+    raw_gates = [r for r in stage_indices["candidate_filter"]
+                 if ids[r["candidate_id"]] == "candidate_create"]
+    decisive = [r for r in raw_gates if r["reason_code"] in (
+        "raw_alias_decisive_veto", "raw_support_decisive_veto")]
+    raw_veto_ids = set()
+    for row in decisive:
+        cid = row["candidate_id"]
+        if cid in raw_veto_ids or row["outcome"] != "excluded":
+            raise TraceError("contradictory or duplicate decisive raw veto")
+        raw_veto_ids.add(cid)
+        is_alias = row["reason_code"] == "raw_alias_decisive_veto"
+        required = ("raw_alias_provisional_exclusion" if is_alias else
+                    "raw_support_provisional_exclusion")
+        history = [r for r in raw_gates if r["candidate_id"] == cid]
+        if sum(r["reason_code"] == required and
+               r["sequence"] < row["sequence"] for r in history) != 1:
+            raise TraceError("raw veto missing unique earlier native gate")
+        if any(r["reason_code"] in (
+                "raw_alias_fallback_readmitted", "raw_support_fallback_readmitted")
+               for r in history):
+            raise TraceError("decisive veto source later or earlier readmitted")
+        if is_alias and any(r["reason_code"].startswith("raw_support_")
+                            for r in history):
+            raise TraceError("alias-veto source entered support pool")
+        if any(r["sequence"] > row["sequence"] for r in history) or any(
+                r["candidate_id"] == cid for r in
+                stage_indices["primary_rank"] + stage_indices["primary_compare"]):
+            raise TraceError("raw veto source later ranked or observed")
+        surviving = ("raw_alias_allowed" if is_alias else "raw_support_allowed")
+        if not any(r["reason_code"] == surviving for r in raw_gates):
+            raise TraceError("raw final veto but no alternate surviving pool")
+    # Once a decisive path is demonstrated, every raw provisional exclusion
+    # in that same native invocation must resolve exactly once. No inferred
+    # terminal veto from a generic excluded flag is permitted.
+    if decisive:
+        for pending, completions in (
+            ("raw_alias_provisional_exclusion",
+             ("raw_alias_fallback_readmitted", "raw_alias_decisive_veto")),
+            ("raw_support_provisional_exclusion",
+             ("raw_support_fallback_readmitted", "raw_support_decisive_veto")),
+        ):
+            for row in raw_gates:
+                if row["reason_code"] != pending:
+                    continue
+                matches = [r for r in raw_gates
+                           if r["candidate_id"] == row["candidate_id"] and
+                           r["sequence"] > row["sequence"] and
+                           r["reason_code"] in completions]
+                if len(matches) != 1:
+                    raise TraceError("raw provisional fate missing or ambiguous")
     # Executed rank/comparator pairs prove actual incumbent displacement.
     # Nested low-pulse bestBy comparisons reset their independent incumbent
     # at every strictly ordered source-observed pool invocation.
@@ -993,6 +1046,11 @@ def validate(rows: list[dict], *, require_windows: bool = False,
         "selector_cluster_first_exclusion_reasons": ",".join(
             f"{reason}:{sum(r == reason for r in first_exclusion.values())}"
             for reason in sorted(set(first_exclusion.values()))),
+        "selector_raw_decisive_alias_vetos": sum(
+            r["reason_code"] == "raw_alias_decisive_veto" for r in decisive),
+        "selector_raw_decisive_support_vetos": sum(
+            r["reason_code"] == "raw_support_decisive_veto" for r in decisive),
+        "selector_raw_decisive_source_ids": len(raw_veto_ids),
         "selector_branch_checks": len(stage_indices["candidate_filter"]),
         "selector_fallback_readmissions": sum(
             x["reason_code"].endswith("_fallback_readmitted")
