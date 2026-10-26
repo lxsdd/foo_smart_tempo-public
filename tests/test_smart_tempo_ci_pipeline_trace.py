@@ -691,23 +691,35 @@ class NativePipelineTraceTests(unittest.TestCase):
 
         for family in families:
             with self.subTest(family=family):
-                positive = validate(case(family))
+                positive = validate(case(family), require_native_comparator=True)
                 self.assertEqual(positive["selector_lane_comparator_winner_proven"], 1)
                 self.assertEqual(positive["selector_lane_continuous_rescue_unranked"], 0)
                 # A legitimate final comparator replacement must invalidate
                 # the stale lane pointer even if its BPM and object still exist.
                 with self.assertRaisesRegex(
                         TraceError, "terminal lane candidate was not"):
-                    validate(case(family, second_wins=True))
+                    validate(case(family, second_wins=True),
+                             require_native_comparator=True)
 
-        rescue = validate(case("low", second_wins=True, continuous_rescue=True))
+        rescue = validate(case("low", second_wins=True, continuous_rescue=True),
+                          require_native_comparator=True)
         self.assertEqual(rescue["selector_lane_comparator_winner_proven"], 0)
         self.assertEqual(rescue["selector_lane_continuous_rescue_unranked"], 1)
         forged = case("low", second_wins=True, continuous_rescue=True)
         next(x for x in forged if x["reason_code"] == "low_continuous_allowed")[
             "outcome"] = "excluded"
         with self.assertRaises(TraceError):
-            validate(forged)
+            validate(forged, require_native_comparator=True)
+        # Unit-only window/terminal fixtures remain independently testable;
+        # the actual original-host CLI always demands executed comparisons.
+        no_comparator = case("raw")
+        no_comparator = [row for row in no_comparator if row["stage"] not in
+                         ("primary_rank", "primary_compare")]
+        for i, row in enumerate(no_comparator):
+            row["sequence"] = i
+        self.assertEqual(validate(no_comparator)["selector_terminal_observations"], 3)
+        with self.assertRaisesRegex(TraceError, "no executed comparator"):
+            validate(no_comparator, require_native_comparator=True)
 
     def test_raw_aliased_candidates_can_exceed_output_rail_but_not_safety_limit(self):
         # A 512 BPM raw alias may be present without becoming a 40-220 BPM
