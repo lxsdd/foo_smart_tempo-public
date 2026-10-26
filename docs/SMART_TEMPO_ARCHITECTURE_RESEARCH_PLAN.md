@@ -716,3 +716,8 @@ completeness, a positive supplemental Policy source, performance
 improvement, real music qualification or musical GO. Production DSP,
 genre rules, preferences, selector, Policy, writer and owner media
 remain unchanged.
+
+
+### 26 Oct 2026 — independent post-host Primary comparator attribution (B subgate)
+
+The original four-case Win32/x64 native pilot now joins its **already strictly validated** raw-to-cluster source IDs and actual executed Primary rank/compare events with the frozen public synthetic reference **only after foobar exits**. The separate scorer reports whether a reference-near cluster was absent, never ranked, ranked but lost, or won an executed comparator family without becoming the final Primary lane object; it also counts ranked near-source IDs, observed wins and last family winners, and labels the first observed **provisional** exclusion (not a definitive veto). Both architectures must produce a bounded comparator-provenance PASS or the host gate fails. The original reference/held/negative denominators remain unchanged. This is not a causal proof of which branch-specific veto is decisive; branch choice, low nested rescues and supplemental final writer object remain Phase-B blockers. No production DSP, policy, selector or writer changes.

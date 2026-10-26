@@ -158,6 +158,94 @@ def analyze(rows: list[dict], manifest: dict, observed: list[dict],
     }
 
 
+
+def diagnose_primary_comparator(rows: list[dict], case_id: str) -> dict:
+    """Post-host, reference-conditioned source-object audit; never a first-veto claim.
+
+    The caller MUST validate the native trace with require_windows=True before
+    joining the frozen synthetic reference. Raw aliases are matched only through
+    the independently validated raw->collapsed parent IDs, not BPM proximity.
+    A comparator winner in an unchosen family is NOT a Primary lane winner.
+    """
+    if case_id not in CASES:
+        raise RecallError("unapproved synthetic comparator case")
+    reference, _ = CASES[case_id]
+    clusters = [r for r in rows if r["stage"] == "candidate_transform"]
+    primary = [r for r in rows if r["stage"] == "primary_select"]
+    if len(primary) != 1:
+        raise RecallError("missing native primary decision")
+    if reference is None:
+        if clusters or any(r["stage"] in ("primary_rank", "primary_compare")
+                           for r in rows):
+            raise RecallError("negative comparator fabricated sources")
+        return {"PRIMARY_COMPARATOR_PROVENANCE": "PASS",
+                "PRIMARY_NEAR_RANKED_SOURCES": 0,
+                "PRIMARY_NEAR_COMPARATOR_WINS": 0,
+                "PRIMARY_NEAR_FAMILY_FINAL_WINNERS": 0,
+                "PRIMARY_FIRST_OBSERVED_EXCLUSION": "none",
+                "PRIMARY_COMPARATOR_DIAGNOSIS": "negative_no_candidates"}
+    near = [r for r in clusters
+            if abs(r["metrics"]["bpm"] - reference) <= 0.20]
+    near_clusters = {r["candidate_id"] for r in near}
+    if any(type(r["candidate_id"]) is not str or
+           type(r["parent_candidate_ids"]) is not list or
+           any(type(parent) is not str for parent in r["parent_candidate_ids"])
+           for r in near):
+        raise RecallError("unindexed native reference cluster")
+    near_sources = near_clusters | {
+        parent for cluster in near for parent in cluster["parent_candidate_ids"]
+    }
+    ranks = [r for r in rows if r["stage"] == "primary_rank" and
+             r["candidate_id"] in near_sources]
+    comparisons = [r for r in rows if r["stage"] == "primary_compare"]
+    # The independent native validator already replays adjacent rank/compare
+    # scores and wins. Here we retain the LAST winner in each executed family
+    # (and each low-pulse bestBy epoch) without synthesizing an unrun branch.
+    winners = {}
+    near_wins = 0
+    for row in comparisons:
+        family = row["reason_code"].rsplit("_compare_", 1)[0]
+        if family not in ("raw", "harmonic", "low", "general_baseline",
+                          "general_alt", "residual_high", "residual_harmonic",
+                          "harmonic_direct"):
+            raise RecallError("unrecognized native comparator family")
+        key = (family, row["metrics"].get("low_pool_epoch", 0))
+        if row["outcome"] == "included":
+            winners[key] = row["candidate_id"]
+            near_wins += row["candidate_id"] in near_sources
+        elif row["outcome"] != "excluded":
+            raise RecallError("unrecognized comparator result")
+    near_final_winners = sum(source in near_sources for source in winners.values())
+    excluded = next((
+        r["reason_code"] for r in rows
+        if r["stage"] == "candidate_filter" and
+        r["candidate_id"] in near_sources and r["outcome"] == "excluded"
+    ), "none")
+    # This is the FIRST OBSERVED provisional exclusion, not necessarily a
+    # decisive veto: fallback and nested rescues may later re-admit sources.
+    from audit_smart_tempo_ci_pipeline_trace import ALLOWED_FILTER_REASONS
+    if excluded != "none" and excluded not in ALLOWED_FILTER_REASONS:
+        raise RecallError("unrecognized native exclusion reason")
+    chosen = primary[0]["parent_candidate_ids"]
+    if any(source in near_clusters for source in chosen):
+        diagnosis = "reference_primary_selected"
+    elif not near_clusters:
+        diagnosis = "reference_missing_cluster"
+    elif not ranks:
+        diagnosis = "reference_not_ranked"
+    elif not near_final_winners:
+        diagnosis = "reference_ranked_lost"
+    else:
+        diagnosis = "reference_won_nonterminal_family"
+    return {
+        "PRIMARY_COMPARATOR_PROVENANCE": "PASS",
+        "PRIMARY_NEAR_RANKED_SOURCES": len({r["candidate_id"] for r in ranks}),
+        "PRIMARY_NEAR_COMPARATOR_WINS": near_wins,
+        "PRIMARY_NEAR_FAMILY_FINAL_WINNERS": near_final_winners,
+        "PRIMARY_FIRST_OBSERVED_EXCLUSION": excluded,
+        "PRIMARY_COMPARATOR_DIAGNOSIS": diagnosis,
+    }
+
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--case", choices=sorted(CASES), required=True)
@@ -173,6 +261,7 @@ def main():
         rows = load(args.trace)
         validate(rows, require_windows=True)
         result = analyze(rows, reference, load_observed(args.observed), args.case)
+        result.update(diagnose_primary_comparator(rows, args.case))
     except (RecallError, TraceError, ValueError, UnicodeError, KeyError) as exc:
         p.error(str(exc))
     # Fixed, predeclared numeric-only source comparison. Never print filenames,

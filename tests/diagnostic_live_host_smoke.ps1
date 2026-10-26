@@ -223,6 +223,16 @@ function Run-Case([string]$installer,[string]$root,[string]$inputFile,[string[]]
             @($recallOutput | Where-Object { $_ -ceq 'SMART_TEMPO_B_RECALL_VERIFIED=1' }).Count -ne 1) {
           throw ('Native source/ground-truth recall audit failed: '+($recallOutput -join '; '))
         }
+        # Independent native-ID comparator attribution must complete before
+        # any reference-conditioned summary is treated as usable evidence.
+        if (@($recallOutput | Where-Object {
+            $_ -ceq 'SMART_TEMPO_B_RECALL_PRIMARY_COMPARATOR_PROVENANCE=PASS'
+          }).Count -ne 1 -or
+          @($recallOutput | Where-Object {
+            $_ -cmatch '^SMART_TEMPO_B_RECALL_PRIMARY_COMPARATOR_DIAGNOSIS=(reference_primary_selected|reference_missing_cluster|reference_not_ranked|reference_ranked_lost|reference_won_nonterminal_family|negative_no_candidates)$'
+          }).Count -ne 1) {
+          throw 'Native reference-to-executed-comparator attribution incomplete'
+        }
         $recallOutput | ForEach-Object { Write-Host $_ }
       }
       $traceEvidence=@{}

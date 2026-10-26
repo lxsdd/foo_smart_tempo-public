@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
-from audit_smart_tempo_b_candidate_recall import analyze, RecallError
+from audit_smart_tempo_b_candidate_recall import analyze, diagnose_primary_comparator, RecallError
 
 
 def event(stage, bpm, outcome="observed"):
@@ -116,6 +116,97 @@ class RecallTests(unittest.TestCase):
                     manifest["cases"][0]["title"] = "private"
                 with self.assertRaises(RecallError):
                     analyze(rows, manifest, observed, case_id)
+
+
+    def test_native_comparator_source_object_classification(self):
+        """Frozen oracle joins after native ID validation, never inside DSP."""
+        def item(stage, cid=None, parents=(), bpm=0., reason="", outcome="observed",
+                 epoch=None):
+            metrics={"bpm":bpm}
+            if epoch is not None:
+                metrics["low_pool_epoch"]=epoch
+            return {"stage":stage,"candidate_id":cid,
+                    "parent_candidate_ids":list(parents),
+                    "reason_code":reason,"outcome":outcome,"metrics":metrics}
+        def rows(*, selected="c3", ranked=True, near_wins=False,
+                 wrong_family=False):
+            a=[
+                item("candidate_create","c0",bpm=128.),
+                item("candidate_create","c1",bpm=143.),
+                item("candidate_transform","c2",("c0",),128.),
+                item("candidate_transform","c3",("c1",),143.),
+            ]
+            if ranked:
+                a.append(item("candidate_filter","c2",bpm=128.,
+                              reason="general_out_of_rail_provisional",
+                              outcome="excluded"))
+                a.append(item("primary_rank","c2",bpm=128.,
+                              reason="general_baseline_rank_scored",outcome="included"))
+                a.append(item("primary_compare","c2",bpm=128.,
+                              reason="general_baseline_compare_won" if near_wins else
+                                     "general_baseline_compare_lost",
+                              outcome="included" if near_wins else "excluded"))
+            if wrong_family:
+                a.append(item("primary_rank","c2",bpm=128.,
+                              reason="low_rank_scored",outcome="included",epoch=1))
+                a.append(item("primary_compare","c2",bpm=128.,
+                              reason="low_compare_won",outcome="included",epoch=1))
+            a.append(item("primary_select",parents=(selected,),bpm=143.))
+            return a
+        for opts, expected in (
+            ({}, "reference_not_ranked"),
+            ({"ranked":True}, "reference_ranked_lost"),
+            ({"ranked":True,"near_wins":True},
+             "reference_won_nonterminal_family"),
+            ({"ranked":True,"selected":"c2"}, "reference_primary_selected"),
+            ({"ranked":True,"wrong_family":True},
+             "reference_won_nonterminal_family"),
+        ):
+            if not opts:
+                opts={"ranked":False}
+            with self.subTest(opts=opts):
+                got=diagnose_primary_comparator(rows(**opts),"pulse_128")
+                self.assertEqual(got["PRIMARY_COMPARATOR_DIAGNOSIS"],expected)
+                self.assertEqual(got["PRIMARY_COMPARATOR_PROVENANCE"],"PASS")
+        got=diagnose_primary_comparator(rows(),"pulse_128")
+        self.assertEqual(got["PRIMARY_FIRST_OBSERVED_EXCLUSION"],
+                         "general_out_of_rail_provisional")
+        self.assertEqual(got["PRIMARY_NEAR_RANKED_SOURCES"],1)
+        self.assertEqual(got["PRIMARY_NEAR_COMPARATOR_WINS"],0)
+        negative=[item("primary_select",parents=(),bpm=0.)]
+        self.assertEqual(diagnose_primary_comparator(negative,"silence")[
+            "PRIMARY_COMPARATOR_DIAGNOSIS"],"negative_no_candidates")
+
+    def test_native_comparator_adversarial_rejections(self):
+        row={"stage":"candidate_transform","candidate_id":"c2",
+             "parent_candidate_ids":["c0"],"metrics":{"bpm":128.}}
+        primary={"stage":"primary_select","parent_candidate_ids":["c3"],
+                 "metrics":{"bpm":143.}}
+        for corruption in ("missing_primary","duplicate_primary","missing_id",
+                           "bad_parent","bad_family","bad_outcome","bad_gate",
+                           "negative_fabricated"):
+            with self.subTest(corruption=corruption):
+                data=[copy.deepcopy(row),copy.deepcopy(primary)]
+                if corruption=="missing_primary": data.pop()
+                if corruption=="duplicate_primary": data.append(copy.deepcopy(primary))
+                if corruption=="missing_id": data[0]["candidate_id"]=None
+                if corruption=="bad_parent": data[0]["parent_candidate_ids"]=[None]
+                if corruption in ("bad_family","bad_outcome"):
+                    data.insert(1,{"stage":"primary_compare","candidate_id":"c2",
+                                   "reason_code":"unknown_compare_won" if corruption=="bad_family"
+                                   else "general_baseline_compare_won",
+                                   "outcome":"included" if corruption=="bad_family" else "observed",
+                                   "metrics":{"bpm":128.}})
+                if corruption=="bad_gate":
+                    data.insert(1,{"stage":"candidate_filter","candidate_id":"c2",
+                                   "reason_code":"private_path_excluded","outcome":"excluded",
+                                   "metrics":{"bpm":128.}})
+                if corruption=="negative_fabricated":
+                    with self.assertRaises(RecallError):
+                        diagnose_primary_comparator(data,"silence")
+                    continue
+                with self.assertRaises(RecallError):
+                    diagnose_primary_comparator(data,"pulse_128")
 
     def test_runner_is_separated_from_native_product(self):
         root = Path(__file__).resolve().parents[1]
