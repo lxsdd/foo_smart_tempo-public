@@ -3,7 +3,7 @@
 
 CI-only numeric source IDs. This proves an executed RAW selector invocation
 under strict host mode, never a collapsed-cluster veto or musical BPM truth.
-No audio, genre, filenames, references, metadata or other user data.
+No path, track identifiers, tags, external or user-supplied data are read.
 """
 from __future__ import annotations
 
