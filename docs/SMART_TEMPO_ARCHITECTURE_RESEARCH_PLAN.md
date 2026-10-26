@@ -260,6 +260,28 @@ No candidate may be synthesized from genre or oracle; no tuned track-specific ru
 
 **Research targets, not current performance claims:** ≥99% of accepted unambiguously labeled real-music examples within ±0.20 BPM; ≥90% auto coverage subject to precision; no observed auto acceptance of fixed unresolvable negative controls; measured performance improvement without a quality/safety regression. Freeze confidence intervals, sample sizes, and an independent review procedure before interpreting PASS. True final acceptance includes no-write and actual Win32/x64 foobar host tests.
 
+### Phase B: native source-to-JSONL count conservation (26 October 2026)
+
+One terminal CI-only `source_inventory` record binds the actual native
+raw-board, collapsed Primary pool, Policy FullBoard, executed selector-event,
+decoded-window and selected supplemental-object counts to the serialized
+per-candidate trace. The independent parser re-counts all six event families,
+requires exact nonnegative integers and one final inventory for every real
+Win32/x64 host trace, and rejects missing, duplicated, reordered, fractional,
+privacy-polluted or contradictory evidence. This catches a syntactically valid
+but truncated source/selector capture that would otherwise look self-consistent.
+A genuinely empty native raw board can now be distinguished from missing
+capture without inventing a BPM or candidate identity. Positive and negative
+source-only regressions cover both nonempty and empty native boundaries.
+
+**Evidence boundary:** this proves source cardinality conservation at the
+observed native board/selector boundary, not why MIR generated no raw
+candidates, nor a terminal first-veto for every nonwinner. Exact-SHA real
+Win32/x64 host CI and independent source review are still required. **Phase B
+remains INCOMPLETE; Phase C CLOSED; musical NO_GO** until first-veto
+exhaustiveness, positive native supplemental Policy/Writer identity and
+independent audit are qualified.
+
 ## Work packaging and stop rules
 
 **Package A (this PR):** authoritative 28-stage static source inventory; architecture/documented risks; typed future trace schema; positive and adversarial negative source tests; fast Windows pre-build gate. This closes the *static source map*, NOT runtime proof.

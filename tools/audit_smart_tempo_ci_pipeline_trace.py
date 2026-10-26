@@ -22,6 +22,9 @@ RESOURCE_METRICS = METRICS | frozenset((
     "wall_seconds", "process_cpu_seconds",
     "process_peak_rss_before_bytes", "process_peak_rss_after_bytes",
     "process_working_set_after_bytes"))
+INVENTORY_METRICS = METRICS | frozenset((
+    "raw_count", "collapsed_count", "policy_board_count",
+    "selector_event_count", "decode_window_count", "supplemental_count"))
 WINDOW_METRICS = METRICS | frozenset(("pass_index", "pass_total", "start_sec",
     "requested_frames", "decoded_frames", "analysis_frames",
     "source_rate_hz", "analysis_rate_hz"))
@@ -46,7 +49,8 @@ ENUMS = {
     "final_output": (None, None),
     "measured_witness": (None, None),
     "resource_usage": ("observed", "process_resource_snapshot"),
-    "write_guard": ("write_blocked", "ci_dry_run")
+    "write_guard": ("write_blocked", "ci_dry_run"),
+    "source_inventory": ("observed", "native_count_conservation")
 }
 REASON_PATTERN = re.compile(r"^[a-z][a-z0-9_]{0,95}$")
 ID_PATTERN = re.compile(r"^c(?:0|[1-9][0-9]{0,6})$")
@@ -121,7 +125,7 @@ def validate(rows: list[dict], *, require_windows: bool = False) -> dict:
         "policy_resolution": 5, "policy_pointer": 6,
         "policy_change": 7, "final_output": 8,
         "measured_witness": 9, "resource_usage": 10,
-        "write_guard": 11
+        "write_guard": 11, "source_inventory": 12
     }
     previous_stage_number = -1
     session_id = rows[0].get("analysis_id") if type(rows[0]) is dict else None
@@ -154,6 +158,7 @@ def validate(rows: list[dict], *, require_windows: bool = False) -> dict:
                                                           "general_baseline_compare_")))
         expected_metrics = (WINDOW_METRICS if stage == "decode_window" else
                             RESOURCE_METRICS if stage == "resource_usage" else
+                            INVENTORY_METRICS if stage == "source_inventory" else
                             TIE_METRICS if has_native_tie else METRICS)
         if type(item["metrics"]) is not dict or set(item["metrics"]) != expected_metrics:
             raise TraceError("non-numeric-only telemetry")
@@ -172,7 +177,7 @@ def validate(rows: list[dict], *, require_windows: bool = False) -> dict:
             raise TraceError("invalid candidate parents")
         if any(type(p) is not str or p not in ids for p in parents):
             raise TraceError("orphan or forward candidate parent")
-        if stage in ("decode_window", "resource_usage") and (candidate_id is not None or parents):
+        if stage in ("decode_window", "resource_usage", "source_inventory") and (candidate_id is not None or parents):
             raise TraceError("window/resource must not contain candidate identity")
         if stage == "resource_usage":
             m = item["metrics"]
@@ -327,6 +332,28 @@ def validate(rows: list[dict], *, require_windows: bool = False) -> dict:
                    "measured_witness", "write_guard"):
         if len(stage_indices[single]) != 1:
             raise TraceError("missing or repeated terminal stage " + single)
+    # Actual C++ board counts must agree with the parsed source rows.
+    inventories = stage_indices["source_inventory"]
+    if len(inventories) > 1 or (require_windows and len(inventories) != 1):
+        raise TraceError("native source inventory missing or duplicated")
+    if inventories:
+        m = inventories[0]["metrics"]
+        if any(m[k] != 0 for k in METRICS):
+            raise TraceError("source inventory contains synthetic BPM evidence")
+        expected_counts = {
+            "raw_count": len(stage_indices["candidate_create"]),
+            "collapsed_count": len(stage_indices["candidate_transform"]),
+            "policy_board_count": len(stage_indices["policy_eligibility"]),
+            "selector_event_count": sum(len(stage_indices[k]) for k in (
+                "candidate_filter", "primary_rank", "primary_compare",
+                "primary_terminal")),
+            "decode_window_count": len(stage_indices["decode_window"]),
+            "supplemental_count": len(stage_indices["supplemental_candidate"]),
+        }
+        for name, expected_count in expected_counts.items():
+            if (m[name] != int(m[name]) or
+                    not 0 <= m[name] <= MAX_LINES or m[name] != expected_count):
+                raise TraceError("native source inventory/JSONL cardinality mismatch")
     resources = stage_indices["resource_usage"]
     if len(resources) > 1 or (require_windows and len(resources) != 1):
         raise TraceError("native process resource observation missing or duplicated")
@@ -438,6 +465,8 @@ def validate(rows: list[dict], *, require_windows: bool = False) -> dict:
             "process_cpu_seconds": round(resources[0]["metrics"]["process_cpu_seconds"], 6),
             "process_peak_rss_bytes": int(
                 resources[0]["metrics"]["process_peak_rss_after_bytes"]),
+            "native_source_inventory_verified": int(bool(inventories)),
+            "native_empty_board_boundary_verified": int(bool(inventories)),
             "negative_no_candidate_trace": 1,
             "primary_auto": 0, "final_accept": 0,
             "write_guard_blocked": 1,
@@ -671,6 +700,8 @@ def validate(rows: list[dict], *, require_windows: bool = False) -> dict:
                      for x in primary_pool)
     return {
         "rows": len(rows), "raw": len(raw), "collapsed": len(collapsed),
+        "native_source_inventory_verified": int(bool(inventories)),
+        "native_empty_board_boundary_verified": 0,
         "raw_cluster_partition_verified": len(raw),
         "raw_lineage_overlap_disambiguated": overlapping_raw,
         "policy_board_unique_cluster_sources": len(seen_policy_sources),

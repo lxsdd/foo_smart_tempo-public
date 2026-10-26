@@ -111,6 +111,29 @@ def resource_event():
     return item
 
 
+def attach_inventory(rows):
+    """Synthetic-only source cardinality fixture, not a production measurement."""
+    if any(row["stage"] == "source_inventory" for row in rows):
+        raise ValueError("duplicate fixture inventory")
+    counts = {
+        "raw_count": sum(r["stage"] == "candidate_create" for r in rows),
+        "collapsed_count": sum(r["stage"] == "candidate_transform" for r in rows),
+        "policy_board_count": sum(r["stage"] == "policy_eligibility" for r in rows),
+        "selector_event_count": sum(r["stage"] in (
+            "candidate_filter", "primary_rank", "primary_compare",
+            "primary_terminal") for r in rows),
+        "decode_window_count": sum(r["stage"] == "decode_window" for r in rows),
+        "supplemental_count": sum(r["stage"] == "supplemental_candidate" for r in rows),
+    }
+    row = event("source_inventory", None, [], 0., "observed",
+                "native_count_conservation", 0)
+    row["metrics"] = dict(bpm=0., score=0., support=0., **counts)
+    rows.append(row)
+    for i, item in enumerate(rows):
+        item["sequence"] = i
+    return rows
+
+
 def with_resource(rows):
     # Host-valid minimal selector lineage: the native recorder emits these
     # three ordered snapshots before primary_select for a chosen BPM.
@@ -176,7 +199,7 @@ def empty_board_native_trace():
             row["metrics"] = {"bpm": 0., "score": 0., "support": 0.}
     for i, row in enumerate(rows):
         row["sequence"] = i
-    return rows
+    return attach_inventory(rows)
 
 
 class NativePipelineTraceTests(unittest.TestCase):
@@ -187,6 +210,8 @@ class NativePipelineTraceTests(unittest.TestCase):
                           result["primary_auto"], result["final_accept"],
                           result["write_guard_blocked"]), (0, 0, 0, 0, 1))
         self.assertEqual(result["negative_no_candidate_trace"], 1)
+        self.assertEqual(result["native_source_inventory_verified"], 1)
+        self.assertEqual(result["native_empty_board_boundary_verified"], 1)
         self.assertEqual(result["phase_b_causal_completeness"],
                          "INCOMPLETE_EMPTY_BOARD_CAUSAL")
         rows[1]["outcome"], rows[1]["reason_code"] = (
@@ -302,6 +327,7 @@ class NativePipelineTraceTests(unittest.TestCase):
         rows.insert(0, window)
         for i, row in enumerate(rows):
             row["sequence"] = i
+        attach_inventory(rows)
         self.assertEqual(validate(rows, require_windows=True)["selector_terminal_observations"], 3)
         for missing in ("terminal_lane_choice", "terminal_residual_choice",
                         "terminal_final_choice"):
@@ -313,7 +339,7 @@ class NativePipelineTraceTests(unittest.TestCase):
                 with self.assertRaises(TraceError):
                     validate(bad, require_windows=True)
         no_terminal = [row for row in rows if row["stage"] not in
-                       ("primary_terminal", "primary_disposition")]
+                       ("primary_terminal", "primary_disposition", "source_inventory")]
         for i, row in enumerate(no_terminal):
             row["sequence"] = i
         self.assertEqual(validate(no_terminal)["selector_terminal_observations"], 0)
@@ -944,6 +970,7 @@ class NativePipelineTraceTests(unittest.TestCase):
         rows[:0] = windows
         for index, row in enumerate(rows):
             row["sequence"] = index
+        attach_inventory(rows)
         result = validate(rows, require_windows=True)
         self.assertEqual((result["decoded_windows"], result["declared_windows"],
                           result["windows_complete"]), (3, 3, 1))
@@ -966,6 +993,7 @@ class NativePipelineTraceTests(unittest.TestCase):
         rows.insert(0, row)
         for index, item in enumerate(rows):
             item["sequence"] = index
+        attach_inventory(rows)
         self.assertEqual(validate(rows)["windows_complete"], 0)
         with self.assertRaises(TraceError):
             validate(rows, require_windows=True)
@@ -987,6 +1015,7 @@ class NativePipelineTraceTests(unittest.TestCase):
         rows.insert(0, row)
         for index, item in enumerate(rows):
             item["sequence"] = index
+        attach_inventory(rows)
         self.assertEqual(validate(rows, require_windows=True)["windows_complete"], 1)
         for key, value in (("decoded_frames", 32001), ("analysis_frames", 50000),
                            ("source_rate_hz", 0), ("analysis_rate_hz", 96000),
@@ -1178,6 +1207,62 @@ class NativePipelineTraceTests(unittest.TestCase):
         with self.assertRaises(TraceError):
             validate(rows)
 
+    def test_native_inventory_conserves_input_and_executed_counts(self):
+        rows = attach_inventory(with_resource(trace()))
+        self.assertEqual(validate(rows)["native_source_inventory_verified"], 1)
+        self.assertEqual(rows[-1]["metrics"]["selector_event_count"], 3)
+        for key in ("raw_count", "collapsed_count", "policy_board_count",
+                    "selector_event_count", "decode_window_count",
+                    "supplemental_count"):
+            for delta in (-1, 1, .5, float("nan")):
+                with self.subTest(key=key, delta=delta):
+                    bad = copy.deepcopy(rows)
+                    bad[-1]["metrics"][key] += delta
+                    with self.assertRaises(TraceError):
+                        validate(bad)
+        for field, value in (("candidate_id", "c1"),
+                             ("parent_candidate_ids", ["c1"]),
+                             ("reason_code", "source_counts_assumed"),
+                             ("outcome", "selected")):
+            with self.subTest(field=field):
+                bad = copy.deepcopy(rows)
+                bad[-1][field] = value
+                with self.assertRaises(TraceError):
+                    validate(bad)
+        for mutation in ("missing", "duplicate", "before_guard", "foreign"):
+            with self.subTest(mutation=mutation):
+                bad = copy.deepcopy(rows)
+                if mutation == "missing":
+                    bad.pop()
+                elif mutation == "duplicate":
+                    bad.append(copy.deepcopy(bad[-1]))
+                elif mutation == "before_guard":
+                    bad[-1], bad[-2] = bad[-2], bad[-1]
+                else:
+                    bad[-1]["metrics"]["private_path"] = 1
+                for i, row in enumerate(bad):
+                    row["sequence"] = i
+                with self.assertRaises(TraceError):
+                    validate(bad, require_windows=True)
+
+    def test_native_inventory_negative_empty_board(self):
+        rows = empty_board_native_trace()
+        self.assertEqual(validate(rows, require_windows=True)[
+            "native_empty_board_boundary_verified"], 1)
+        for name in ("raw_count", "collapsed_count", "policy_board_count",
+                     "selector_event_count", "decode_window_count"):
+            bad = copy.deepcopy(rows)
+            bad[-1]["metrics"][name] += 1
+            with self.subTest(name=name), self.assertRaises(TraceError):
+                validate(bad, require_windows=True)
+        missing = copy.deepcopy(rows)
+        missing.pop()
+        with self.assertRaises(TraceError):
+            validate(missing, require_windows=True)
+        self.assertEqual(validate(trace())["native_source_inventory_verified"], 0)
+        with self.assertRaises(TraceError):
+            validate(with_resource(trace()), require_windows=True)
+
     def test_native_selector_capture_fails_closed_on_loss(self):
         """CI capture overflow/OOM must never be reported as complete provenance."""
         source = (ROOT / "src" / "foo_smart_tempo" /
@@ -1231,6 +1316,8 @@ class NativePipelineTraceTests(unittest.TestCase):
         self.assertIn('out.push("measured_witness"', header)
         self.assertIn('out.push("policy_resolution"', header)
         self.assertIn('out.push("policy_pointer"', header)
+        self.assertIn('out.push("source_inventory"', header)
+        self.assertIn('native_count_conservation', header)
         self.assertIn("mir_ci_policy_pointer_source()", component)
         source = (ROOT / "src" / "foo_smart_tempo" /
                   "mir_candidate_pipeline.cpp").read_text(encoding="utf-8")

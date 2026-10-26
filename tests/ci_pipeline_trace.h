@@ -556,9 +556,20 @@ inline bool record(
   out.push_resource(resource);
   out.push("write_guard", "write_blocked", "ci_dry_run",
            "", {}, 0.0, 0.0, 0.0);
+  // Native input cardinalities bound to the JSONL: a truncated but
+  // internally consistent candidate trace must fail independent auditing.
+  out.push("source_inventory", "observed", "native_count_conservation",
+           "", {}, 0.0, 0.0, 0.0);
+  out.lines.insert(out.lines.size() - 3,
+      ",\"raw_count\":" + std::to_string(board.raw_candidates.size()) +
+      ",\"collapsed_count\":" + std::to_string(collapsed.size()) +
+      ",\"policy_board_count\":" + std::to_string(fullboard.size()) +
+      ",\"selector_event_count\":" + std::to_string(selectorEvents.size()) +
+      ",\"decode_window_count\":" + std::to_string(windows.size()) +
+      ",\"supplemental_count\":" + std::to_string(supplemental_id.size()));
   if (out.sequence != windows.size() + board.raw_candidates.size() + 2 * collapsed.size() +
                       fullboard.size() + selectorEvents.size() +
-                      supplemental_id.size() + collapsed.size() + 8 ||
+                      supplemental_id.size() + collapsed.size() + 9 ||
       out.lines.size() > 2 * 1024 * 1024) return false;
   const std::wstring output = fixture + L".pipeline.jsonl";
   HANDLE h = CreateFileW(output.c_str(), GENERIC_WRITE, 0, nullptr,
