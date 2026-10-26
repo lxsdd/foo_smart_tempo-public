@@ -49,6 +49,17 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Cross-architecture Phase-B pilot contract failed' }
           python -m unittest discover -s tests -p 'test_smart_tempo_b_pilot_cohort.py' -v
           if ($LASTEXITCODE -ne 0) { throw 'Phase-B pilot cohort adversarial tests failed' }
+          # Parse the entire original-host harness before downloading SDK/WTL
+          # or spending minutes on compilation. This is syntax-only; it does
+          # not run foobar, install software, or touch any user files.
+          $tokens=$null; $parseErrors=$null
+          [void][System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path -LiteralPath 'tests/diagnostic_live_host_smoke.ps1').Path,
+            [ref]$tokens,[ref]$parseErrors)
+          if ($parseErrors -and $parseErrors.Count -gt 0) {
+            throw ('PowerShell host harness AST parser failed: ' + (($parseErrors | ForEach-Object { $_.ToString() }) -join '; '))
+          }
+          Write-Host 'SMART_TEMPO_HOST_HARNESS_POWERSHELL_AST=PASS'
           Write-Host 'SMART_TEMPO_ARCHITECTURE_PHASE_A_SOURCE_CONTRACT=PASS'
           Write-Host 'SMART_TEMPO_MUSICAL_BPM_QUALITY=NOT_INFERRED'
 

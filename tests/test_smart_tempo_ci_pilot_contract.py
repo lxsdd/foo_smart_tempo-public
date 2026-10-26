@@ -34,6 +34,21 @@ class PilotContract(unittest.TestCase):
         auditor = self.read("tools/audit_smart_tempo_ci_pipeline_trace.py")
         self.assertIn("INCOMPLETE_EMPTY_BOARD_CAUSAL", auditor)
 
+    def test_original_host_script_not_truncated_or_repeated(self):
+        script = self.read("tests/diagnostic_live_host_smoke.ps1")
+        self.assertEqual(script.count("function Run-Case("), 1)
+        self.assertEqual(script.count("$root=Join-Path $env:RUNNER_TEMP ('smart-tempo-'"), 1)
+        self.assertEqual(script.count("$trace=$inputFile+'.pipeline.jsonl'"), 1)
+        self.assertEqual(script.count("SYNTHETIC_BPM_([A-Z0-9_]+)=([0-9]+)$"), 1)
+        self.assertEqual(script.count("SMART_TEMPO_TRACE_([A-Z0-9_]+)=([A-Za-z0-9_.]+)$"), 1)
+        self.assertIn("Incomplete native pilot scorer evidence", script)
+        self.assertIn("Incomplete native pilot trace evidence", script)
+        self.assertIn("$script:pilotEvidence.Add(", script)
+        self.assertTrue(script.rstrip().endswith("Remove-Item $root -Recurse -Force -ErrorAction SilentlyContinue } }"))
+        workflow = self.read(".github/workflows/source.yml")
+        self.assertIn("PowerShell host harness AST parser", workflow)
+        self.assertIn("Parser]::ParseFile", workflow)
+
     def test_no_false_causal_or_release_pass(self):
         workflow = self.read(".github/workflows/source.yml")
         self.assertNotIn("upload-artifact@", workflow)

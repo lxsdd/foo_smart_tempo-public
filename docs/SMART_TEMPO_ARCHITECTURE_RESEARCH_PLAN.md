@@ -491,3 +491,18 @@ RUNNER_TEMP; nothing is uploaded.
 A green cohort-integrity gate is NOT first-veto exhaustiveness,
 positive supplemental Policy→Writer identity, no-raw causal origin,
 real-music holdout, or measured speedup. No production code changed.
+
+### 26 October 2026: original-host cohort harness integrity repair
+
+Exact-head Windows run 40257481442 built both production and CI-probe Win32/x64
+binaries but failed before the first original-host pilot: the PowerShell
+harness was accidentally truncated at two regex conditions and contained
+several duplicated trailing copies of its entrypoint. Python-only source
+checks did not parse the PowerShell file and therefore missed this error.
+The repair restores **one** complete original-host harness, reconstructs
+allowlisted numeric scorer/trace evidence with duplicate/missing-key rejection,
+and adds an actual PowerShell AST parse plus source structural regression to
+the **pre-SDK** fast gate. The new cohort contract remains fail-closed; a
+syntax PASS is not native-host qualification or musical evidence. Phase B
+INCOMPLETE, C CLOSED, musical NO_GO. No production DSP, selector, policy,
+preferences, writer, user media or binary publication changes.
