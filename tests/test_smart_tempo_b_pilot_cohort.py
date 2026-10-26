@@ -105,6 +105,9 @@ class CohortTests(unittest.TestCase):
 
     def test_shadow_cross_architecture_must_agree_without_reference_tuning(self):
         rows=[fixture("Win32"),fixture("x64")]
+        # Internally coherent divergent ranking, not a self-contradictory
+        # near-reference rank. The failure must be CROSS-ARCH only.
+        rows[1]["cases"][0]["shadow"]["MODEL_SUPPORT_REFERENCE_RANK"]=1
         rows[1]["cases"][0]["shadow"]["MODEL_SUPPORT_CORRECT"]=1
         rows[1]["cases"][0]["shadow"]["MODEL_SUPPORT_MATCHES_PRIMARY"]=0
         with self.assertRaisesRegex(PilotError,"cross-architecture shadow ranking drift"):
