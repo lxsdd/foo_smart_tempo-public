@@ -1763,7 +1763,13 @@ class NativePipelineTraceTests(unittest.TestCase):
                 middle = [residual, gate_row, rank, compare]
             else:
                 middle = [gate_row, rank, compare, residual]
-            rows[at:at] = [lane] + middle + [final]
+            # The first lane must independently win its own native
+            # comparator before a later rescue can change the object.
+            lane_rank = event("primary_rank", "c2", [], 128., "included",
+                              "general_baseline_rank_scored", 0)
+            lane_compare = event("primary_compare", "c2", [], 128., "included",
+                                 "general_baseline_compare_won", 0)
+            rows[at:at] = [lane_rank, lane_compare, lane] + middle + [final]
             primary = next(row for row in rows if row["stage"] == "primary_select")
             primary["parent_candidate_ids"] = [source]
             primary["metrics"]["bpm"] = selected_bpm
