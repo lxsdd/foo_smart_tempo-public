@@ -49,6 +49,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Cross-architecture Phase-B pilot contract failed' }
           python -m unittest discover -s tests -p 'test_smart_tempo_b_pilot_cohort.py' -v
           if ($LASTEXITCODE -ne 0) { throw 'Phase-B pilot cohort adversarial tests failed' }
+          python -m unittest discover -s tests -p 'test_smart_tempo_b_candidate_recall.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'Independent source-vs-reference recall contract failed' }
           # Parse the entire original-host harness before downloading SDK/WTL
           # or spending minutes on compilation. This is syntax-only; it does
           # not run foobar, install software, or touch any user files.

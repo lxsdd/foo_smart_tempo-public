@@ -662,3 +662,27 @@ writer, preferences, metadata or audio was changed. A new exact-HEAD
 original Win32/x64 host run is required to qualify this change. First-veto
 completeness, unexercised nested low rescue and positive native supplemental
 Policy→Writer selection still block B and C; musical release remains NO_GO.
+
+
+### 26 October 2026: independently localized synthetic accuracy errors (Phase B)
+
+Without touching the source engine, an isolated post-host Python-only scorer
+now joins each of the four immutable public synthetic B-pilot references to its
+strictly validated *actual* source-to-writer trace. For each rhythmic case it
+computes how many raw MIR objects, clustered objects and FullBoard candidate
+objects are within ±0.20 BPM of the reference, and separately whether the
+Primary/Policy/final accepted BPM is within that window. It classifies the
+**earliest observable stage** where the expected BPM disappeared: no raw
+source, lost clustering, absent Policy board, other Primary winner, other
+Policy winner, different final writer witness, held result or correct accepted
+result. The silence negative must have no fabricated source objects and must
+abstain. The synthetic-only reference is read AFTER foobar worker completion,
+never passed to the component/DSP/selector/Policy or productive writer.
+
+The executable native-host PowerShell gate requires the independent post-host
+scorer's success marker and prints bounded predeclared numeric stage counters
+and fixed reason enums. Python positive and adversarial tests run before SDK
+checkout. This differentiates candidate-supply problems from ranking/policy
+problems without changing any production audio logic or making an external BPM
+oracle into an engine input. The four cases are still a SMALL synthetic pilot;
+no Phase C, measured improvement, real-music generalization or musical GO.

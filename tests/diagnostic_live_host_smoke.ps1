@@ -211,6 +211,15 @@ function Run-Case([string]$installer,[string]$root,[string]$inputFile,[string[]]
       $traceOutput=@(python ./tools/audit_smart_tempo_ci_pipeline_trace.py --trace $trace --require-windows 2>&1)
       if ($LASTEXITCODE -ne 0) { throw ('Real foobar native BPM lineage contract failed: '+($traceOutput -join '; ')) }
       $traceOutput | ForEach-Object { Write-Host $_ }
+      # Independent post-host recall audit: the predeclared reference BPM is
+      # read only by this Python scorer AFTER the native worker has exited.
+      # Crucially, neither MIR, Policy nor the host component sees the oracle.
+      $recallOutput=@(python ./tools/audit_smart_tempo_b_candidate_recall.py --manifest $reference --observed $observed --trace $trace --case $label.Substring(10) 2>&1)
+      if ($LASTEXITCODE -ne 0 -or
+          @($recallOutput | Where-Object { $_ -ceq 'SMART_TEMPO_B_RECALL_VERIFIED=1' }).Count -ne 1) {
+        throw ('Native source/ground-truth recall audit failed: '+($recallOutput -join '; '))
+      }
+      $recallOutput | ForEach-Object { Write-Host $_ }
       $traceEvidence=@{}
       foreach ($line in $traceOutput) {
         if ([string]$line -cmatch '^SMART_TEMPO_TRACE_([A-Z0-9_]+)=([A-Za-z0-9_.]+)$' -and
