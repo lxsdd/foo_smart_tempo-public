@@ -147,6 +147,12 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Synthetic genre-prior counterfactual tests failed' }
           # This is NOT a real genre-tagged A/B/C host comparison.
 
+      - name: Verify both preserved frozen research portfolios before SDK
+        shell: pwsh
+        run: |
+          python -m unittest discover -s tests -p 'test_research_portfolio_integration.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'Combined existing-portfolio conservation gate failed' }
+
       - name: Verify independently frozen synthetic WAV and beat-grid anchors
         shell: pwsh
         run: |
