@@ -157,9 +157,13 @@ jobs:
             'test_synthetic_source_bits.py',
             'test_synthetic_stage_shadow.py'
           )
+          $failures = @()
           foreach ($suite in $suites) {
             python -m unittest discover -s tests -p $suite -v
-            if ($LASTEXITCODE -ne 0) { throw "Recovered research suite failed: $suite" }
+            if ($LASTEXITCODE -ne 0) { $failures += $suite }
+          }
+          if ($failures.Count -gt 0) {
+            throw "Recovered research suites need host-contract reconciliation: $($failures -join ', ')"
           }
           Write-Host 'SMART_TEMPO_REUSED_PORTFOLIO_REGRESSION=PASS'
 
