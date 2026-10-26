@@ -313,8 +313,8 @@ try {
     cases=@($script:pilotEvidence.ToArray())
   }
   [IO.File]::WriteAllText($pilotReport,($payload | ConvertTo-Json -Depth 8 -Compress),
-                          [Text.Encoding]::UTF8)
-  python ./tools/audit_smart_tempo_b_pilot_cohort.py --report $pilotReport --single-architecture
+                          [Text.UTF8Encoding]::new($false))
+  python ./tools/audit_smart_tempo_b_pilot_cohort.py --expected-source-sha $sourceSha --report $pilotReport --single-architecture
   if ($LASTEXITCODE -ne 0) { throw 'Original-host B-pilot cohort integrity failed' }
   Write-Host ("SMART_TEMPO_DIAGNOSTIC_RUNTIME_{0}=PASS" -f $Architecture)
 } finally { if (Test-Path $root) { Remove-Item $root -Recurse -Force -ErrorAction SilentlyContinue } }

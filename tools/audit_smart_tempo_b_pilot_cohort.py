@@ -13,6 +13,14 @@ OPTIONAL=set("""PRIMARY_VETO_REASON_UNKNOWN INDEXED_NATIVE_FINAL_WITNESS UNINDEX
 
 class PilotError(ValueError): pass
 
+def unique_json_object(pairs):
+    """Reject duplicated keys at EVERY depth, not just the report root."""
+    result={}
+    for key,value in pairs:
+        if key in result: raise PilotError("duplicate JSON key: "+key)
+        result[key]=value
+    return result
+
 def count(x, key):
     if type(x) is not int or not 0<=x<=100000: raise PilotError("bad integer "+key)
     return x
@@ -104,16 +112,21 @@ def main():
     p=argparse.ArgumentParser()
     p.add_argument("--report",type=Path,action="append",required=True)
     p.add_argument("--single-architecture",action="store_true")
+    p.add_argument("--expected-source-sha",required=True,
+                   help="Exact git checkout SHA of the running source")
     args=p.parse_args()
     reports=[]
     for f in args.report:
         if not f.is_file() or not 0<f.stat().st_size<=16384: p.error("missing/oversized report")
         try:
             reports.append(json.loads(f.read_text(encoding="utf-8"),
+                                      object_pairs_hook=unique_json_object,
                                       parse_constant=lambda v: (_ for _ in ()).throw(PilotError("nonfinite"))))
         except (ValueError,UnicodeError) as exc: p.error(str(exc))
     try: result=validate(reports,require_both=not args.single_architecture)
     except PilotError as exc: p.error(str(exc))
+    if args.expected_source_sha != result["source_sha"]:
+        p.error("report source SHA does not match checked-out source")
     print("SMART_TEMPO_B_PILOT_AGGREGATE=PASS")
     print("SMART_TEMPO_B_PILOT_SOURCE_SHA="+result["source_sha"])
     for arch,m in result["architectures"].items():

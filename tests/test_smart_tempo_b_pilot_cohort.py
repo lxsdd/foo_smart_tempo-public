@@ -74,4 +74,52 @@ class CohortTests(unittest.TestCase):
         with self.assertRaisesRegex(PilotError,"cross-architecture decision class drift"):
             validate(r)
 
+    def test_cli_json_serialization_and_checkout_sha(self):
+        """Exercise the real CLI boundary: two hosts, BOM, duplicate keys, SHA."""
+        import contextlib
+        import io
+        import json
+        import tempfile
+        from unittest.mock import patch
+        from audit_smart_tempo_b_pilot_cohort import main
+
+        payloads=[json.dumps(fixture(a),separators=(",",":")).encode("utf-8")
+                  for a in ("Win32","x64")]
+        with tempfile.TemporaryDirectory() as tmp:
+            files=[Path(tmp)/"win32.json",Path(tmp)/"x64.json"]
+            def invoke(blobs,sha="a"*40):
+                for file,blob in zip(files,blobs):
+                    file.write_bytes(blob)
+                stdout=io.StringIO()
+                stderr=io.StringIO()
+                argv=["audit","--expected-source-sha",sha,
+                      "--report",str(files[0]),"--report",str(files[1])]
+                with patch.object(sys,"argv",argv),contextlib.redirect_stdout(stdout),contextlib.redirect_stderr(stderr):
+                    try:
+                        main()
+                    except SystemExit as exc:
+                        return exc.code,stdout.getvalue(),stderr.getvalue()
+                return 0,stdout.getvalue(),stderr.getvalue()
+
+            status,out,err=invoke(payloads)
+            self.assertEqual((status,err),(0,""))
+            self.assertIn("SMART_TEMPO_B_PILOT_AGGREGATE=PASS",out)
+            cases=(
+                ("bom",[bytes.fromhex("efbbbf")+payloads[0],payloads[1]],"BOM"),
+                ("duplicate root key",[payloads[0].replace(
+                    b'"schema":',b'"schema":"forged","schema":',1),payloads[1]],"duplicate JSON key"),
+                ("duplicate nested key",[payloads[0].replace(
+                    b'"EVALUATED":',b'"EVALUATED":0,"EVALUATED":',1),payloads[1]],"duplicate JSON key"),
+            )
+            for name,blobs,reason in cases:
+                with self.subTest(name=name):
+                    status,out,err=invoke(blobs)
+                    self.assertNotEqual(status,0)
+                    self.assertIn(reason,err)
+                    self.assertNotIn("SMART_TEMPO_B_PILOT_AGGREGATE=PASS",out)
+            status,out,err=invoke(payloads,"b"*40)
+            self.assertNotEqual(status,0)
+            self.assertIn("does not match checked-out source",err)
+            self.assertNotIn("SMART_TEMPO_B_PILOT_AGGREGATE=PASS",out)
+
 if __name__=="__main__": unittest.main()

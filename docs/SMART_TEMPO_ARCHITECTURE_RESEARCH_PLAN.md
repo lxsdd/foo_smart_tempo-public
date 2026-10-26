@@ -506,3 +506,19 @@ the **pre-SDK** fast gate. The new cohort contract remains fail-closed; a
 syntax PASS is not native-host qualification or musical evidence. Phase B
 INCOMPLETE, C CLOSED, musical NO_GO. No production DSP, selector, policy,
 preferences, writer, user media or binary publication changes.
+
+### 26 October 2026: exact-SHA original-host cohort serialization repair
+
+The exact `2bfbdadd...` Windows source job `121376689566` compiled and loaded
+both original architectures, then completed all four real Win32 synthetic
+observations before failing at the **joined-cohort JSON input boundary**:
+PowerShell's `[Text.Encoding]::UTF8` wrote a BOM and Python's strict `utf-8`
+JSON reader rejected it. The host now explicitly writes **UTF-8 without BOM**;
+the independent CLI keeps rejecting BOMs and now also rejects duplicate JSON
+keys at any depth. Both per-host and joined-host validations bind their
+reported source SHA to the actual checked-out git HEAD. The pre-SDK gate runs
+positive two-host and adversarial BOM/duplicate-key/stale-SHA CLI tests.
+These changes repair evidence transport only, not MIR, candidate ranking,
+Policy, Writer or any musical decision. Real Win32/x64 joined-cohort PASS must
+be established by a new exact-SHA CI run; Phase B causal completeness and
+musical quality remain **INCOMPLETE / NO_GO**, Phase C **CLOSED**.

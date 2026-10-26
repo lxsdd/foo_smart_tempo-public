@@ -215,7 +215,9 @@ jobs:
       - name: HARD GATE - joined Win32/x64 native B-pilot cohort evidence
         shell: pwsh
         run: |
+          $sourceSha=((& git rev-parse HEAD) | Out-String).Trim().ToLowerInvariant()
           python ./tools/audit_smart_tempo_b_pilot_cohort.py `
+            --expected-source-sha $sourceSha `
             --report "$env:RUNNER_TEMP/smart-tempo-b-pilot-Win32.json" `
             --report "$env:RUNNER_TEMP/smart-tempo-b-pilot-x64.json"
           if ($LASTEXITCODE -ne 0) { throw 'Dual-architecture B-pilot evidence incomplete' }
