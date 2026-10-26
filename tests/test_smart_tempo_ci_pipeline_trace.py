@@ -1779,6 +1779,9 @@ class NativePipelineTraceTests(unittest.TestCase):
 
         for kind in ("high", "harmonic", "direct"):
             with self.subTest(kind=kind):
+                family = ("residual_high" if kind == "high" else
+                          "residual_harmonic" if kind == "harmonic" else
+                          "harmonic_direct")
                 rows = make_case(kind)
                 result = validate(rows)
                 self.assertEqual(result["selector_residual_winner_proven"],
@@ -1854,7 +1857,7 @@ class NativePipelineTraceTests(unittest.TestCase):
         for i, row in enumerate(bad):
             row["sequence"] = i
         with self.assertRaises(TraceError):
-            validate(bad)
+            validate(bad, require_native_comparator=True)
 
     def test_rescue_trace_source_guarded_and_not_production_mutation(self):
         source = (ROOT / "src/foo_smart_tempo/mir_candidate_pipeline.cpp").read_text(

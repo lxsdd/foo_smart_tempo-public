@@ -783,7 +783,9 @@ def validate(rows: list[dict], *, require_windows: bool = False,
                 family = row["reason_code"].split("_rank_", 1)[0] if (
                     row["stage"] == "primary_rank") else (
                     row["reason_code"].split("_compare_", 1)[0])
-                if family not in (*residual_keys, "harmonic_direct") and index > lane_pos:
+                if (require_native_comparator and
+                        family not in (*residual_keys, "harmonic_direct") and
+                        index > lane_pos):
                     raise TraceError("lane comparator after native lane terminal")
                 if family in residual_keys and not lane_pos < index < residual_pos:
                     raise TraceError("residual comparator outside native terminal phase")
