@@ -243,7 +243,7 @@ function Run-Case([string]$installer,[string]$root,[string]$inputFile,[string[]]
       if (-not (Test-Path -LiteralPath $observed -PathType Leaf)) {
         throw 'Real foobar numeric BPM oracle observer is not available'
       }
-      $scoreOutput=@(python ./tools/score_synthetic_bpm_reference.py --manifest $reference --observed $observed 2>&1)
+      $scoreOutput=@(python ./tools/score_smart_tempo_ci_b_pilot_legacy.py --manifest $reference --observed $observed 2>&1)
       if ($LASTEXITCODE -ne 0) { throw ('Real foobar synthetic BPM evaluation failed: '+($scoreOutput -join '; ')) }
       $scoreOutput | ForEach-Object { Write-Host $_ }
       $scoreEvidence=@{}
