@@ -600,3 +600,17 @@ untraced low-lane nested ranking chain, but not branch-specific final
 first-veto, positive real-host supplemental Policy->Writer identity, or
 musical precision. Those still block Phase C and release. No user data,
 metadata writer, production DSP, policy, preferences or thresholds changed.
+
+
+### 26 October 2026: pre-SDK low-episode fixture + report-key repair
+
+Initial exact-head native low-bestBy instrumentation CI 40293133050 failed
+at the Python pre-SDK gate, with two concrete **test/evidence contract**
+errors: one old fallback regression supplied a `low_rank_scored` row
+without the now-required native pool episode and comparator, and the new
+positive multi-family regression expected `selector_compare_low_wins` but
+its summary key was not yet emitted. The following test/parser-only repair
+makes the historical fallback positive fixture reflect the executed rank+
+comparison and publishes the independently recomputed low won/lost counts.
+No host, SDK or musical pass is inherited from the failed parent; the new
+exact SHA requires full source and original Win32/x64 host qualification.

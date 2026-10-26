@@ -912,6 +912,10 @@ def validate(rows: list[dict], *, require_windows: bool = False,
             x["reason_code"] == "general_alt_compare_won" for x in comparisons),
         "selector_compare_general_alt_losses": sum(
             x["reason_code"] == "general_alt_compare_lost" for x in comparisons),
+        "selector_compare_low_wins": sum(
+            x["reason_code"] == "low_compare_won" for x in comparisons),
+        "selector_compare_low_losses": sum(
+            x["reason_code"] == "low_compare_lost" for x in comparisons),
         "selector_terminal_observations": len(stage_indices["primary_terminal"]),
         "selector_disposition_observations": len(dispositions),
         "disposition_ranked_not_final": sum(

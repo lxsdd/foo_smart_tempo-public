@@ -566,7 +566,11 @@ class NativePipelineTraceTests(unittest.TestCase):
                        "residual_high_gate_allowed", 0)
         rank = event("primary_rank", "c1", [], 128., "included",
                      "low_rank_scored", 0)
-        rows[4:4] = [first, second, rescue, rank]
+        compare = event("primary_compare", "c1", [], 128., "included",
+                        "low_compare_won", 0)
+        rank["metrics"]["low_pool_epoch"] = 1
+        compare["metrics"]["low_pool_epoch"] = 1
+        rows[4:4] = [first, second, rescue, rank, compare]
         for i, row in enumerate(rows):
             row["sequence"] = i
         report = validate(rows)
