@@ -34,6 +34,9 @@ def fixture(arch):
         for model in ("SCORE_SUM","SUPPORT","COMBINED","SCORE_TIMES_SUPPORT"):
             shadow["MODEL_"+model+"_CORRECT"]=int(correct)
             shadow["MODEL_"+model+"_MATCHES_PRIMARY"]=int(not negative)
+            shadow["MODEL_"+model+"_REFERENCE_RANK"]=(1 if correct else
+                                                       2 if not negative else 0)
+            shadow["MODEL_"+model+"_TOP3_REFERENCE"]=int(not negative)
         cases.append(dict(case=name,score=score,trace=trace,
                           shadow=shadow,media_no_write=True))
     return dict(schema="smart_tempo_b_pilot_cohort_v1",architecture=arch,
@@ -48,6 +51,7 @@ class CohortTests(unittest.TestCase):
         self.assertEqual(r["architectures"]["x64"]["within_005"],1)
         self.assertEqual(r["architectures"]["x64"]["shadow_lost_primary"],2)
         self.assertEqual(r["architectures"]["Win32"]["shadow_models"]["SUPPORT"],1)
+        self.assertEqual(r["architectures"]["Win32"]["shadow_top3"]["SUPPORT"],3)
     def test_single_host_is_not_cross_architecture_proof(self):
         with self.assertRaises(PilotError): validate([fixture("Win32")])
         self.assertEqual(len(validate([fixture("Win32")],require_both=False)["architectures"]),1)
@@ -85,7 +89,11 @@ class CohortTests(unittest.TestCase):
         mutate(["cases",0,"shadow","CANDIDATES"],17)
         mutate(["cases",0,"shadow","NATIVE_PRIMARY_SOURCE_INDEXED"],0)
         mutate(["cases",0,"shadow","NATIVE_PRIMARY_CORRECT"],1)
-        mutate(["cases",0,"shadow","MODEL_SUPPORT_MATCHES_PRIMARY"],0 if False else 2)
+        mutate(["cases",0,"shadow","MODEL_SUPPORT_MATCHES_PRIMARY"],2)
+        mutate(["cases",0,"shadow","MODEL_SUPPORT_REFERENCE_RANK"],0)
+        mutate(["cases",0,"shadow","MODEL_SUPPORT_REFERENCE_RANK"],19)
+        mutate(["cases",0,"shadow","MODEL_SUPPORT_TOP3_REFERENCE"],0)
+        mutate(["cases",0,"shadow","MODEL_SUPPORT_CORRECT"],1)
         mutate(["cases",3,"shadow","REFERENCE_PRESENT"],1)
     def test_cross_architecture_decision_class_drift(self):
         r=[fixture("Win32"),fixture("x64")]

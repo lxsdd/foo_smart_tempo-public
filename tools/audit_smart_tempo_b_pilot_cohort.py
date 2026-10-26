@@ -15,7 +15,7 @@ SHADOW_KEYS={"CANDIDATES","REFERENCE_PRESENT","NATIVE_PRIMARY_CORRECT",
              "NATIVE_FINAL_CORRECT","NATIVE_PRIMARY_SOURCE_INDEXED",
              "REFERENCE_LOST_AT_PRIMARY"} | {
     f"MODEL_{model}_{suffix}" for model in SHADOW_MODELS
-    for suffix in ("CORRECT","MATCHES_PRIMARY")
+    for suffix in ("CORRECT","MATCHES_PRIMARY","REFERENCE_RANK","TOP3_REFERENCE")
 }
 
 class PilotError(ValueError): pass
@@ -57,7 +57,8 @@ def validate(reports,require_both=True):
                cpu_seconds=0.0,peak_rss_bytes=0,classes=[],
                shadow_primary_correct=0,shadow_reference_present=0,
                shadow_lost_primary=0,
-               shadow_models={model:0 for model in SHADOW_MODELS})
+               shadow_models={model:0 for model in SHADOW_MODELS},
+               shadow_top3={model:0 for model in SHADOW_MODELS})
         for i,row in enumerate(rows):
             if type(row) is not dict or set(row)!={"case","score","trace","shadow","media_no_write"}:
                 raise PilotError("unknown case fields")
@@ -68,8 +69,10 @@ def validate(reports,require_both=True):
                 raise PilotError("native shadow score incomplete/unknown fields")
             for key,val in h.items():
                 count(val,key)
-                if key!="CANDIDATES" and val not in (0,1):
+                if key not in ("CANDIDATES",) and not key.endswith("_REFERENCE_RANK") and val not in (0,1):
                     raise PilotError("nonbinary shadow model evidence")
+                if key.endswith("_REFERENCE_RANK") and val > h["CANDIDATES"]:
+                    raise PilotError("shadow reference rank exceeds candidates")
             if (h["CANDIDATES"]!=t["COLLAPSED"] or
                 h["NATIVE_FINAL_CORRECT"]!=s["ACCEPTED_WITHIN_0_20_BPM"] or
                 h["NATIVE_PRIMARY_CORRECT"]>h["REFERENCE_PRESENT"] or
@@ -79,10 +82,14 @@ def validate(reports,require_both=True):
             for name in SHADOW_MODELS:
                 c=h[f"MODEL_{name}_CORRECT"]
                 agree=h[f"MODEL_{name}_MATCHES_PRIMARY"]
-                if c>h["REFERENCE_PRESENT"] or (
-                    agree and (c!=h["NATIVE_PRIMARY_CORRECT"] or
-                               not h["NATIVE_PRIMARY_SOURCE_INDEXED"])):
-                    raise PilotError("shadow winner/source identity contradiction")
+                rank=h[f"MODEL_{name}_REFERENCE_RANK"]
+                top3=h[f"MODEL_{name}_TOP3_REFERENCE"]
+                if (c>h["REFERENCE_PRESENT"] or
+                    (rank > 0) != bool(h["REFERENCE_PRESENT"]) or
+                    c != int(rank==1) or top3 != int(1<=rank<=3) or
+                    (agree and (c!=h["NATIVE_PRIMARY_CORRECT"] or
+                                not h["NATIVE_PRIMARY_SOURCE_INDEXED"]))):
+                    raise PilotError("shadow rank/reference/winner contradiction")
             if type(s) is not dict or set(s)!=SCORE_KEYS: raise PilotError("scorer incomplete")
             if type(t) is not dict or not TRACE_KEYS<=set(t) or set(t)-TRACE_KEYS-OPTIONAL:
                 raise PilotError("native trace incomplete/privacy field")
@@ -114,6 +121,7 @@ def validate(reports,require_both=True):
                 m["shadow_lost_primary"]+=h["REFERENCE_LOST_AT_PRIMARY"]
                 for model in SHADOW_MODELS:
                     m["shadow_models"][model]+=h[f"MODEL_{model}_CORRECT"]
+                    m["shadow_top3"][model]+=h[f"MODEL_{model}_TOP3_REFERENCE"]
                 m["clear"]+=1
                 m["within_005"]+=s["ACCEPTED_WITHIN_0_05_BPM"]
                 m["within_020"]+=s["ACCEPTED_WITHIN_0_20_BPM"]
@@ -183,6 +191,7 @@ def main():
             print(f"SMART_TEMPO_B_PILOT_{arch}_{key.upper()}={m[key]}")
         for name in SHADOW_MODELS:
             print(f"SMART_TEMPO_B_PILOT_{arch}_SHADOW_{name}_CORRECT={m['shadow_models'][name]}")
+            print(f"SMART_TEMPO_B_PILOT_{arch}_SHADOW_{name}_TOP3_REFERENCE={m['shadow_top3'][name]}")
     print("SMART_TEMPO_PHASE_B_CAUSAL_COMPLETENESS=INCOMPLETE")
     print("SMART_TEMPO_PHASE_C_GATE=CLOSED")
     print("SMART_TEMPO_MUSICAL_RELEASE=NO_GO")

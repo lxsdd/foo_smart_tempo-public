@@ -27,11 +27,13 @@ RESULT_KEYS = (
     "REFERENCE_LOST_AT_PRIMARY",
 ) + tuple("MODEL_" + name + "_CORRECT" for name in MODELS) + tuple(
     "MODEL_" + name + "_MATCHES_PRIMARY" for name in MODELS
+) + tuple("MODEL_" + name + "_REFERENCE_RANK" for name in MODELS) + tuple(
+    "MODEL_" + name + "_TOP3_REFERENCE" for name in MODELS
 )
 
 
-def fixed_rank(cluster_rows: list[dict], eligible_rows: list[dict]) -> dict:
-    """Choose same-run cluster ID using source metrics, WITHOUT truth BPM.
+def fixed_order(cluster_rows: list[dict], eligible_rows: list[dict]) -> dict:
+    """Order all same-run cluster IDs using source metrics, WITHOUT truth BPM.
 
     Equal scores retain first native collapse vector order. FullBoard/Policy
     must not be substituted for the exact Primary source snapshot.
@@ -39,7 +41,7 @@ def fixed_rank(cluster_rows: list[dict], eligible_rows: list[dict]) -> dict:
     if not cluster_rows:
         if eligible_rows:
             raise RecallError("empty cluster with invented eligibility")
-        return {name: None for name in MODELS}
+        return {name: [] for name in MODELS}
     if not 1 <= len(cluster_rows) <= 4096:
         raise RecallError("invalid native Primary candidate count")
     ids = [row["candidate_id"] for row in cluster_rows]
@@ -70,9 +72,17 @@ def fixed_rank(cluster_rows: list[dict], eligible_rows: list[dict]) -> dict:
                abs(v) > 1e12 for v in (s, u, b)):
             raise RecallError("invalid source-only ranking metric")
         scores.append((s, u, b, s * u))
-    # Python max returns the first encountered object on exact metric ties.
-    return {model: ids[max(range(len(ids)), key=lambda i: scores[i][j])]
+    # Stable sort preserves native collapse-vector order on exact ties.
+    # Source ranking does not inspect oracle BPM or a ground-truth label.
+    return {model: [ids[i] for i in sorted(
+                range(len(ids)), key=lambda i: -scores[i][j])]
             for j, model in enumerate(MODELS)}
+
+
+def fixed_rank(cluster_rows: list[dict], eligible_rows: list[dict]) -> dict:
+    return {name: (ordered[0] if ordered else None)
+            for name, ordered in fixed_order(
+                cluster_rows, eligible_rows).items()}
 
 
 def shadow_result(rows: list[dict], manifest: dict, observed: list[dict],
@@ -85,7 +95,8 @@ def shadow_result(rows: list[dict], manifest: dict, observed: list[dict],
     expected = CASES[case_id][0]
     cluster = [row for row in rows if row["stage"] == "candidate_transform"]
     eligibility = [row for row in rows if row["stage"] == "primary_eligibility"]
-    ranks = fixed_rank(cluster, eligibility)
+    orders = fixed_order(cluster, eligibility)
+    ranks = {name: (ids[0] if ids else None) for name, ids in orders.items()}
     by_id = {row["candidate_id"]: row["metrics"]["bpm"] for row in cluster}
     selected = [row for row in rows if row["stage"] == "primary_select"]
     if len(selected) != 1:
@@ -135,6 +146,15 @@ def shadow_result(rows: list[dict], manifest: dict, observed: list[dict],
         result["MODEL_" + name + "_MATCHES_PRIMARY"] = int(
             cid is not None and chosen is not None and cid == chosen
         )
+        # Join frozen reference ONLY AFTER source-only order is finalized.
+        # Report 0 if absent; 1-based position otherwise.
+        near_rank = next((
+            i for i, source_id in enumerate(orders[name], 1)
+            if expected is not None and abs(by_id[source_id] - expected) <= .20
+        ), 0)
+        result["MODEL_" + name + "_REFERENCE_RANK"] = near_rank
+        result["MODEL_" + name + "_TOP3_REFERENCE"] = int(
+            1 <= near_rank <= 3)
     if set(result) != set(RESULT_KEYS):
         raise RecallError("shadow report field mismatch")
     return result

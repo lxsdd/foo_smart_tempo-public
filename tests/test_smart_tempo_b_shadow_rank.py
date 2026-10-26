@@ -8,7 +8,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 from audit_smart_tempo_b_candidate_recall import RecallError
 from audit_smart_tempo_b_shadow_rank import (
-    MODELS, RESULT_KEYS, fixed_rank, shadow_result,
+    MODELS, RESULT_KEYS, fixed_rank, fixed_order, shadow_result,
 )
 
 
@@ -66,6 +66,12 @@ class ShadowRankTests(unittest.TestCase):
             [report["MODEL_"+k+"_CORRECT"] for k in MODELS], [0,1,1,0])
         self.assertEqual(
             [report["MODEL_"+k+"_MATCHES_PRIMARY"] for k in MODELS], [1,0,0,1])
+        self.assertEqual(
+            [report["MODEL_"+k+"_REFERENCE_RANK"] for k in MODELS],
+            [2,1,1,2])
+        self.assertEqual(
+            [report["MODEL_"+k+"_TOP3_REFERENCE"] for k in MODELS],
+            [1,1,1,1])
         self.assertEqual(set(report),set(RESULT_KEYS))
 
     def test_correct_primary_not_laundered_as_shadow_improvement(self):
@@ -108,6 +114,9 @@ class ShadowRankTests(unittest.TestCase):
         self.assertTrue(all(report["MODEL_"+m+"_CORRECT"] == 0 for m in MODELS))
         self.assertTrue(all(report["MODEL_"+m+"_MATCHES_PRIMARY"] == 0
                             for m in MODELS))
+        self.assertTrue(all(report["MODEL_"+m+"_REFERENCE_RANK"] == 0
+                            and report["MODEL_"+m+"_TOP3_REFERENCE"] == 0
+                            for m in MODELS))
         altered = copy.deepcopy(rows)
         altered.insert(0,event("candidate_transform",60.,"c0",.2,.9))
         with self.assertRaises(RecallError):
@@ -131,6 +140,38 @@ class ShadowRankTests(unittest.TestCase):
         tied = copy.deepcopy(cluster)
         tied[0]["metrics"]["score"] = tied[1]["metrics"]["score"]
         self.assertEqual(fixed_rank(tied,eligible)["SCORE_SUM"],"c0")
+        self.assertEqual(fixed_order(tied,eligible)["SCORE_SUM"],["c0","c1"])
+
+    def test_rank_four_reference_is_not_a_top_three_hit(self):
+        rows, manifest, observed = fixture("pulse_60")
+        # Four source rows; only the first is reference-near and receives
+        # the lowest score in every untuned model.
+        for row in rows:
+            if row["stage"] == "candidate_transform" and row["candidate_id"] == "c0":
+                row["metrics"]["score"] = .01
+                row["metrics"]["support"] = .01
+            if row["stage"] == "primary_eligibility" and row["candidate_id"] == "c0":
+                row["metrics"]["score"] = .01
+                row["metrics"]["support"] = .01
+        for i, score in enumerate((.65, .6), start=2):
+            cid = "c"+str(i)
+            bpm = 160.+i
+            rows.insert(2, event("candidate_transform", bpm, cid, score, score,
+                                  ["raw1"]))
+            rows.insert(next(i for i,r in enumerate(rows)
+                             if r["stage"] == "primary_eligibility"),
+                        event("primary_eligibility", bpm, cid, score, score))
+            rows.insert(next(i for i,r in enumerate(rows)
+                             if r["stage"] == "policy_eligibility"),
+                        event("policy_eligibility", bpm, "board"+str(i),
+                              parents=[cid]))
+        # This light unit fixture verifies shadow ranking; independent
+        # production lineage remains checked by validate(require_windows).
+        actual = shadow_result(rows, manifest, observed, "pulse_60")
+        for name in MODELS:
+            self.assertEqual(actual["MODEL_"+name+"_REFERENCE_RANK"], 4)
+            self.assertEqual(actual["MODEL_"+name+"_TOP3_REFERENCE"], 0)
+            self.assertEqual(actual["MODEL_"+name+"_CORRECT"], 0)
 
     def test_invalid_identity_source_counts_or_rank_bpm_rejected(self):
         rows, _, _ = fixture()

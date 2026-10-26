@@ -777,3 +777,28 @@ consistency in both; genuine `no_candidate` can have no source pointer.
 Both valid cases and a forged source ID receive explicit adversarial tests.
 No productive Primary, Policy, CUE, selector, writer or review decision was
 changed. A fresh exact-head host CI is mandatory to qualify the correction.
+
+
+### 26 Oct 2026: where are reference-near candidates inside frozen shadow orders?
+
+The first exact-head shadow Win32/x64 run 40315094059 succeeded all 24
+native/architecture and no-write gates. Untuned SOURCE-only rank winners
+were respectively 1/3 (score sum), 0/3 (support), 2/3 (best combined),
+1/3 (score×support); native original 1/3, with full agreement across both
+architectures and zero public artifacts. The top combined model fixed the
+60 BPM case but still missed 120 BPM sparse. These are three synthetic
+rhythms, **not** model selection, comparative superiority or musical GO.
+
+A strictly post-host secondary diagnostic now freezes the ENTIRE candidate
+order for each of the *same four unchanged source-only metrics*, preserving
+native cluster ordering on score ties, then reports the one-based position
+of the nearest reference-band candidate and whether it appears in top 3.
+Reference BPM is joined **after** the source-only order exists, as before;
+no oracle-dependent algorithm, adapted threshold, model learning or
+production change is introduced. Missing references and genuine negative
+silence are encoded as rank 0, not silently invented. Unit adversaries
+exercise ties, four-way near candidate loss, wrong rank / top-3 falsification,
+out-of-bounds ranks, host source-count conservation and Win32/x64 parity.
+Full native exact-head Win32/x64 host qualification remains mandatory.
+Only independent synthetic post-host read-only numeric diagnostics; no
+writer, DSP, Selector, Policy, settings, private music, release or merge.
