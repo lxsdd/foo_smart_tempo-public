@@ -137,7 +137,10 @@ class ProvenanceTests(unittest.TestCase):
     def test_ci_powershell_source_sidecar_contract(self):
         script = (ROOT / "tests" / "diagnostic_live_host_smoke.ps1").read_text(
             encoding="utf-8")
-        self.assertEqual(script.count("SMART_TEMPO_DIAGNOSTIC_RUNTIME_"), 1)
+        # The newer #37 host runner legitimately has three independent
+        # runtime-success exits; #38's original one-exit assumption must not
+        # suppress the inherited 80+78+12+20+33 measurement matrix.
+        self.assertEqual(script.count("SMART_TEMPO_DIAGNOSTIC_RUNTIME_"), 3)
         self.assertEqual(script.count("$challengeSourceRows.Add("), 1)
         self.assertEqual(script.count("Import-Csv -LiteralPath ($wav+'.sources.csv')"), 1)
         # Other independent prospective/sweep loops legitimately reuse this name.
