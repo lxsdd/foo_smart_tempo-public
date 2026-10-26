@@ -232,6 +232,10 @@ struct MirCiSelectorEvent {
   // 0 means not a low-pulse ranking; never serialized in production.
   std::size_t low_pool_epoch = 0;
   bool has_low_pool_epoch = false;
+  // Fifth and final lexicographic field for the actual continuous-center
+  // selector comparison. CI-only, no production ABI changes.
+  double tie_metric_4 = 0.0;
+  bool has_tie_metric_4 = false;
 };
 [[nodiscard]] std::span<const MirCiSelectorEvent>
 mir_ci_primary_selector_events() noexcept;

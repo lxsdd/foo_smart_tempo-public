@@ -1076,6 +1076,159 @@ class NativePipelineTraceTests(unittest.TestCase):
                         validate(bad)
 
 
+    def test_executed_five_field_low_continuous_center_winner_and_adversaries(self):
+        # Two distinct native collapsed source IDs, second candidate beats
+        # first ONLY on the fifth, center-distance, tuple field.
+        rows = lineage_trace([128., 130.], [128., 130.], [[0], [1]])
+        at = next(i for i, r in enumerate(rows)
+                  if r["stage"] == "primary_select")
+        events = []
+        for cid, bpm, negative_distance in (
+                ("c3", 130., -4.), ("c2", 128., -2.)):
+            allowed = event("candidate_filter", cid, [], bpm, "included",
+                            "low_continuous_allowed", 0)
+            rank = event("primary_rank", cid, [], bpm, "included",
+                         "low_continuous_rank_scored", 0)
+            comp = event("primary_compare", cid, [], bpm, "included",
+                         "low_continuous_compare_won", 0)
+            for r in (rank, comp):
+                r["metrics"]["score"] = 1.9
+            comp["metrics"].update(
+                tie_0=1.9, tie_1=.85, tie_2=.78, tie_3=.5,
+                tie_4=negative_distance)
+            events.extend((allowed, rank, comp))
+        events += [
+            event("primary_terminal", "c2", [], 128., "selected",
+                  "terminal_lane_choice", 0),
+            event("primary_terminal", "c2", [], 128., "selected",
+                  "terminal_residual_choice", 0),
+            event("primary_terminal", "c2", [], 128., "selected",
+                  "terminal_final_choice", 0),
+            event("primary_disposition", "c2", [], 128., "observed",
+                  "selected_final_object", 0),
+            event("primary_disposition", "c3", [], 130., "observed",
+                  "ranked_not_final", 0),
+        ]
+        rows[at:at] = events
+        for i, item in enumerate(rows):
+            item["sequence"] = i
+        result = validate(rows, require_native_comparator=True)
+        self.assertEqual(result["selector_compare_low_continuous_wins"], 2)
+        self.assertEqual(result["selector_lane_comparator_winner_proven"], 1)
+        self.assertEqual(result["selector_lane_continuous_rescue_unranked"], 0)
+        self.assertEqual(result["phase_b_causal_completeness"],
+                         "INCOMPLETE_PRIMARY_VETO")
+        for mutation in ("missing_gate", "false_second_lost", "false_second_won",
+                         "missing_fifth", "extra_sixth", "five_tuple_nan",
+                         "wrong_source", "swapped_terminal", "missing_rank",
+                         "gate_excluded", "wrong_score"):
+            with self.subTest(mutation=mutation):
+                bad = copy.deepcopy(rows)
+                comps = [x for x in bad if x["stage"] == "primary_compare"]
+                ranks = [x for x in bad if x["stage"] == "primary_rank"]
+                gates = [x for x in bad if x["stage"] == "candidate_filter"]
+                terminals = [x for x in bad if x["stage"] == "primary_terminal"]
+                if mutation == "missing_gate":
+                    bad.remove(gates[0])
+                elif mutation == "false_second_lost":
+                    comps[1]["reason_code"] = "low_continuous_compare_lost"
+                    comps[1]["outcome"] = "excluded"
+                elif mutation == "false_second_won":
+                    comps[1]["metrics"]["tie_4"] = -5.
+                elif mutation == "missing_fifth":
+                    del comps[1]["metrics"]["tie_4"]
+                elif mutation == "extra_sixth":
+                    comps[1]["metrics"]["tie_5"] = .1
+                elif mutation == "five_tuple_nan":
+                    comps[1]["metrics"]["tie_4"] = math.inf
+                elif mutation == "wrong_source":
+                    comps[1]["candidate_id"] = "c3"
+                elif mutation == "swapped_terminal":
+                    terminals[0]["candidate_id"] = "c3"
+                elif mutation == "missing_rank":
+                    bad.remove(ranks[0])
+                elif mutation == "gate_excluded":
+                    gates[1]["reason_code"] = "low_continuous_provisional_exclusion"
+                    gates[1]["outcome"] = "excluded"
+                else:
+                    ranks[1]["metrics"]["score"] = 1.8
+                for i, r in enumerate(bad):
+                    r["sequence"] = i
+                with self.assertRaises(TraceError):
+                    validate(bad, require_native_comparator=True)
+
+    def test_continuous_five_field_ci_tuple_source_parity(self):
+        cpp = (ROOT / "src/foo_smart_tempo/mir_candidate_pipeline.cpp").read_text(
+            encoding="utf-8")
+        sub = cpp.split("select_mir_low_pulse_continuous_center_rescue(", 1)[1]
+        sub = sub.split("select_mir_harmonic_soft(", 1)[0]
+        def normal(fragment):
+            return re.sub(r"\\s+", "", fragment)
+        # Independent source contract: exactly the SAME ordered five
+        # productive tuple operands; no hidden CI shadow selector tuning.
+        candidate_fields = (
+            "candidate.continuous_score_ratio",
+            "candidate.continuous_section_support",
+            "candidate.continuous_section_stability",
+            "candidate.continuous_score",
+            "-std::abs(candidate.bpm - routeCenter)",
+        )
+        incumbent_fields = tuple(
+            field.replace("candidate.", "best->") for field in candidate_fields
+        )
+        for candidate, needle in (
+            (candidate_fields, "const auto ciCandidateTuple = std::make_tuple("),
+            (incumbent_fields, ": std::make_tuple(")):
+            where = sub.index(needle)
+            tail = sub[where:where + 550]
+            for token in candidate:
+                self.assertIn(token, tail)
+        # Build canonical source expressions without looking at a BPM oracle.
+        def source_tuples(content):
+            tuples = []
+            for match in re.finditer(r"std::make_tuple\\(", content):
+                opening = content.index("(", match.start())
+                depth = 0
+                for at in range(opening, len(content)):
+                    depth += (content[at] == "(") - (content[at] == ")")
+                    if depth == 0:
+                        tuples.append(normal(content[opening+1:at]))
+                        break
+                else:
+                    raise AssertionError("unclosed native lexicographic tuple")
+            return tuples
+        native = source_tuples(sub)
+        self.assertEqual(len(native), 4)
+        # First two CI-only tuples MUST equal the following two production
+        # comparison tuples, field-for-field and in the same order.
+        self.assertEqual(native[0], native[2])
+        self.assertEqual(native[1], native[3])
+        for poison in (
+            sub.replace("candidate.continuous_section_stability,",
+                        "candidate.continuous_section_stability + .1,", 1),
+            sub.replace("best->continuous_score,",
+                        "best->continuous_score + .01,", 1),
+        ):
+            mutated = source_tuples(poison)
+            self.assertTrue(mutated[0] != mutated[2] or
+                            mutated[1] != mutated[3])
+        self.assertIn("ciCandidateTuple > ciBestTuple", sub)
+        self.assertIn("if (best == nullptr ||", sub)
+        self.assertIn("std::get<4>(ciCandidateTuple)", sub)
+        self.assertIn('"low_continuous_compare_won"', sub)
+        self.assertIn('"low_continuous_compare_lost"', sub)
+        for fragment in ("candidate.continuous_score_ratio",
+                         "candidate.continuous_section_support",
+                         "candidate.continuous_section_stability",
+                         "candidate.continuous_score",
+                         "-std::abs(candidate.bpm - routeCenter)"):
+            self.assertGreaterEqual(sub.count(fragment), 2)
+        # Mutations to the CI predicate itself are caught by the structural
+        # source contract, even if the productive expression is unchanged.
+        fake = sub.replace("ciCandidateTuple > ciBestTuple",
+                           "ciCandidateTuple < ciBestTuple", 1)
+        self.assertNotIn("ciCandidateTuple > ciBestTuple", fake)
+
     def test_nested_low_bestby_epoch_reset_replay_and_poisoning(self):
         rows = with_resource(trace())
         i = next(i for i, row in enumerate(rows)

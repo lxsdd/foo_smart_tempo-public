@@ -19,6 +19,7 @@ FIELDS = frozenset(("schema", "analysis_id", "sequence", "stage", "outcome",
 METRICS = frozenset(("bpm", "score", "support"))
 LOW_POOL_METRICS = METRICS | frozenset(("low_pool_epoch",))
 TIE_METRICS = METRICS | frozenset(("tie_0", "tie_1", "tie_2", "tie_3"))
+TIE5_METRICS = TIE_METRICS | frozenset(("tie_4",))
 RESOURCE_METRICS = METRICS | frozenset((
     "wall_seconds", "process_cpu_seconds",
     "process_peak_rss_before_bytes", "process_peak_rss_after_bytes",
@@ -97,6 +98,7 @@ ALLOWED_FILTER_REASONS = frozenset((
 ))
 ALLOWED_RANK_REASONS = frozenset((
     "raw_rank_scored", "harmonic_rank_scored", "low_rank_scored",
+    "low_continuous_rank_scored",
     "general_baseline_rank_scored", "general_alt_rank_scored",
     "residual_high_rank_scored", "residual_harmonic_rank_scored",
     "harmonic_direct_rank_scored"
@@ -105,6 +107,7 @@ COMPARE_TO_RANK = {
     "raw": "raw_rank_scored",
     "harmonic": "harmonic_rank_scored",
     "low": "low_rank_scored",
+    "low_continuous": "low_continuous_rank_scored",
     "general_baseline": "general_baseline_rank_scored",
     "general_alt": "general_alt_rank_scored",
     "residual_high": "residual_high_rank_scored",
@@ -202,10 +205,14 @@ def validate(rows: list[dict], *, require_windows: bool = False,
                                                           "general_baseline_compare_",
                                                           "residual_harmonic_compare_",
                                                           "harmonic_direct_compare_")))
+        continuous_tie = (stage == "primary_compare" and
+                          item["reason_code"].startswith("low_continuous_compare_"))
+        has_native_tie = has_native_tie or continuous_tie
         expected_metrics = (SEGMENT_METRICS if stage == "mir_segment" else
                             WINDOW_METRICS if stage == "decode_window" else
                             RESOURCE_METRICS if stage == "resource_usage" else
                             INVENTORY_METRICS if stage == "source_inventory" else
+                            TIE5_METRICS if continuous_tie else
                             TIE_METRICS if has_native_tie else
                             LOW_POOL_METRICS if low_episode else METRICS)
         if type(item["metrics"]) is not dict or set(item["metrics"]) != expected_metrics:
@@ -388,6 +395,7 @@ def validate(rows: list[dict], *, require_windows: bool = False,
                     "residual_high": "residual_high_gate_allowed",
                     "residual_harmonic": "residual_harmonic_gate_allowed",
                     "harmonic_direct": "harmonic_direct_gate_allowed",
+                    "low_continuous": "low_continuous_allowed",
                 }.get(prefix)
                 if required_gate and (
                         index == 0 or rows[index-1]["stage"] != "candidate_filter" or
@@ -428,8 +436,10 @@ def validate(rows: list[dict], *, require_windows: bool = False,
             else:
                 comparator_key = prefix
             uses_tie = prefix in ("raw", "general_baseline",
-                                  "residual_harmonic", "harmonic_direct")
-            tie = tuple(row["metrics"][f"tie_{i}"] for i in range(4)) if uses_tie else ()
+                                  "residual_harmonic", "harmonic_direct",
+                                  "low_continuous")
+            tie = tuple(row["metrics"][f"tie_{i}"] for i in range(
+                5 if prefix == "low_continuous" else 4)) if uses_tie else ()
             previous = current_best.get(comparator_key)
             if previous is None:
                 expected_win = True
@@ -437,7 +447,7 @@ def validate(rows: list[dict], *, require_windows: bool = False,
                 prior_score, prior_tie, _ = previous
                 expected_win = (
                     tie > prior_tie if prefix in
-                    ("residual_harmonic", "harmonic_direct") else
+                    ("residual_harmonic", "harmonic_direct", "low_continuous") else
                     (score > prior_score + 1e-9 or
                      (abs(score - prior_score) <= 1e-9 and tie > prior_tie))
                     if uses_tie else score > prior_score
@@ -742,9 +752,13 @@ def validate(rows: list[dict], *, require_windows: bool = False,
             row["reason_code"] == "low_continuous_allowed" and
             row["outcome"] == "included"
             for row in stage_indices["candidate_filter"])
+        continuous_winner = current_best.get("low_continuous")
+        if continuous_winner and lane_id != continuous_winner[2]:
+            raise TraceError("native low continuous terminal not the executed five-tuple winner")
         if lane_id in winning_clusters or raw_parent_won:
             lane_comparator_winner_proven = 1
-        elif continuous_allowed:
+        elif continuous_allowed and not require_native_comparator:
+            # Legacy unit-only traces remain explicitly unqualified.
             lane_continuous_rescue_unranked = 1
         else:
             raise TraceError("terminal lane candidate was not a native comparator winner")
@@ -1016,6 +1030,12 @@ def validate(rows: list[dict], *, require_windows: bool = False,
             x["reason_code"] == "general_alt_compare_won" for x in comparisons),
         "selector_compare_general_alt_losses": sum(
             x["reason_code"] == "general_alt_compare_lost" for x in comparisons),
+        "selector_compare_low_continuous_wins": sum(
+            x["reason_code"] == "low_continuous_compare_won"
+            for x in comparisons),
+        "selector_compare_low_continuous_losses": sum(
+            x["reason_code"] == "low_continuous_compare_lost"
+            for x in comparisons),
         "selector_compare_low_wins": sum(
             x["reason_code"] == "low_compare_won" for x in comparisons),
         "selector_compare_low_losses": sum(

@@ -53,6 +53,7 @@
     "Raw-to-cluster parentage must be the exact ordered first-match partition, never an approximate many-to-many BPM join",
     "Every policy FullBoard row must have exactly one unique indexed cluster source; missing sources fail closed",
     "CI-only raw and general-baseline executed comparator ties preserve the four ordered numeric tie fields",
+    "CI-only low continuous-center comparator preserves the fifth tie field for source-identity replay",
     "Review Hold is a first-class outcome, not counted as a wrong BPM",
     "Window geometry and decoding costs must be independently measured",
     "Ground-truth labels never flow into candidate creation or production selection"

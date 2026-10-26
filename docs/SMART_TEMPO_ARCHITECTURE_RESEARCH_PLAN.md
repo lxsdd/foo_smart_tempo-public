@@ -802,3 +802,27 @@ out-of-bounds ranks, host source-count conservation and Win32/x64 parity.
 Full native exact-head Win32/x64 host qualification remains mandatory.
 Only independent synthetic post-host read-only numeric diagnostics; no
 writer, DSP, Selector, Policy, settings, private music, release or merge.
+
+
+### 26 October 2026: actual low continuous-center five-field winner replay
+
+The **production** low-pulse continuous-center rescue previously produced only
+allowed/excluded source observations and an explicitly UNPROVEN lane-terminal
+transition. The CI-only C++ observer now captures actual rank/comparison
+pairs for **each executed eligible continuous-center candidate**, including
+the full five-field tuple (continuous-score ratio, section support, section
+stability, absolute continuous score, negative route-center distance) and the
+exact incumbent winner. The independent Python auditor replays the strict
+lexicographic comparison, enforces immediate allowed gate → rank → comparison,
+source-ID/BPM conservation, native terminal source equality with the last
+actual winner, five-field numeric-only framing and all ordered outcomes.
+Forged verdicts, swapped source objects, missing tuple fields and a promoted
+ranked loser must fail before native acceptance. A legacy filter-only unit
+trace may be reported as incomplete but may **never** receive native-host
+qualification. The productive five-field C++ comparison, candidate set,
+thresholds, route, review hold, Policy and writer remain unchanged.
+
+This is **not** proof that any fixed synthetic WAV actually triggered the
+continuous-center rescue, nor completion of all first-decisive candidate
+vetoes or Policy supplemental provenance. Win32/x64 original-host source
+qualification is mandatory. Phase B still INCOMPLETE, C CLOSED, musical NO_GO.

@@ -480,6 +480,7 @@ inline bool record(
     const bool ranking = std::strcmp(item.reason, "raw_rank_scored") == 0 ||
                          std::strcmp(item.reason, "harmonic_rank_scored") == 0 ||
                          std::strcmp(item.reason, "low_rank_scored") == 0 ||
+                         std::strcmp(item.reason, "low_continuous_rank_scored") == 0 ||
                          std::strcmp(item.reason, "general_baseline_rank_scored") == 0 ||
                          std::strcmp(item.reason, "general_alt_rank_scored") == 0 ||
                          std::strcmp(item.reason, "residual_high_rank_scored") == 0 ||
@@ -507,13 +508,20 @@ inline bool record(
     if (lowEpisodeExpected)
       out.lines.insert(out.lines.size() - 3,
           ",\"low_pool_epoch\":" + std::to_string(item.low_pool_epoch));
+    const bool continuousTieExpected = comparison &&
+        std::strncmp(item.reason, "low_continuous_compare_",
+                     sizeof("low_continuous_compare_") - 1) == 0;
+    if (item.has_tie_metric_4 != continuousTieExpected ||
+        (!continuousTieExpected && item.tie_metric_4 != 0.0))
+      return false;
     const bool tieExpected = comparison &&
         (std::strncmp(item.reason, "raw_compare_", 12) == 0 ||
          std::strncmp(item.reason, "general_baseline_compare_", 25) == 0 ||
          std::strncmp(item.reason, "residual_harmonic_compare_",
                       sizeof("residual_harmonic_compare_") - 1) == 0 ||
          std::strncmp(item.reason, "harmonic_direct_compare_",
-                      sizeof("harmonic_direct_compare_") - 1) == 0);
+                      sizeof("harmonic_direct_compare_") - 1) == 0 ||
+         continuousTieExpected);
     if (item.has_tie_metrics != tieExpected) return false;
     if (tieExpected) {
       for (const double value : item.tie_metrics)
@@ -523,6 +531,11 @@ inline bool record(
           ",\"tie_1\":" + safe_num(item.tie_metrics[1]) +
           ",\"tie_2\":" + safe_num(item.tie_metrics[2]) +
           ",\"tie_3\":" + safe_num(item.tie_metrics[3]));
+      if (continuousTieExpected) {
+        if (!std::isfinite(item.tie_metric_4)) return false;
+        out.lines.insert(out.lines.size() - 3,
+            ",\"tie_4\":" + safe_num(item.tie_metric_4));
+      }
     }
   }
   // Every collapsed candidate receives a purely observational disposition.

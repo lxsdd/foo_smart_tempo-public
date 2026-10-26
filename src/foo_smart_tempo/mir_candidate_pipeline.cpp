@@ -40,7 +40,9 @@ inline void ci_primary_event(std::size_t sourceIndex, double bpm, double score,
                              std::array<double, 4> tieMetrics = {},
                              bool hasTieMetrics = false,
                              std::size_t lowPoolEpoch = 0,
-                             bool hasLowPoolEpoch = false) noexcept {
+                             bool hasLowPoolEpoch = false,
+                             double tieMetric4 = 0.0,
+                             bool hasTieMetric4 = false) noexcept {
   if (g_ci_primary_events.size() >= 4096) {
     g_ci_primary_trace_complete = false;
     return;
@@ -48,7 +50,8 @@ inline void ci_primary_event(std::size_t sourceIndex, double bpm, double score,
   try {
     g_ci_primary_events.push_back({bpm, score, raw, included, reason, sourceIndex,
                                    tieMetrics, hasTieMetrics,
-                                   lowPoolEpoch, hasLowPoolEpoch});
+                                   lowPoolEpoch, hasLowPoolEpoch,
+                                   tieMetric4, hasTieMetric4});
   } catch (...) {
     // CI-only diagnostics never affect selection; incomplete evidence fails the host gate.
     g_ci_primary_trace_complete = false;
@@ -1627,6 +1630,37 @@ select_mir_low_pulse_continuous_center_rescue(
         candidate.continuous_section_stability < 0.70) {
       continue;
     }
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+    // EXACT same input fields/order as the untouched productive five-field
+    // lexicographic condition below. A gate alone never proves its winner.
+    const auto ciCandidateTuple = std::make_tuple(
+        candidate.continuous_score_ratio,
+        candidate.continuous_section_support,
+        candidate.continuous_section_stability,
+        candidate.continuous_score,
+        -std::abs(candidate.bpm - routeCenter));
+    const auto ciBestTuple = best == nullptr ? ciCandidateTuple
+        : std::make_tuple(best->continuous_score_ratio,
+                          best->continuous_section_support,
+                          best->continuous_section_stability,
+                          best->continuous_score,
+                          -std::abs(best->bpm - routeCenter));
+    const bool ciContinuousWon =
+        best == nullptr || ciCandidateTuple > ciBestTuple;
+    const auto ciIndex =
+        static_cast<std::size_t>(&candidate - candidates.data());
+    ci_primary_event(ciIndex, candidate.bpm, candidate.continuous_score_ratio,
+                     false, true, "low_continuous_rank_scored");
+    ci_primary_event(ciIndex, candidate.bpm, candidate.continuous_score_ratio,
+                     false, ciContinuousWon,
+                     ciContinuousWon ? "low_continuous_compare_won" :
+                                       "low_continuous_compare_lost",
+                     {std::get<0>(ciCandidateTuple),
+                      std::get<1>(ciCandidateTuple),
+                      std::get<2>(ciCandidateTuple),
+                      std::get<3>(ciCandidateTuple)},
+                     true, 0, false, std::get<4>(ciCandidateTuple), true);
+#endif
     if (best == nullptr ||
         std::make_tuple(candidate.continuous_score_ratio,
                         candidate.continuous_section_support,
