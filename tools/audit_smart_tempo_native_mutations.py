@@ -171,14 +171,16 @@ def audit(rows: list[dict], *, native_comparator: bool,
           native_policy_rail: bool = False) -> tuple[int, int]:
     validate(rows, require_windows=True, require_segments=True,
              require_native_comparator=native_comparator,
-             require_policy_filter=native_policy_rail)
+             require_policy_filter=native_policy_rail,
+             require_writer_resolution=native_policy_rail)
     reconcile(rows)
     mutated = mutations(rows)
     for name, altered in mutated:
         try:
             validate(altered, require_windows=True, require_segments=True,
                      require_native_comparator=native_comparator,
-                     require_policy_filter=native_policy_rail)
+                     require_policy_filter=native_policy_rail,
+             require_writer_resolution=native_policy_rail)
             reconcile(altered)
         except TraceError:
             continue

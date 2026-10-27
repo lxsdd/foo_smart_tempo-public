@@ -166,7 +166,8 @@ class TraceError(ValueError):
 def validate(rows: list[dict], *, require_windows: bool = False,
              require_segments: bool = False,
              require_native_comparator: bool = False,
-             require_policy_filter: bool = False) -> dict:
+             require_policy_filter: bool = False,
+             require_writer_resolution: bool = False) -> dict:
     # Library callers may test legacy minimal traces. The real host CLI
     # always requires both actual windows and actual native MIR segments.
     if require_segments and not require_windows:
@@ -711,7 +712,7 @@ def validate(rows: list[dict], *, require_windows: bool = False,
             raise TraceError("empty MIR native window/resource evidence incomplete")
         try:
             writer_status = reconcile_writer_resolution(
-                rows, required=require_policy_filter)
+                rows, required=require_writer_resolution)
         except WriterResolutionError as exc:
             raise TraceError("applied native writer chain: " + str(exc)) from exc
         return {
@@ -1165,7 +1166,7 @@ def validate(rows: list[dict], *, require_windows: bool = False,
         continuous_fates = {}
     try:
         writer_status = reconcile_writer_resolution(
-            rows, required=require_policy_filter)
+            rows, required=require_writer_resolution)
     except WriterResolutionError as exc:
         raise TraceError("applied native writer chain: " + str(exc)) from exc
     return {
@@ -1337,7 +1338,8 @@ def main() -> None:
     result = validate(load(a.trace), require_windows=a.require_windows,
                       require_segments=a.require_windows,
                       require_native_comparator=a.require_windows,
-                      require_policy_filter=a.require_windows)
+                      require_policy_filter=a.require_windows,
+                      require_writer_resolution=a.require_windows)
     print("SMART_TEMPO_CI_PIPELINE_TRACE_SCHEMA=PASS")
     for key, value in result.items():
         print(f"SMART_TEMPO_TRACE_{key.upper()}={value}")
