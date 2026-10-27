@@ -109,6 +109,40 @@ def mutations(rows: list[dict]) -> list[tuple[str, list[dict]]]:
         for i, row in enumerate(missing):
             row["sequence"] = i
         result.append(("missing_writer_resolution", missing))
+    if any(row["stage"] == "candidate_transform" for row in rows):
+        # Actual-host first-exclusion proof must be present for every
+        # collapsed source, including sources never checked by this lane.
+        add("first_exclusion_source", row_stage("primary_first_exclusion"),
+            lambda a, i: a[i].__setitem__("candidate_id", "c999999"),
+            required=True)
+        add("first_exclusion_reason", row_stage("primary_first_exclusion"),
+            lambda a, i: a[i].__setitem__(
+                "reason_code", "harmonic_out_of_rail"
+                if a[i]["reason_code"] == "no_native_exclusion_observed"
+                else "no_native_exclusion_observed"), required=True)
+        add("first_exclusion_index", row_stage("primary_first_exclusion"),
+            lambda a, i: a[i]["metrics"].__setitem__(
+                "support", a[i]["metrics"]["support"] + 1), required=True)
+        add("first_exclusion_score", row_stage("primary_first_exclusion"),
+            lambda a, i: a[i]["metrics"].__setitem__(
+                "score", a[i]["metrics"]["score"] + 1), required=True)
+        add("first_exclusion_parent", row_stage("primary_first_exclusion"),
+            lambda a, i: a[i].__setitem__("parent_candidate_ids", ["c0"]),
+            required=True)
+        for label, changed in (
+            ("missing_first_exclusion",
+             [r for r in copy.deepcopy(rows)
+              if r["stage"] != "primary_first_exclusion"]),
+            ("duplicate_first_exclusion", None),
+        ):
+            if changed is None:
+                changed = copy.deepcopy(rows)
+                pos = next(i for i, row in enumerate(changed)
+                           if row["stage"] == "primary_first_exclusion")
+                changed.insert(pos, copy.deepcopy(changed[pos]))
+            for i, row in enumerate(changed):
+                row["sequence"] = i
+            result.append((label, changed))
     add("unknown_raw_origin", row_stage("candidate_create"),
         lambda a, i: a[i].__setitem__("reason_code", "unregistered_raw_source"))
     add("orphan_cluster", row_stage("candidate_transform"),
