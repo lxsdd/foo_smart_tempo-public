@@ -578,7 +578,8 @@ class NativePipelineTraceTests(unittest.TestCase):
                 with self.assertRaises(TraceError):
                     validate(bad, require_windows=True)
         no_terminal = [row for row in rows if row["stage"] not in
-                       ("primary_terminal", "primary_disposition", "source_inventory")]
+                       ("primary_terminal", "primary_disposition", "primary_veto_resolution",
+                        "source_inventory")]
         for i, row in enumerate(no_terminal):
             row["sequence"] = i
         self.assertEqual(validate(no_terminal)["selector_terminal_observations"], 0)
