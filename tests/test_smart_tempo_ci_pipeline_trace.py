@@ -797,7 +797,7 @@ class NativePipelineTraceTests(unittest.TestCase):
         self.assertIn("raw_cluster_sources", header)
         self.assertIn("raw_cluster_sources[assigned].push_back(raw_index)", header)
         self.assertIn("fullboard_source_seen", header)
-        self.assertIn("if (parents.size() != 1) return false;", header)
+        self.assertIn("if (parents.size() != 1) return reject_trace_at(__LINE__);", header)
         self.assertIn("collapse_mir_candidates(", source)
         self.assertIn("#ifndef SMART_TEMPO_CI_ORACLE_PROBE", header)
 
@@ -1394,7 +1394,7 @@ class NativePipelineTraceTests(unittest.TestCase):
         self.assertEqual(source.count("std::get<3>(tie)"), 2)
         self.assertEqual(source.count("tieMetrics, hasTieMetrics"), 1)
         self.assertIn("bool has_tie_metrics = false", header)
-        self.assertIn("if (item.has_tie_metrics != tieExpected) return false", reporter)
+        self.assertIn("if (item.has_tie_metrics != tieExpected) return reject_trace_at(__LINE__)", reporter)
         for i in range(4):
             self.assertIn('"tie_' + str(i), reporter)
 
