@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - 'migration/**'
+      - 'research/integrate-frozen-bpm-portfolios-20261026'
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -154,6 +155,12 @@ jobs:
           # Generated WAV files exist only inside unittest temporary folders.
           # BPM accuracy is NOT asserted here; future CI will analyze these
           # fixtures with the real component and compare its reported BPMs.
+
+      - name: Verify portable frozen BPM research, preserve native sidecar blockers
+        shell: pwsh
+        run: |
+          python tools/run_reused_portfolio_portable_tests.py
+          if ($LASTEXITCODE -ne 0) { throw 'Existing portable BPM portfolio failed' }
 
       - name: Verify BPM oracle scoring and ambiguous/held cases
         shell: pwsh

@@ -251,7 +251,7 @@ function Run-Case([string]$installer,[string]$root,[string]$inputFile,[string[]]
       if (-not (Test-Path -LiteralPath $observed -PathType Leaf)) {
         throw 'Real foobar numeric BPM oracle observer is not available'
       }
-      $scoreOutput=@(python ./tools/score_synthetic_bpm_reference.py --manifest $reference --observed $observed 2>&1)
+      $scoreOutput=@(python ./tools/score_smart_tempo_ci_b_pilot_legacy.py --manifest $reference --observed $observed 2>&1)
       if ($LASTEXITCODE -ne 0) { throw ('Real foobar synthetic BPM evaluation failed: '+($scoreOutput -join '; ')) }
       $scoreOutput | ForEach-Object { Write-Host $_ }
       $scoreEvidence=@{}
@@ -478,7 +478,7 @@ try {
   $pilotCases=@('pulse_60','pulse_128','pulse_120_sparse','silence')
   foreach ($caseId in $pilotCases) {
     $syntheticRoot=Join-Path (Join-Path $root ('pilot-'+$caseId)) 'synthetic-oracle'
-    python ./tools/generate_synthetic_bpm_reference.py --output $syntheticRoot --case $caseId
+    python ./tools/generate_smart_tempo_ci_b_pilot_legacy.py --output $syntheticRoot --case $caseId
     if ($LASTEXITCODE -ne 0) { throw "Synthetic B-pilot WAV creation failed: $caseId" }
     $reference=Join-Path $syntheticRoot 'reference.json'
     $cases=@((Get-Content -LiteralPath $reference -Raw | ConvertFrom-Json).cases)
