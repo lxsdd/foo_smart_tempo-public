@@ -620,6 +620,33 @@ inline bool record(
              first != nullptr ? first->score : 0.0,
              static_cast<double>(first_position));
   }
+  // Per-cluster reconciliation of native BRANCH-LOCAL decisive gates with
+  // the final selected source. Residual rescue can still select a vetoed
+  // branch source; this is not global candidate eligibility.
+  for (std::size_t i = 0; i < collapsed.size(); ++i) {
+    const mir_pipeline::MirCiSelectorEvent* firstVeto = nullptr;
+    std::size_t vetoPosition = 0;
+    for (std::size_t j = 0; j < selectorEvents.size(); ++j) {
+      const auto& event = selectorEvents[j];
+      if (event.raw || event.source_index != i || event.included) continue;
+      if (std::strcmp(event.reason, "harmonic_rail_decisive_veto") != 0 &&
+          std::strcmp(event.reason, "general_rail_decisive_veto") != 0)
+        continue;
+      if (firstVeto != nullptr) return false;
+      firstVeto = &event;
+      vetoPosition = j + 1;
+    }
+    const bool finallySelected = i == final_source_index;
+    out.push("primary_veto_resolution",
+             finallySelected ? "selected" :
+                 firstVeto != nullptr ? "excluded" : "observed",
+             firstVeto != nullptr ? firstVeto->reason :
+                 finallySelected ? "selected_without_native_decisive_veto" :
+                                   "no_native_decisive_veto_observed",
+             cluster_ids[i], {}, collapsed[i].bpm,
+             firstVeto != nullptr ? firstVeto->score : 0.0,
+             static_cast<double>(vetoPosition));
+  }
   if (!std::isfinite(primary.selected_local_exact_score) ||
       !std::isfinite(primary.support) ||
       !std::isfinite(policy.candidate_local_exact_score) ||

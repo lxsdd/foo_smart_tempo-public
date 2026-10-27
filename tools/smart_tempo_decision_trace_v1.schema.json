@@ -46,6 +46,7 @@
         "primary_terminal",
         "primary_disposition",
         "primary_first_exclusion",
+        "primary_veto_resolution",
         "primary_select",
         "primary_hold",
         "policy_eligibility",

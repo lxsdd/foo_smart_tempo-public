@@ -22,6 +22,8 @@ from audit_smart_tempo_b_manual_export import (
     ManualTraceError, reconcile as reconcile_manual_export)
 from audit_smart_tempo_b_primary_hold import (
     PrimaryHoldError, reconcile as reconcile_primary_hold)
+from audit_smart_tempo_b_veto_resolution import (
+    VetoResolutionError, VETO_REASONS, reconcile_native_veto_resolution)
 
 SCHEMA = "smart_tempo_source_decision_trace_v1"
 MAX_BYTES, MAX_LINES = 2 * 1024 * 1024, 16500
@@ -73,6 +75,7 @@ ENUMS = {
     "primary_terminal": ("selected", None),
     "primary_disposition": ("observed", None),
     "primary_first_exclusion": (None, None),
+    "primary_veto_resolution": (None, None),
     "policy_eligibility": ("included", None),
     "supplemental_candidate": ("observed", None),
     "primary_select": (None, None),
@@ -199,7 +202,7 @@ def validate(rows: list[dict], *, require_windows: bool = False,
         "supplemental_candidate": 2,
         "candidate_filter": 3, "primary_rank": 3, "primary_compare": 3,
         "primary_terminal": 3, "primary_disposition": 3,
-        "primary_first_exclusion": 3,
+        "primary_first_exclusion": 3, "primary_veto_resolution": 3,
         "primary_select": 4, "primary_hold": 4,
         "policy_resolution": 5, "policy_pointer": 6,
         "policy_change": 7, "writer_resolution": 8,
@@ -425,6 +428,20 @@ def validate(rows: list[dict], *, require_windows: bool = False,
                                      position == 0 or
                                      item["reason_code"] not in ALLOWED_FILTER_REASONS))):
                 raise TraceError("malformed native first-exclusion source witness")
+        elif stage == "primary_veto_resolution":
+            position = item["metrics"]["support"]
+            is_veto = item["reason_code"] in VETO_REASONS
+            if (candidate_id is None or ids.get(candidate_id) != "candidate_transform"
+                    or parents or abs(bpm - candidate_bpm[candidate_id]) >= .001
+                    or position != int(position) or not 0 <= position <= 4096
+                    or (is_veto and (position == 0 or item["outcome"] not in
+                                     ("excluded", "selected")))
+                    or (not is_veto and (position != 0 or
+                                         item["metrics"]["score"] != 0 or
+                                         (item["reason_code"], item["outcome"]) not in (
+                                             ("selected_without_native_decisive_veto", "selected"),
+                                             ("no_native_decisive_veto_observed", "observed"))))):
+                raise TraceError("malformed native branch-veto/final-source witness")
         elif stage in ("candidate_filter", "primary_rank", "primary_compare", "primary_terminal"):
             # Actual executed selector probes, with explicit raw/cluster source.
             reason_set = (ALLOWED_FILTER_REASONS if stage == "candidate_filter"
@@ -503,6 +520,13 @@ def validate(rows: list[dict], *, require_windows: bool = False,
                         observed["metrics"]["support"] != index or
                         observed["metrics"]["score"] != source["metrics"]["score"]):
                     raise TraceError("native first-exclusion chronology or score drift")
+    # Reconcile the full native cluster branch-veto/final-choice inventory.
+    # A branch veto may be followed by later residual rescue selection.
+    try:
+        veto_resolution = reconcile_native_veto_resolution(
+            rows, required=require_windows)
+    except VetoResolutionError as exc:
+        raise TraceError("native branch-veto resolution: " + str(exc)) from exc
     # Independent source-ID and time-ordered proof. The first provisional
     # exclusion is not a veto until the productive fallback has resolved.
     raw_gates = [r for r in stage_indices["candidate_filter"]
@@ -1278,6 +1302,7 @@ def validate(rows: list[dict], *, require_windows: bool = False,
         raise TraceError("applied native writer chain: " + str(exc)) from exc
     return {
         **writer_status,
+        **veto_resolution,
         **manual_status,
         **primary_hold_status,
         **raw_fates,

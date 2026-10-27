@@ -211,6 +211,30 @@ def with_resource(rows):
         first_rows.append(summary)
     at = next(i for i, r in enumerate(rows) if r["stage"] == "primary_select")
     rows[at:at] = first_rows
+    # CI-only per-cluster native branch-veto/final-choice reconciliation.
+    at = next(i for i, r in enumerate(rows) if r["stage"] == "primary_select")
+    final_id = (rows[at]["parent_candidate_ids"][0]
+                if rows[at]["parent_candidate_ids"] else None)
+    native = [r for r in rows if r["stage"] in (
+        "candidate_filter", "primary_rank", "primary_compare", "primary_terminal")]
+    veto_rows = []
+    for cluster in (r for r in rows if r["stage"] == "candidate_transform"):
+        cid = cluster["candidate_id"]
+        veto = next(((j + 1, r) for j, r in enumerate(native)
+                     if r["stage"] == "candidate_filter" and
+                     r["candidate_id"] == cid and r["reason_code"] in (
+                         "harmonic_rail_decisive_veto", "general_rail_decisive_veto")), None)
+        selected = cid == final_id
+        summary = event("primary_veto_resolution", cid, [],
+                        cluster["metrics"]["bpm"],
+                        "selected" if selected else "excluded" if veto else "observed",
+                        veto[1]["reason_code"] if veto else
+                        "selected_without_native_decisive_veto" if selected else
+                        "no_native_decisive_veto_observed", 0)
+        summary["metrics"]["score"] = veto[1]["metrics"]["score"] if veto else 0.
+        summary["metrics"]["support"] = veto[0] if veto else 0.
+        veto_rows.append(summary)
+    rows[at:at] = veto_rows
     primary_at = next(i for i, row in enumerate(rows)
                       if row["stage"] == "primary_select")
     rows.insert(primary_at + 1, native_primary_hold(rows[primary_at]))

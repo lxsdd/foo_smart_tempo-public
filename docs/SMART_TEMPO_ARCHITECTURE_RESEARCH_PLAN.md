@@ -1102,3 +1102,20 @@ and consistency with the applied writer reason. The original Win32/x64 WAV
 host gate must pass at the exact new SHA; synthetic fixtures are positive and
 negative contract tests, not musical acceptance. ReviewHold and fail-closed
 writer semantics remain unchanged. Phase B stays incomplete; Phase C is closed.
+
+## 2026-10-28 — CI-only native branch-veto/final-source reconciliation (Phase B, partial)
+
+The original selector event stream now produces one `primary_veto_resolution`
+per collapsed candidate, preserving its exact source ID, first executed
+harmonic/general rail *branch-local* decisive-veto reason, native score and
+one-based event position. The same record explicitly distinguishes final
+selection (including later residual selection after a branch veto), exclusion
+observed only within that branch, and no observed veto. An independent
+label-blind Python oracle replays native event chronology and terminal
+source ID, requires the earlier actual gate, and rejects missing, duplicate
+or forged vetoes, wrong source/order/score/position, and contradictory
+fallbacks. The original Win32/x64 synthetic WAV/CUE host and no-write gates
+must execute at the exact source SHA. This is not global candidate
+ELIGIBILITY; unvisited candidates are not called eligible. Phase B remains
+incomplete until all source/Policy terminal paths are witnessed and
+independently audited; Phase C and musical release remain NO_GO.
