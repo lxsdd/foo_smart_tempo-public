@@ -61,6 +61,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'CI-only candidate lineage integrity regressions failed' }
           python -m unittest discover -s tests -p 'test_smart_tempo_b_policy_rail_fates.py' -v
           if ($LASTEXITCODE -ne 0) { throw 'Native Policy FullBoard rail source-veto tests failed' }
+          python -m unittest discover -s tests -p 'test_smart_tempo_b_general_alt_promotion.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'General-144 native promotion source-ID and ratio regression failed' }
           python -m unittest discover -s tests -p 'test_smart_tempo_b_cluster_rail_fates.py' -v
           if ($LASTEXITCODE -ne 0) { throw 'Independent native cluster rail fate chronology failed' }
           python -m unittest discover -s tests -p 'test_smart_tempo_b_low_upper_fates.py' -v
