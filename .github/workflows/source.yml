@@ -61,6 +61,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'CI-only candidate lineage integrity regressions failed' }
           python -m unittest discover -s tests -p 'test_smart_tempo_b_policy_rail_fates.py' -v
           if ($LASTEXITCODE -ne 0) { throw 'Native Policy FullBoard rail source-veto tests failed' }
+          python -m unittest discover -s tests -p 'test_smart_tempo_b_primary_hold.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'Native Primary hold causal source-to-writer oracle failed' }
           python -m unittest discover -s tests -p 'test_smart_tempo_b_writer_resolution.py' -v
           if ($LASTEXITCODE -ne 0) { throw 'Applied native writer branch provenance tests failed' }
           python -m unittest discover -s tests -p 'test_smart_tempo_b_general_alt_promotion.py' -v

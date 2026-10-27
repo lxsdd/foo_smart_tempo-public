@@ -1089,3 +1089,16 @@ The Win32/x64 host gate must observe requested capture and at least one
 source and one merged output for each rhythmic pilot. Silence may correctly
 have zero candidates. This does not enable diagnostic capture in production
 builds or on nonallowlisted media.
+
+
+### 27 October 2026 — native Primary ReviewHold cause provenance (CI-only)
+
+The original Primary selector's final flags and prioritized native reason are
+recorded after its actual terminal object and before Policy. The `primary_hold`
+row carries the exact selected source parent, all four simultaneous hold
+predicates, candidate/auto/route flags and the original reason. An independent,
+label-blind Python oracle checks native priority, OR semantics, source identity
+and consistency with the applied writer reason. The original Win32/x64 WAV
+host gate must pass at the exact new SHA; synthetic fixtures are positive and
+negative contract tests, not musical acceptance. ReviewHold and fail-closed
+writer semantics remain unchanged. Phase B stays incomplete; Phase C is closed.

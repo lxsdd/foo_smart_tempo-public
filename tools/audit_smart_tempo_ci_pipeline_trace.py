@@ -20,6 +20,8 @@ from audit_smart_tempo_b_low_continuous_fates import (
     LowContinuousFateError, reconcile_native_low_continuous)
 from audit_smart_tempo_b_manual_export import (
     ManualTraceError, reconcile as reconcile_manual_export)
+from audit_smart_tempo_b_primary_hold import (
+    PrimaryHoldError, reconcile as reconcile_primary_hold)
 
 SCHEMA = "smart_tempo_source_decision_trace_v1"
 MAX_BYTES, MAX_LINES = 2 * 1024 * 1024, 16500
@@ -29,6 +31,9 @@ METRICS = frozenset(("bpm", "score", "support"))
 LOW_POOL_METRICS = METRICS | frozenset(("low_pool_epoch",))
 MANUAL_METRICS = METRICS | frozenset((
     "winner_support", "local_exact_score", "evidence_rank", "origin_mask"))
+PRIMARY_HOLD_METRICS = METRICS | frozenset((
+    "enabled", "candidate", "auto_candidate", "review_hold", "route_valid",
+    "sparse_hold", "material_hold", "high_family_hold", "soft_center_hold"))
 TIE_METRICS = METRICS | frozenset(("tie_0", "tie_1", "tie_2", "tie_3"))
 TIE5_METRICS = TIE_METRICS | frozenset(("tie_4",))
 RESOURCE_METRICS = METRICS | frozenset((
@@ -71,6 +76,7 @@ ENUMS = {
     "policy_eligibility": ("included", None),
     "supplemental_candidate": ("observed", None),
     "primary_select": (None, None),
+    "primary_hold": (None, None),
     "policy_resolution": ("observed", None),
     "policy_pointer": ("observed", None),
     "policy_change": (None, None),
@@ -194,7 +200,7 @@ def validate(rows: list[dict], *, require_windows: bool = False,
         "candidate_filter": 3, "primary_rank": 3, "primary_compare": 3,
         "primary_terminal": 3, "primary_disposition": 3,
         "primary_first_exclusion": 3,
-        "primary_select": 4,
+        "primary_select": 4, "primary_hold": 4,
         "policy_resolution": 5, "policy_pointer": 6,
         "policy_change": 7, "writer_resolution": 8,
             "manual_state": 8, "manual_source": 8, "manual_export": 8,
@@ -247,6 +253,7 @@ def validate(rows: list[dict], *, require_windows: bool = False,
                             TIE_METRICS if has_native_tie else
                             LOW_POOL_METRICS if low_episode else
                             MANUAL_METRICS if stage in ("manual_source", "manual_export")
+                            else PRIMARY_HOLD_METRICS if stage == "primary_hold"
                             else METRICS)
         if type(item["metrics"]) is not dict or set(item["metrics"]) != expected_metrics:
             raise TraceError("non-numeric-only telemetry")
@@ -748,6 +755,11 @@ def validate(rows: list[dict], *, require_windows: bool = False,
     supplemental = stage_indices["supplemental_candidate"]
     if len(supplemental) > 1:
         raise TraceError("multiple selected supplemental objects")
+    try:
+        primary_hold_status = reconcile_primary_hold(rows, required=require_windows)
+    except PrimaryHoldError as exc:
+        raise TraceError("native Primary hold source-to-writer chain: " +
+                         str(exc)) from exc
     # An actual no-tempo negative can legitimately produce zero raw and
     # collapsed MIR candidates. Prove its ENTIRE no-candidate/no-write
     # terminal chain rather than treating it as an absent/broken trace.
@@ -807,6 +819,7 @@ def validate(rows: list[dict], *, require_windows: bool = False,
         return {
             **writer_status,
             **manual_status,
+            **primary_hold_status,
             "rows": len(rows), "raw": 0, "collapsed": 0,
             "primary_pool": 0, "policy_board": 0,
             "decoded_windows": len(windows), "declared_windows": declared_passes,
@@ -1266,6 +1279,7 @@ def validate(rows: list[dict], *, require_windows: bool = False,
     return {
         **writer_status,
         **manual_status,
+        **primary_hold_status,
         **raw_fates,
         **rail_fates,
         **low_upper_fates,

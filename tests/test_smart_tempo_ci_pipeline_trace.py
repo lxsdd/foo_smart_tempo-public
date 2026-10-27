@@ -145,6 +145,27 @@ def attach_inventory(rows):
     return rows
 
 
+def native_primary_hold(primary, reason=None, **flags):
+    """Public fabricated Primary snapshot, never a real-music observation."""
+    outcome = primary["outcome"]
+    values = dict(enabled=1, candidate=int(primary["metrics"]["bpm"] > 0),
+                  auto_candidate=int(outcome == "selected"),
+                  review_hold=int(outcome == "review_hold"),
+                  route_valid=int(40 <= primary["metrics"]["bpm"] <= 220),
+                  sparse_hold=int(outcome == "review_hold"),
+                  material_hold=0, high_family_hold=0, soft_center_hold=0)
+    values.update(flags)
+    item = event("primary_hold", None, list(primary["parent_candidate_ids"]),
+                 primary["metrics"]["bpm"], outcome,
+                 reason or ("sparse_or_acapella_review_hold" if outcome == "review_hold"
+                            else "measured_candidate_primary" if outcome == "selected"
+                            else "empty_mir_primary_candidate_board"), 0)
+    item["metrics"] = {"bpm": primary["metrics"]["bpm"],
+                       "score": primary["metrics"]["support"],
+                       "support": 0.0, **values}
+    return item
+
+
 def with_resource(rows):
     # Host-valid minimal selector lineage: the native recorder emits these
     # three ordered snapshots before primary_select for a chosen BPM.
@@ -190,6 +211,9 @@ def with_resource(rows):
         first_rows.append(summary)
     at = next(i for i, r in enumerate(rows) if r["stage"] == "primary_select")
     rows[at:at] = first_rows
+    primary_at = next(i for i, row in enumerate(rows)
+                      if row["stage"] == "primary_select")
+    rows.insert(primary_at + 1, native_primary_hold(rows[primary_at]))
     manual_at = next(i for i, row in enumerate(rows)
                      if row["stage"] == "final_output")
     manual = event("manual_state", None, [], 0., "observed",
@@ -236,6 +260,9 @@ def empty_board_native_trace():
     for row in rows:
         if row["stage"] not in ("decode_window", "resource_usage"):
             row["metrics"] = {"bpm": 0., "score": 0., "support": 0.}
+    primary_at = next(i for i, row in enumerate(rows)
+                      if row["stage"] == "primary_select")
+    rows.insert(primary_at + 1, native_primary_hold(rows[primary_at]))
     for i, row in enumerate(rows):
         row["sequence"] = i
     return attach_inventory(rows)

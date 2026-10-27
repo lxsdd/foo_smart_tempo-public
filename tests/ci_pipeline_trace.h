@@ -648,6 +648,33 @@ inline bool record(
            primary.auto_candidate ? "primary_auto" : "primary_no_candidate",
            "", primary_parent, primary.selected_bpm,
            primary.selected_local_exact_score, primary.support);
+  // Native Primary hold causes: actual flags and prioritized original reason.
+  // This is CI-only observation, not a Policy or manual-review inference.
+  constexpr const char* allowed_primary_reasons[] = {
+      "disabled", "empty_mir_primary_candidate_board",
+      "selector_returned_no_candidate", "material_risk_review_hold",
+      "high_family_conflict_review_hold", "soft_center_conflict_review_hold",
+      "sparse_or_acapella_review_hold", "measured_candidate_primary",
+      "invalid_primary_candidate"};
+  bool primary_reason_known = false;
+  for (const auto* known : allowed_primary_reasons)
+    primary_reason_known |= std::strcmp(primary.reason, known) == 0;
+  if (!primary_reason_known) return false;
+  out.push("primary_hold",
+           primary.review_hold ? "review_hold" :
+           primary.auto_candidate ? "selected" : "no_candidate",
+           primary.reason, "", primary_parent, primary.selected_bpm,
+           primary.support, primary.winner_support);
+  out.lines.insert(out.lines.size() - 3,
+      ",\"enabled\":" + std::to_string(static_cast<int>(primary.enabled)) +
+      ",\"candidate\":" + std::to_string(static_cast<int>(primary.candidate)) +
+      ",\"auto_candidate\":" + std::to_string(static_cast<int>(primary.auto_candidate)) +
+      ",\"review_hold\":" + std::to_string(static_cast<int>(primary.review_hold)) +
+      ",\"route_valid\":" + std::to_string(static_cast<int>(primary.route_valid)) +
+      ",\"sparse_hold\":" + std::to_string(static_cast<int>(primary.sparse_acapella_review_hold)) +
+      ",\"material_hold\":" + std::to_string(static_cast<int>(primary.material_risk_review_hold)) +
+      ",\"high_family_hold\":" + std::to_string(static_cast<int>(primary.high_family_conflict_review_hold)) +
+      ",\"soft_center_hold\":" + std::to_string(static_cast<int>(primary.soft_center_conflict_review_hold)));
   // BPM proximity to a FullBoard row is not native chosen-object identity.
   // Report matching BPM multiplicity as a falsifiable *comparison*, not an
   // assertion that Policy selected that candidate pointer.
@@ -795,7 +822,7 @@ inline bool record(
   if (out.sequence != windows.size() + supply.segments.size() +
                       board.raw_candidates.size() + 4 * collapsed.size() +
                       fullboard.size() + selectorEvents.size() +
-                      supplemental_id.size() + collapsed.size() + 11 +
+                      supplemental_id.size() + collapsed.size() + 12 +
                        manual_source_count + manual.size() ||
       out.lines.size() > 2 * 1024 * 1024) return false;
   const std::wstring output = fixture + L".pipeline.jsonl";
