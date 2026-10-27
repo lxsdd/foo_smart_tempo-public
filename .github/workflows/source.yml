@@ -25,7 +25,21 @@ jobs:
       - name: Checkout only public source
         uses: actions/checkout@v4
         with:
+          # Pull-request default checkout is a synthetic merge commit, NOT the
+          # reviewed product source SHA. Pin the exact PR head for all native
+          # trace, oracle and no-write qualifications.
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
+
+      - name: Assert exact checked-out product source SHA
+        shell: pwsh
+        run: |
+          $expected = '${{ github.event.pull_request.head.sha || github.sha }}'
+          $actual = ((& git rev-parse HEAD) | Out-String).Trim().ToLowerInvariant()
+          if ($LASTEXITCODE -ne 0 -or $actual -cne $expected.ToLowerInvariant()) {
+            throw "Source checkout mismatch: expected $expected, got $actual"
+          }
+          Write-Host "SMART_TEMPO_EXACT_CHECKOUT_SHA=$actual"
 
       - name: Require absence of personal research
         shell: pwsh
@@ -48,10 +62,14 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'CI-only candidate lineage integrity regressions failed' }
           python -m unittest discover -s tests -p 'test_smart_tempo_b_cluster_rail_fates.py' -v
           if ($LASTEXITCODE -ne 0) { throw 'Independent native cluster rail fate chronology failed' }
+          python -m unittest discover -s tests -p 'test_smart_tempo_b_low_upper_fates.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'Independent native low upper-branch fate chronology failed' }
           python -m unittest discover -s tests -p 'test_smart_tempo_b_raw_fates.py' -v
           if ($LASTEXITCODE -ne 0) { throw 'Independent native raw-selector fate automaton failed' }
           python -m unittest discover -s tests -p 'test_smart_tempo_b_candidate_fates.py' -v
           if ($LASTEXITCODE -ne 0) { throw 'Independent candidate-fate chronology regressions failed' }
+          python -m unittest discover -s tests -p 'test_smart_tempo_native_mutations.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'Native-host trace mutation-gate regressions failed' }
           python -m unittest discover -s tests -p 'test_smart_tempo_ci_pilot_contract.py' -v
           if ($LASTEXITCODE -ne 0) { throw 'Cross-architecture Phase-B pilot contract failed' }
           python -m unittest discover -s tests -p 'test_smart_tempo_b_pilot_cohort.py' -v

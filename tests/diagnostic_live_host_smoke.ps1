@@ -218,6 +218,14 @@ function Run-Case([string]$installer,[string]$root,[string]$inputFile,[string[]]
       throw 'Original host did not prove native General/Harmonic rail disposition'
     }
     Write-Host ("SMART_TEMPO_NATIVE_RAIL_{0}_{1}=PASS" -f $Architecture,$label)
+    # Native branch-local upper-pool veto, including the no-upper fallback.
+    $upperProof=$inputFile+'.native-low-upper'
+    if (-not (Test-Path -LiteralPath $upperProof -PathType Leaf) -or
+        (Get-Content -LiteralPath $upperProof -Raw) -cne
+        "SMART_TEMPO_CI_NATIVE_LOW_UPPER=PASS`n") {
+      throw 'Original host did not prove low upper branch veto and continuation'
+    }
+    Write-Host ("SMART_TEMPO_NATIVE_LOW_UPPER_{0}_{1}=PASS" -f $Architecture,$label)
     # Additional positive/negative in-process low bestBy sequence, 60->80->71.
     # This is a separate synthetic board, NOT decoded-audio BPM quality.
     $nestedProof=$inputFile+'.native-low-nested'
@@ -269,6 +277,22 @@ function Run-Case([string]$installer,[string]$root,[string]$inputFile,[string[]]
       $traceOutput=@(python ./tools/audit_smart_tempo_ci_pipeline_trace.py --trace $trace --require-windows 2>&1)
       if ($LASTEXITCODE -ne 0) { throw ('Real foobar native BPM lineage contract failed: '+($traceOutput -join '; ')) }
       $traceOutput | ForEach-Object { Write-Host $_ }
+      # Mutation battery runs on the *actual* native-host trace, not only
+      # on a fabricated unit-test event list. It must reject corrupted
+      # source IDs, decoder windows, policy/witness and write-guard evidence.
+      $mutationOutput=@(python ./tools/audit_smart_tempo_native_mutations.py --trace $trace --require-windows 2>&1)
+      $mutationMarker=@($mutationOutput | Where-Object {
+        $_ -ceq 'SMART_TEMPO_NATIVE_MUTATION_GATE=PASS'
+      })
+      $mutationCounts=@($mutationOutput | Where-Object {
+        $_ -cmatch '^SMART_TEMPO_NATIVE_MUTATIONS_REJECTED=([0-9]+)$'
+      })
+      if ($LASTEXITCODE -ne 0 -or $mutationMarker.Count -ne 1 -or
+          $mutationCounts.Count -ne 1 -or
+          [int]($mutationCounts[0] -replace '^.*=', '') -lt 19) {
+        throw ('Original-host adversarial lineage gate failed: '+($mutationOutput -join '; '))
+      }
+      $mutationOutput | ForEach-Object { Write-Host $_ }
       # Independent post-host recall audit: the predeclared reference BPM is
       # read only by this Python scorer AFTER the native worker has exited.
       # Crucially, neither MIR, Policy nor the host component sees the oracle.

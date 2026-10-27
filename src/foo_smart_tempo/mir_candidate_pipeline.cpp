@@ -1310,6 +1310,20 @@ evaluate_mir_high_pulse_interval_conflict_shadow(
     }
   }
   if (!upper.empty()) {
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+    // The upper branch will return without visiting threshold/rescue pools.
+    // This veto is BRANCH-LOCAL: a later continuous-center rescue can still
+    // select this same cluster, so it is NOT a final primary first-veto.
+    for (const auto& candidate : candidates) {
+      const bool qualifies = candidate.bpm >= 95.0 && candidate.bpm <= 125.0 &&
+          candidate.support >= 0.70 && candidate.pulse_score >= 0.35 &&
+          candidate.pulse_section_support >= 0.35;
+      if (!qualifies)
+        ci_primary_event(static_cast<std::size_t>(&candidate - candidates.data()),
+                         candidate.bpm, candidate.pulse_score, false, false,
+                         "low_upper_branch_veto");
+    }
+#endif
     return bestBy(upper, [&](const MirCandidate* c) noexcept {
       return c->pulse_score * 8.0 + c->pulse_section_support * 6.0 +
              c->support * 2.0 +

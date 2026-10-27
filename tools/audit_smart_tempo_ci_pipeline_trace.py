@@ -13,6 +13,7 @@ from pathlib import Path
 import re
 from audit_smart_tempo_b_raw_fates import RawFateError, reconcile_native_raw
 from audit_smart_tempo_b_cluster_rail_fates import RailFateError, reconcile_native_rail
+from audit_smart_tempo_b_low_upper_fates import LowUpperFateError, reconcile_native_low_upper
 
 SCHEMA = "smart_tempo_source_decision_trace_v1"
 MAX_BYTES, MAX_LINES = 2 * 1024 * 1024, 12300
@@ -80,6 +81,7 @@ ALLOWED_FILTER_REASONS = frozenset((
     "raw_alias_decisive_veto", "raw_support_decisive_veto",
     "raw_support_allowed", "raw_support_provisional_exclusion",
     "low_upper_gate_allowed", "low_upper_gate_provisional_exclusion",
+    "low_upper_branch_veto",
     "low_threshold_allowed", "low_threshold_provisional_exclusion",
     "harmonic_in_rail", "harmonic_out_of_rail",
     "harmonic_rail_decisive_veto", "general_rail_decisive_veto",
@@ -1030,11 +1032,18 @@ def validate(rows: list[dict], *, require_windows: bool = False,
         except RailFateError as exc:
             raise TraceError("incomplete or contradictory native rail fate: " +
                              str(exc)) from exc
+        try:
+            low_upper_fates = reconcile_native_low_upper(rows)
+        except LowUpperFateError as exc:
+            raise TraceError("incomplete or contradictory native low upper fate: " +
+                             str(exc)) from exc
     else:
         rail_fates = {}
+        low_upper_fates = {}
     return {
         **raw_fates,
         **rail_fates,
+        **low_upper_fates,
         "rows": len(rows), "raw": len(raw), "collapsed": len(collapsed),
         "native_source_inventory_verified": int(bool(inventories)),
         "native_empty_board_boundary_verified": 0,

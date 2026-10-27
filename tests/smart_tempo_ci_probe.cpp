@@ -560,6 +560,90 @@ bool native_rail_contract(int variant) {
     return excluded==2 && readmitted==0 && rank==1 &&
            compare==1 && terminal==1 && result.selected_bpm==128.0;
 }
+// Actual low-pulse upper branch versus the same board with upper evidence
+// removed. This is CI-only, fabricated and cannot establish music accuracy.
+bool native_low_upper_contract(bool upperEnabled) {
+    using namespace smart_tempo;
+    using namespace smart_tempo::mir_pipeline;
+    MirCandidateBoard board{};
+    board.segment_count = 10;
+    for (double bpm : {60.0, 110.0, 150.0}) {
+        MirRawCandidate candidate{};
+        candidate.bpm = bpm;
+        candidate.alias_bit = static_cast<uint16_t>(MirAlias::direct);
+        candidate.alias_class = "direct";
+        candidate.synthetic_support = bpm == 110.0 ? .90 : .20;
+        candidate.synthetic_winner_support = .10;
+        candidate.score_sum = .50;
+        candidate.best_combined_score = .30;
+        candidate.rows = 1;
+        candidate.pulse_score = bpm == 110.0 && upperEnabled ? .85 : .05;
+        candidate.pulse_section_support =
+            bpm == 110.0 && upperEnabled ? .85 : .05;
+        board.raw_candidates.push_back(candidate);
+    }
+    MirRoutingContext route{};
+    route.source_genres = "Chill";
+    route.matched_token = "Chill";
+    route.route_matched = true;
+    const HodgkinsonTatumProbeResult mir{};
+    const HodgkinsonMaterialRiskEvidence risk{};
+    const auto selection = compute_mir_primary_selection(
+        board, mir, risk, &route, 50.0, 88.0, true);
+    if (std::string_view(selection.lane) != "low_pulse_context" ||
+        !mir_ci_primary_selector_trace_complete()) return false;
+    std::size_t upperGates = 0, branchVetoes = 0, upperRanks = 0;
+    std::size_t upperCompares = 0, thresholdGates = 0;
+    for (const auto& row : mir_ci_primary_selector_events()) {
+        if (std::strcmp(row.reason, "low_upper_gate_allowed") == 0 ||
+            std::strcmp(row.reason, "low_upper_gate_provisional_exclusion") == 0) {
+            if (row.raw || row.source_index >= 3 ||
+                row.included != (upperEnabled && row.source_index == 1))
+                return false;
+            ++upperGates;
+        } else if (std::strcmp(row.reason, "low_upper_branch_veto") == 0) {
+            if (row.raw || row.included || row.source_index == 1 ||
+                !upperEnabled) return false;
+            ++branchVetoes;
+        } else if (std::strcmp(row.reason, "low_rank_scored") == 0) {
+            if (upperEnabled && row.source_index != 1) return false;
+            ++upperRanks;
+        } else if (std::strcmp(row.reason, "low_compare_won") == 0 ||
+                   std::strcmp(row.reason, "low_compare_lost") == 0) {
+            if (upperEnabled && (row.source_index != 1 ||
+                std::strcmp(row.reason, "low_compare_won") != 0))
+                return false;
+            ++upperCompares;
+        } else if (std::strcmp(row.reason, "low_threshold_allowed") == 0 ||
+                   std::strcmp(row.reason, "low_threshold_provisional_exclusion") == 0) {
+            ++thresholdGates;
+        }
+    }
+    if (upperGates != 3) return false;
+    return upperEnabled
+        ? branchVetoes == 2 && upperRanks == 1 &&
+          upperCompares == 1 && thresholdGates == 0
+        : branchVetoes == 0 && thresholdGates == 3 &&
+          upperRanks >= 1 && upperCompares >= 1;
+}
+
+bool write_native_low_upper_marker() {
+    if (!native_low_upper_contract(true) ||
+        !native_low_upper_contract(false)) return false;
+    const std::wstring output = g_ci_fixture + L".native-low-upper";
+    const HANDLE handle = ::CreateFileW(
+        output.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_NEW,
+        FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (handle == INVALID_HANDLE_VALUE) return false;
+    constexpr char proof[] = "SMART_TEMPO_CI_NATIVE_LOW_UPPER=PASS\n";
+    DWORD written = 0;
+    const bool ok = ::WriteFile(handle, proof,
+        static_cast<DWORD>(sizeof(proof)-1), &written, nullptr) &&
+        written == sizeof(proof)-1;
+    ::CloseHandle(handle);
+    return ok;
+}
+
 bool write_native_rail_marker() {
     if (!native_rail_contract(0) || !native_rail_contract(1) ||
         !native_rail_contract(2)) return false;
@@ -638,6 +722,11 @@ void CALLBACK run_ci_probe(HWND, UINT, UINT_PTR timer, DWORD) {
             return;
         }
         FB2K_console_formatter() << "SMART_TEMPO_CI_NATIVE_LOW_NESTED=PASS";
+        if (!write_native_low_upper_marker()) {
+            FB2K_console_formatter() << "SMART_TEMPO_CI_NATIVE_LOW_UPPER=FAIL";
+            return;
+        }
+        FB2K_console_formatter() << "SMART_TEMPO_CI_NATIVE_LOW_UPPER=PASS";
         if (!write_native_rail_marker()) {
             FB2K_console_formatter() << "SMART_TEMPO_CI_NATIVE_RAIL=FAIL";
             return;
