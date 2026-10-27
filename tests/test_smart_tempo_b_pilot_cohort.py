@@ -20,6 +20,9 @@ def fixture(arch):
             PHASE_B_CAUSAL_COMPLETENESS="INCOMPLETE_EMPTY_BOARD_CAUSAL" if negative else "INCOMPLETE_PRIMARY_VETO",
             DECODED_WINDOWS=50,DECLARED_WINDOWS=50,WINDOWS_COMPLETE=1,
             FINAL_ACCEPT=int(not negative),PROCESS_CPU_SECONDS=1.2,
+            WRITER_RESOLUTION_NATIVE=1,WRITER_SOURCE_INDEXED=int(not negative),
+            WRITER_SOURCE_UNINDEXED=0,WRITER_POLICY_APPLIED=0,
+            WRITER_REASON="mir_no_candidate" if negative else "mir_primary",
             PROCESS_PEAK_RSS_BYTES=50000000)
         if negative: trace["NEGATIVE_NO_CANDIDATE_TRACE"]=1
         else:
@@ -73,6 +76,12 @@ class CohortTests(unittest.TestCase):
         mutate(["cases",0,"trace","WINDOWS_COMPLETE"],0)
         mutate(["cases",0,"trace","PRIMARY_VETO_REASON_UNKNOWN"],0)
         mutate(["cases",0,"trace","INDEXED_NATIVE_FINAL_WITNESS"],0)
+        mutate(["cases",0,"trace","WRITER_RESOLUTION_NATIVE"],0)
+        mutate(["cases",0,"trace","WRITER_SOURCE_INDEXED"],0)
+        mutate(["cases",0,"trace","WRITER_SOURCE_UNINDEXED"],1)
+        mutate(["cases",0,"trace","WRITER_POLICY_APPLIED"],2)
+        mutate(["cases",0,"trace","WRITER_REASON"],"untrusted_private")
+        mutate(["cases",3,"trace","WRITER_REASON"],"mir_primary")
         mutate(["cases",0,"trace","PHASE_B_CAUSAL_COMPLETENESS"],"PASS")
         mutate(["cases",0,"trace","PROCESS_CPU_SECONDS"],float("nan"))
         mutate(["cases",0,"trace","PROCESS_PEAK_RSS_BYTES"],True)
@@ -99,7 +108,8 @@ class CohortTests(unittest.TestCase):
         r=[fixture("Win32"),fixture("x64")]
         s=r[1]["cases"][0]["score"]; t=r[1]["cases"][0]["trace"]
         s.update(ACCEPTED_RHYTHMIC=0,HELD_RHYTHMIC=1,ACCEPTED_OUTSIDE_0_20_BPM=0)
-        t.update(FINAL_ACCEPT=0,INDEXED_NATIVE_FINAL_WITNESS=0)
+        t.update(FINAL_ACCEPT=0,INDEXED_NATIVE_FINAL_WITNESS=0,
+                 WRITER_SOURCE_INDEXED=0,WRITER_REASON="mir_review_hold")
         with self.assertRaisesRegex(PilotError,"cross-architecture decision class drift"):
             validate(r)
 

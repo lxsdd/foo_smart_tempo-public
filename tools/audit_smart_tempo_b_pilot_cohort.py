@@ -8,8 +8,12 @@ import re
 
 CASES=("pulse_60","pulse_128","pulse_120_sparse","silence")
 SCORE_KEYS=set("""EVALUATED REFERENCE_RHYTHMIC ACCEPTED_RHYTHMIC HELD_RHYTHMIC ACCEPTED_WITHIN_0_05_BPM ACCEPTED_WITHIN_0_20_BPM ACCEPTED_OUTSIDE_0_20_BPM NEGATIVE_TOTAL NEGATIVE_FALSEACCEPTS HALF_DOUBLE_ALIAS CORRECT_ABSTENTION""".split())
-TRACE_KEYS=set("""NATIVE_SOURCE_INVENTORY_VERIFIED RAW COLLAPSED WRITE_GUARD_BLOCKED PHASE_B_CAUSAL_COMPLETENESS DECODED_WINDOWS DECLARED_WINDOWS WINDOWS_COMPLETE FINAL_ACCEPT PROCESS_CPU_SECONDS PROCESS_PEAK_RSS_BYTES""".split())
+TRACE_KEYS=set("""NATIVE_SOURCE_INVENTORY_VERIFIED RAW COLLAPSED WRITE_GUARD_BLOCKED PHASE_B_CAUSAL_COMPLETENESS DECODED_WINDOWS DECLARED_WINDOWS WINDOWS_COMPLETE FINAL_ACCEPT PROCESS_CPU_SECONDS PROCESS_PEAK_RSS_BYTES WRITER_RESOLUTION_NATIVE WRITER_SOURCE_INDEXED WRITER_SOURCE_UNINDEXED WRITER_POLICY_APPLIED WRITER_REASON""".split())
 OPTIONAL=set("""PRIMARY_VETO_REASON_UNKNOWN INDEXED_NATIVE_FINAL_WITNESS UNINDEXED_SUPPLEMENTAL_FINAL_WITNESS SUPPLEMENTAL_SELECTED_SOURCES POLICY_SUPPLEMENTAL_POINTER_IDENTITY_COMPLETE NEGATIVE_NO_CANDIDATE_TRACE SELECTOR_LOW_BESTBY_EPISODES SELECTOR_COMPARE_LOW_WINS SELECTOR_COMPARE_LOW_LOSSES""".split())
+WRITER_REASONS=frozenset((
+    "mir_primary", "mir_review_hold", "mir_no_candidate",
+    "mir_writer_override", "mir_review_hold_release",
+    "mir_local_exact_upgrade", "mir_writer_invariant_hold"))
 SHADOW_MODELS=("SCORE_SUM","SUPPORT","COMBINED","SCORE_TIMES_SUPPORT")
 SHADOW_KEYS={"CANDIDATES","REFERENCE_PRESENT","NATIVE_PRIMARY_CORRECT",
              "NATIVE_FINAL_CORRECT","NATIVE_PRIMARY_SOURCE_INDEXED",
@@ -96,12 +100,26 @@ def validate(reports,require_both=True):
             for k,v in s.items(): count(v,k)
             for k,v in t.items():
                 if k=="PHASE_B_CAUSAL_COMPLETENESS": continue
+                if k=="WRITER_REASON":
+                    if type(v) is not str or v not in WRITER_REASONS:
+                        raise PilotError("unknown applied writer reason")
+                    continue
                 if k in ("PROCESS_CPU_SECONDS","PROCESS_PEAK_RSS_BYTES"): resource(v,k)
                 else: count(v,k)
             if (s["EVALUATED"]!=1 or t["NATIVE_SOURCE_INVENTORY_VERIFIED"]!=1 or
                 t["WRITE_GUARD_BLOCKED"]!=1 or t["WINDOWS_COMPLETE"]!=1 or
                 not 1<=t["DECODED_WINDOWS"]==t["DECLARED_WINDOWS"]<=128 or
-                t["FINAL_ACCEPT"]!=s["ACCEPTED_RHYTHMIC"]+s["NEGATIVE_FALSEACCEPTS"]):
+                t["FINAL_ACCEPT"]!=s["ACCEPTED_RHYTHMIC"]+s["NEGATIVE_FALSEACCEPTS"] or
+                t["WRITER_RESOLUTION_NATIVE"]!=1 or
+                t["WRITER_SOURCE_INDEXED"]+t["WRITER_SOURCE_UNINDEXED"]!=t["FINAL_ACCEPT"] or
+                t["WRITER_POLICY_APPLIED"]>t["FINAL_ACCEPT"] or
+                t["WRITER_POLICY_APPLIED"]!=int(t["WRITER_REASON"] in (
+                    "mir_writer_override","mir_review_hold_release",
+                    "mir_local_exact_upgrade")) or
+                (t["FINAL_ACCEPT"]==0 and t["WRITER_REASON"] not in (
+                    "mir_review_hold","mir_no_candidate","mir_writer_invariant_hold")) or
+                (t["FINAL_ACCEPT"]==1 and t["WRITER_REASON"] in (
+                    "mir_review_hold","mir_no_candidate","mir_writer_invariant_hold"))):
                 raise PilotError("native/scorer conservation or write-guard failed")
             if i<3:
                 if (s["REFERENCE_RHYTHMIC"]!=1 or s["NEGATIVE_TOTAL"]!=0 or
@@ -154,6 +172,10 @@ def validate(reports,require_both=True):
         raise PilotError("source SHA or host coverage mismatch")
     if require_both and out["Win32"]["classes"]!=out["x64"]["classes"]:
         raise PilotError("cross-architecture decision class drift")
+    if require_both and any(
+            left["trace"]["WRITER_REASON"] != right["trace"]["WRITER_REASON"]
+            for left,right in zip(reports[0]["cases"],reports[1]["cases"])):
+        raise PilotError("cross-architecture applied writer reason drift")
     if require_both and any(
             left["shadow"] != right["shadow"]
             for left,right in zip(reports[0]["cases"],reports[1]["cases"])):

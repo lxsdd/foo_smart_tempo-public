@@ -92,7 +92,7 @@ $script:pilotTraceKeys=@('NATIVE_SOURCE_INVENTORY_VERIFIED','RAW','COLLAPSED','W
   'PHASE_B_CAUSAL_COMPLETENESS','DECODED_WINDOWS','DECLARED_WINDOWS','WINDOWS_COMPLETE',
   'FINAL_ACCEPT','PROCESS_CPU_SECONDS','PROCESS_PEAK_RSS_BYTES','PRIMARY_VETO_REASON_UNKNOWN',
   'WRITER_RESOLUTION_NATIVE','WRITER_SOURCE_INDEXED','WRITER_SOURCE_UNINDEXED',
-  'WRITER_POLICY_APPLIED',
+  'WRITER_POLICY_APPLIED','WRITER_REASON',
   'INDEXED_NATIVE_FINAL_WITNESS','UNINDEXED_SUPPLEMENTAL_FINAL_WITNESS',
   'SUPPLEMENTAL_SELECTED_SOURCES','POLICY_SUPPLEMENTAL_POINTER_IDENTITY_COMPLETE',
   'NEGATIVE_NO_CANDIDATE_TRACE','SELECTOR_LOW_BESTBY_EPISODES',
@@ -336,7 +336,7 @@ function Run-Case([string]$installer,[string]$root,[string]$inputFile,[string[]]
             $Matches[1] -cin $script:pilotTraceKeys) {
           $key=$Matches[1]; $value=$Matches[2]
           if ($traceEvidence.ContainsKey($key)) { throw 'Duplicate trace key' }
-          if ($key -eq 'PHASE_B_CAUSAL_COMPLETENESS') {
+          if ($key -in @('PHASE_B_CAUSAL_COMPLETENESS','WRITER_REASON')) {
             $traceEvidence[$key]=$value
           } elseif ($key -in @('PROCESS_CPU_SECONDS','PROCESS_PEAK_RSS_BYTES')) {
             $traceEvidence[$key]=[double]::Parse($value,[Globalization.CultureInfo]::InvariantCulture)
@@ -350,7 +350,7 @@ function Run-Case([string]$installer,[string]$root,[string]$inputFile,[string[]]
           'DECLARED_WINDOWS','WINDOWS_COMPLETE','FINAL_ACCEPT',
           'PROCESS_CPU_SECONDS','PROCESS_PEAK_RSS_BYTES',
           'WRITER_RESOLUTION_NATIVE','WRITER_SOURCE_INDEXED',
-          'WRITER_SOURCE_UNINDEXED','WRITER_POLICY_APPLIED')) {
+          'WRITER_SOURCE_UNINDEXED','WRITER_POLICY_APPLIED','WRITER_REASON')) {
         if (-not $traceEvidence.ContainsKey($required)) {
           throw "Incomplete native pilot trace evidence: $required"
         }
