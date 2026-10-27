@@ -426,9 +426,12 @@ class NativePipelineTraceTests(unittest.TestCase):
         self.assertEqual(result["native_empty_board_boundary_verified"], 1)
         self.assertEqual(result["phase_b_causal_completeness"],
                          "INCOMPLETE_EMPTY_BOARD_CAUSAL")
+        # A changed Primary terminal without its independently observed
+        # hold flags/reason is now a forged native causal record, not PASS.
         rows[1]["outcome"], rows[1]["reason_code"] = (
             "review_hold", "primary_review_hold")
-        self.assertEqual(validate(rows, require_windows=True)["final_accept"], 0)
+        with self.assertRaises(TraceError):
+            validate(rows, require_windows=True)
 
     def test_native_empty_board_forgery_matrix_fails_closed(self):
         base = empty_board_native_trace()
