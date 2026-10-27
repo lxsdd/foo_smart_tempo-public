@@ -822,7 +822,13 @@ def validate(rows: list[dict], *, require_windows: bool = False,
     # promotion gate. Source-indexed candidate events make it impossible to
     # treat a ranked challenger as automatically selected.
     general = [r for r in stage_indices["candidate_filter"]
-               if r["reason_code"].startswith("general_alt_")]
+               if r["reason_code"].startswith("general_alt_") and
+               not r["reason_code"].startswith("general_alt_window_")]
+    if require_windows and any(
+            r["reason_code"].startswith("general_alt_window_")
+            for r in stage_indices["candidate_filter"]) and not any(
+            r["reason_code"] == "general_alt_baseline_source" for r in general):
+        raise TraceError("host General alternative window lacks native baseline")
     baseline = [r for r in general
                 if r["reason_code"] == "general_alt_baseline_source"]
     resolutions = [r for r in general if r["reason_code"] in (
