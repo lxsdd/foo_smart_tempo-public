@@ -979,6 +979,8 @@ to prove that an escaped corruption fails the gate.
 the *observed* production-path telemetry. It is not a first-decisive-veto
 proof for unvisited candidates, an eligibility proof for merged manual-review
 rows, a musical hit-rate improvement, or permission for Phase C/production
-selector or writer changes. Source SHA, original host CI job and negative
+selector or writer changes. The workflow now checks out the **exact PR head SHA** rather than GitHub's
+synthetic pull-request merge commit and fails before compilation if its Git
+HEAD differs. Source SHA, original host CI job and negative
 mutation count must be reported together; only the actual completed Windows
 run can establish runtime qualification.

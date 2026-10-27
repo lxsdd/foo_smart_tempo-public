@@ -73,6 +73,15 @@ class NativeMutationGateTests(unittest.TestCase):
         with self.assertRaisesRegex(TraceError, "native mutation source missing|missing required native terminal"):
             subject.mutations(rows)
 
+    def test_original_host_checks_exact_product_source_sha(self):
+        workflow = (ROOT / ".github" / "workflows" / "source.yml").read_text(
+            encoding="utf-8")
+        self.assertEqual(workflow.count(
+            "ref: ${{ github.event.pull_request.head.sha || github.sha }}"), 1)
+        self.assertIn("SMART_TEMPO_EXACT_CHECKOUT_SHA=$actual", workflow)
+        self.assertIn("Assert exact checked-out product source SHA", workflow)
+        self.assertIn("$actual -cne $expected.ToLowerInvariant()", workflow)
+
     def test_optional_mutations_are_source_indexed_not_bpm_joined(self):
         rows = selected_with_segment()
         names = {name for name, _ in subject.mutations(rows)}

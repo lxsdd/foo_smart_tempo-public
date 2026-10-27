@@ -24,7 +24,21 @@ jobs:
       - name: Checkout only public source
         uses: actions/checkout@v4
         with:
+          # Pull-request default checkout is a synthetic merge commit, NOT the
+          # reviewed product source SHA. Pin the exact PR head for all native
+          # trace, oracle and no-write qualifications.
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
+
+      - name: Assert exact checked-out product source SHA
+        shell: pwsh
+        run: |
+          $expected = '${{ github.event.pull_request.head.sha || github.sha }}'
+          $actual = ((& git rev-parse HEAD) | Out-String).Trim().ToLowerInvariant()
+          if ($LASTEXITCODE -ne 0 -or $actual -cne $expected.ToLowerInvariant()) {
+            throw "Source checkout mismatch: expected $expected, got $actual"
+          }
+          Write-Host "SMART_TEMPO_EXACT_CHECKOUT_SHA=$actual"
 
       - name: Require absence of personal research
         shell: pwsh
