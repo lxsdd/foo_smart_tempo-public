@@ -3084,7 +3084,10 @@ double ModernBpmAnalyzer::analyze(metadb_handle_ptr track, threaded_process_stat
                 mir_ci_primary_selector_events(), mir_ci_policy_pointer_source(),
                 mirPrimarySelection,
                 mirPolicyDecision, finalBpm, m_diag.suppress_write,
-                measuredWitness, ciResource, ciSupply,
+                measuredWitness, m_diag.policy_reason.get_ptr(),
+                smart_tempo::experimental::kEnableMirPolicyRuntime &&
+                    mirPolicyDecision.enabled,
+                ciResource, ciSupply,
                 materialRiskLocalExactProbe.candidate
                     ? &materialRiskLocalExactProbe : nullptr,
                 partialBarAggregateShadow.candidate

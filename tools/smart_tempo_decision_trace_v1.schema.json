@@ -19,7 +19,7 @@
         "mir_segment", "candidate_create", "candidate_transform",
         "candidate_filter", "primary_eligibility", "policy_filter", "primary_rank", "primary_compare",
         "primary_terminal", "primary_disposition", "primary_select", "primary_hold", "policy_eligibility", "policy_resolution", "policy_pointer",
-        "policy_rank", "policy_change", "policy_hold_release", "supplemental_candidate",
+        "policy_rank", "policy_change", "writer_resolution", "policy_hold_release", "supplemental_candidate",
         "measured_witness", "final_output", "resource_usage", "write_guard",
         "source_inventory"
       ]
@@ -55,6 +55,8 @@
     "Every native Policy rail verdict must reconcile source-index, resolved BPM and FullBoard membership",
     "CI-only raw and general-baseline executed comparator ties preserve the four ordered numeric tie fields",
     "CI-only low continuous-center comparator preserves the fifth tie field for source-identity replay",
+    "The applied writer resolution must use a fixed native reason enum after the same-run measured-witness invariant; proposed Policy output is not applied writer output",
+    "An applied primary or Policy writer source may be indexed only to the actual native selected object; unknown micro-upgrade source identity stays unindexed",
     "Review Hold is a first-class outcome, not counted as a wrong BPM",
     "Window geometry and decoding costs must be independently measured",
     "Ground-truth labels never flow into candidate creation or production selection"

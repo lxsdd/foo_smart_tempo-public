@@ -242,6 +242,7 @@ inline bool record(
     const MirPrimarySelection& primary,
     const MirPolicyDecision& policy,
     double final_bpm, bool withheld, bool same_run_measured_witness,
+    const char* applied_writer_reason, bool policy_runtime_enabled,
     const ProcessResourceObservation& resource,
     const MirSourceSupplyObservation& supply,
     const smart_tempo::HodgkinsonMaterialRiskLocalExactProbe* risk,
@@ -280,6 +281,17 @@ inline bool record(
       (supply.family_rank_rows == 0 &&
        (supply.alias_add_calls || supply.continuous_add_calls)))
     return false;
+  // The final diagnostic reason is read only AFTER the production writer
+  // invariant. Never serialize arbitrary diagnostics or metadata.
+  if (!applied_writer_reason) return false;
+  constexpr const char* allowed_writer_reasons[] = {
+      "mir_primary", "mir_review_hold", "mir_no_candidate",
+      "mir_writer_override", "mir_review_hold_release",
+      "mir_local_exact_upgrade", "mir_writer_invariant_hold"};
+  bool writer_reason_known = false;
+  for (const auto* known : allowed_writer_reasons)
+    writer_reason_known |= std::strcmp(applied_writer_reason, known) == 0;
+  if (!writer_reason_known) return false;
   EventWriter out(run_id);
   std::vector<std::string> raw_ids, cluster_ids, policy_ids;
   raw_ids.reserve(board.raw_candidates.size());
@@ -666,6 +678,29 @@ inline bool record(
            policy.output_would_write ? "keep_primary" : "no_policy_write",
            "", selected_policy_pointer, policy.output_bpm,
            policy.candidate_local_exact_score, policy.candidate_support);
+  // This is the ACTUAL applied analyzer writer branch, not the Policy
+  // helper's provisional output. Primary and selected Policy pointers are
+  // linked only when their exact native object and final BPM agree.
+  const bool applied_primary =
+      std::strcmp(applied_writer_reason, "mir_primary") == 0;
+  const bool applied_policy =
+      std::strcmp(applied_writer_reason, "mir_writer_override") == 0 ||
+      std::strcmp(applied_writer_reason, "mir_review_hold_release") == 0 ||
+      std::strcmp(applied_writer_reason, "mir_local_exact_upgrade") == 0;
+  std::vector<std::string> applied_writer_source;
+  if (!withheld && final_bpm > 0.0) {
+    if (applied_primary && primary_parent.size() == 1 &&
+        std::abs(primary.selected_bpm - final_bpm) <= 0.001)
+      applied_writer_source = primary_parent;
+    else if (applied_policy && selected_policy_pointer.size() == 1 &&
+             std::abs(policy.output_bpm - final_bpm) <= 0.001)
+      applied_writer_source = selected_policy_pointer;
+  }
+  out.push("writer_resolution",
+           withheld || final_bpm <= 0.0 ? "review_hold" : "selected",
+           applied_writer_reason, "", applied_writer_source, final_bpm,
+           static_cast<double>(policy_runtime_enabled),
+           static_cast<double>(policy.output_would_write));
   out.push("final_output",
            withheld || final_bpm <= 0.0 ? "review_hold" : "selected",
            withheld || final_bpm <= 0.0 ? "final_abstained" : "final_numeric",
@@ -725,7 +760,7 @@ inline bool record(
   if (out.sequence != windows.size() + supply.segments.size() +
                       board.raw_candidates.size() + 3 * collapsed.size() +
                       fullboard.size() + selectorEvents.size() +
-                      supplemental_id.size() + collapsed.size() + 9 ||
+                      supplemental_id.size() + collapsed.size() + 10 ||
       out.lines.size() > 2 * 1024 * 1024) return false;
   const std::wstring output = fixture + L".pipeline.jsonl";
   HANDLE h = CreateFileW(output.c_str(), GENERIC_WRITE, 0, nullptr,

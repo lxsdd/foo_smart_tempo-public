@@ -13,6 +13,8 @@ from pathlib import Path
 import re
 from audit_smart_tempo_b_raw_fates import RawFateError, reconcile_native_raw
 from audit_smart_tempo_b_cluster_rail_fates import RailFateError, reconcile_native_rail
+from audit_smart_tempo_b_writer_resolution import (
+    WriterResolutionError, reconcile as reconcile_writer_resolution)
 from audit_smart_tempo_b_low_upper_fates import LowUpperFateError, reconcile_native_low_upper
 from audit_smart_tempo_b_low_continuous_fates import (
     LowContinuousFateError, reconcile_native_low_continuous)
@@ -66,6 +68,7 @@ ENUMS = {
     "policy_resolution": ("observed", None),
     "policy_pointer": ("observed", None),
     "policy_change": (None, None),
+    "writer_resolution": (None, None),
     "final_output": (None, None),
     "measured_witness": (None, None),
     "resource_usage": ("observed", "process_resource_snapshot"),
@@ -182,9 +185,9 @@ def validate(rows: list[dict], *, require_windows: bool = False,
         "primary_terminal": 3, "primary_disposition": 3,
         "primary_select": 4,
         "policy_resolution": 5, "policy_pointer": 6,
-        "policy_change": 7, "final_output": 8,
-        "measured_witness": 9, "resource_usage": 10,
-        "write_guard": 11, "source_inventory": 12
+        "policy_change": 7, "writer_resolution": 8,
+        "final_output": 9, "measured_witness": 10, "resource_usage": 11,
+        "write_guard": 12, "source_inventory": 13
     }
     previous_stage_number = -1
     session_id = rows[0].get("analysis_id") if type(rows[0]) is dict else None
@@ -241,7 +244,8 @@ def validate(rows: list[dict], *, require_windows: bool = False,
                             not 1 <= item["metrics"]["low_pool_epoch"] <= 128):
             raise TraceError("invalid native low-pulse pool epoch")
         bpm = item["metrics"]["bpm"]
-        if bpm < 0 or bpm > (220 if stage in ("final_output", "policy_change") else 2000):
+        if bpm < 0 or bpm > (220 if stage in ("final_output", "policy_change",
+                                                 "writer_resolution") else 2000):
             raise TraceError("out-of-rail BPM")
         candidate_id = item["candidate_id"]
         if candidate_id is not None and (type(candidate_id) is not str or
@@ -705,7 +709,13 @@ def validate(rows: list[dict], *, require_windows: bool = False,
             raise TraceError("empty MIR media write safety drift")
         if not windows or len(windows) != declared_passes or len(resources) != 1:
             raise TraceError("empty MIR native window/resource evidence incomplete")
+        try:
+            writer_status = reconcile_writer_resolution(
+                rows, required=require_policy_filter)
+        except WriterResolutionError as exc:
+            raise TraceError("applied native writer chain: " + str(exc)) from exc
         return {
+            **writer_status,
             "rows": len(rows), "raw": 0, "collapsed": 0,
             "primary_pool": 0, "policy_board": 0,
             "decoded_windows": len(windows), "declared_windows": declared_passes,
@@ -1153,7 +1163,13 @@ def validate(rows: list[dict], *, require_windows: bool = False,
         rail_fates = {}
         low_upper_fates = {}
         continuous_fates = {}
+    try:
+        writer_status = reconcile_writer_resolution(
+            rows, required=require_policy_filter)
+    except WriterResolutionError as exc:
+        raise TraceError("applied native writer chain: " + str(exc)) from exc
     return {
+        **writer_status,
         **raw_fates,
         **rail_fates,
         **low_upper_fates,

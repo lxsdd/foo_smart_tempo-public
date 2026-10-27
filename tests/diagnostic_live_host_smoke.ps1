@@ -91,6 +91,8 @@ $script:pilotEvidence=[Collections.Generic.List[object]]::new()
 $script:pilotTraceKeys=@('NATIVE_SOURCE_INVENTORY_VERIFIED','RAW','COLLAPSED','WRITE_GUARD_BLOCKED',
   'PHASE_B_CAUSAL_COMPLETENESS','DECODED_WINDOWS','DECLARED_WINDOWS','WINDOWS_COMPLETE',
   'FINAL_ACCEPT','PROCESS_CPU_SECONDS','PROCESS_PEAK_RSS_BYTES','PRIMARY_VETO_REASON_UNKNOWN',
+  'WRITER_RESOLUTION_NATIVE','WRITER_SOURCE_INDEXED','WRITER_SOURCE_UNINDEXED',
+  'WRITER_POLICY_APPLIED',
   'INDEXED_NATIVE_FINAL_WITNESS','UNINDEXED_SUPPLEMENTAL_FINAL_WITNESS',
   'SUPPLEMENTAL_SELECTED_SOURCES','POLICY_SUPPLEMENTAL_POINTER_IDENTITY_COMPLETE',
   'NEGATIVE_NO_CANDIDATE_TRACE','SELECTOR_LOW_BESTBY_EPISODES',
@@ -285,6 +287,9 @@ function Run-Case([string]$installer,[string]$root,[string]$inputFile,[string[]]
       }
       $traceOutput=@(python ./tools/audit_smart_tempo_ci_pipeline_trace.py --trace $trace --require-windows 2>&1)
       if ($LASTEXITCODE -ne 0) { throw ('Real foobar native BPM lineage contract failed: '+($traceOutput -join '; ')) }
+      if (-not ($traceOutput -contains 'SMART_TEMPO_TRACE_WRITER_RESOLUTION_NATIVE=1')) {
+        throw 'Original foobar native applied-writer decision is not evidenced'
+      }
       $traceOutput | ForEach-Object { Write-Host $_ }
       # Mutation battery runs on the *actual* native-host trace, not only
       # on a fabricated unit-test event list. It must reject corrupted
@@ -343,11 +348,20 @@ function Run-Case([string]$installer,[string]$root,[string]$inputFile,[string[]]
       foreach ($required in @('NATIVE_SOURCE_INVENTORY_VERIFIED','RAW','COLLAPSED',
           'WRITE_GUARD_BLOCKED','PHASE_B_CAUSAL_COMPLETENESS','DECODED_WINDOWS',
           'DECLARED_WINDOWS','WINDOWS_COMPLETE','FINAL_ACCEPT',
-          'PROCESS_CPU_SECONDS','PROCESS_PEAK_RSS_BYTES')) {
+          'PROCESS_CPU_SECONDS','PROCESS_PEAK_RSS_BYTES',
+          'WRITER_RESOLUTION_NATIVE','WRITER_SOURCE_INDEXED',
+          'WRITER_SOURCE_UNINDEXED','WRITER_POLICY_APPLIED')) {
         if (-not $traceEvidence.ContainsKey($required)) {
           throw "Incomplete native pilot trace evidence: $required"
         }
       }
+      if ($traceEvidence['WRITER_RESOLUTION_NATIVE'] -ne 1 -or
+          ($traceEvidence['WRITER_SOURCE_INDEXED'] +
+           $traceEvidence['WRITER_SOURCE_UNINDEXED']) -ne
+          $traceEvidence['FINAL_ACCEPT']) {
+        throw 'Applied writer identity conservation failed'
+      }
+      Write-Host ("SMART_TEMPO_NATIVE_WRITER_RESOLUTION_{0}_{1}=PASS" -f $Architecture,$label)
       # Independently replay source-ID comparator fates without oracle labels.
       # The per-source partition must reconcile with the native inventory.
       # This does NOT claim first-decisive-veto completeness.

@@ -81,6 +81,34 @@ def mutations(rows: list[dict]) -> list[tuple[str, list[dict]]]:
         lambda a, i: a[i]["metrics"].__setitem__("score", 2), required=True)
     add("policy_pointer_flag", row_stage("policy_pointer"),
         lambda a, i: a[i]["metrics"].__setitem__("support", 2), required=True)
+    if any(row["stage"] == "writer_resolution" for row in rows):
+        add("writer_reason_spoof", row_stage("writer_resolution"),
+            lambda a, i: a[i].__setitem__("reason_code", "mir_unregistered"),
+            required=True)
+        add("writer_runtime_spoof", row_stage("writer_resolution"),
+            lambda a, i: a[i]["metrics"].__setitem__("score", 2),
+            required=True)
+        add("writer_policy_flag_spoof", row_stage("writer_resolution"),
+            lambda a, i: a[i]["metrics"].__setitem__("support", 2),
+            required=True)
+        add("writer_bpm_spoof", row_stage("writer_resolution"),
+            lambda a, i: a[i]["metrics"].__setitem__(
+                "bpm", a[i]["metrics"]["bpm"] + 1),
+            required=True)
+        add("writer_parent_spoof", row_stage("writer_resolution"),
+            lambda a, i: a[i].__setitem__(
+                "parent_candidate_ids", [] if a[i]["parent_candidate_ids"]
+                else ["c999999"]),
+            required=True)
+        add("writer_outcome_spoof", row_stage("writer_resolution"),
+            lambda a, i: a[i].__setitem__(
+                "outcome", "review_hold" if a[i]["outcome"] == "selected"
+                else "selected"), required=True)
+        missing = [r for r in copy.deepcopy(rows)
+                   if r["stage"] != "writer_resolution"]
+        for i, row in enumerate(missing):
+            row["sequence"] = i
+        result.append(("missing_writer_resolution", missing))
     add("unknown_raw_origin", row_stage("candidate_create"),
         lambda a, i: a[i].__setitem__("reason_code", "unregistered_raw_source"))
     add("orphan_cluster", row_stage("candidate_transform"),

@@ -1028,3 +1028,37 @@ being ranked is not proof that it wins the later evidence comparison.
   Package C and production changes remain gated. The technical CI result
   must be attached to its exact post-change commit before qualification.
 
+
+## Package B — applied native writer resolution vs Policy proposal (CI-only)
+
+The source-only trace's former `policy_change` describes a **Policy helper
+proposal**, not necessarily the final action taken by the original analyzer.
+The new `writer_resolution` event is captured **after** the original MIR
+Policy runtime branch and same-run measured-witness invariant, from the
+actual bounded `m_diag.policy_reason` enum. It never serializes diagnostic
+free text, metadata, oracle BPM, media paths or user tracks. It also records
+whether Policy runtime was enabled and whether the helper proposed a write.
+
+For a final primary result, the writer parent must be the actual selected
+terminal cluster object. For an applied override, Review Hold release or
+micro-upgrade, a parent is emitted only when the **native Policy-selected
+pointer** matches the final numeric BPM. If the effective output changes or
+the Policy pointer was not observed, the event is deliberately unindexed;
+a same-BPM search cannot manufacture writer identity. Held/no-candidate/
+invariant-veto results carry no accepted source parent.
+
+The independent Python writer oracle checks seven native applied outcomes,
+Policy proposal/runtime consistency, final BPM/outcome, source-pointer
+identity, and the measured-witness result. The original Win32/x64 foobar
+host pipeline requires exactly one applied writer event for each synthetic
+case, and its adversarial audit mutates the **actual host trace** to reject
+missing, forged, reordered and contradictory writer reasons, flags, BPMs
+and source IDs. The host additionally conserves indexed + unindexed
+accepted writer results against the actual final-accept counter.
+
+This remains **Phase B incomplete**, not a license to proceed to the frozen
+Phase C corpus. Missing first-decisive Primary veto coverage, never-visited
+branches, all supplemental/partial-bar source identities, and an independent
+review of complete candidate causality are explicitly unresolved. Even
+if source/host CI is green, it is not independent real-music BPM QA.
+No productive DSP, Selector, Policy, writer, media or preferences change.
