@@ -1871,6 +1871,16 @@ select_mir_low_pulse_continuous_center_rescue(
 #endif
   const MirCandidate* baseline = best_mir_cluster_candidate(
       candidates, pool, lane, routeMin, routeMax, routeCenter);
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+  if (baseline != nullptr)
+    ci_primary_event(static_cast<std::size_t>(baseline - candidates.data()),
+                     baseline->bpm, 0.0, false, true,
+                     "general_alt_baseline_source");
+  if (baseline != nullptr && routeCenter >= 150.0)
+    ci_primary_event(static_cast<std::size_t>(baseline - candidates.data()),
+                     baseline->bpm, 0.0, false, true,
+                     "general_alt_bypass_route");
+#endif
   if (baseline == nullptr || routeCenter >= 150.0) {
     return baseline;
   }
@@ -1879,6 +1889,11 @@ select_mir_low_pulse_continuous_center_rescue(
       (mir_has_alias(baseline->alias_bits, MirAlias::three_halves) ||
        mir_has_alias(baseline->alias_bits, MirAlias::four_thirds));
   if (!baseline144) {
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+    ci_primary_event(static_cast<std::size_t>(baseline - candidates.data()),
+                     baseline->bpm, 0.0, false, true,
+                     "general_alt_bypass_non144");
+#endif
     return baseline;
   }
 
@@ -1952,12 +1967,33 @@ select_mir_low_pulse_continuous_center_rescue(
 #endif
   }
   if (best == nullptr) {
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+    ci_primary_event(static_cast<std::size_t>(baseline - candidates.data()),
+                     baseline->bpm, 0.0, false, true,
+                     "general_alt_no_challenger");
+#endif
     return baseline;
   }
   const double bestEvidence =
       best->best_combined_score + best->pulse_section_support * 0.12;
   const double baselineEvidence =
       baseline->best_combined_score + baseline->pulse_section_support * 0.12;
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+  // Causal promotion witness from the ACTUAL native baseline and challenger.
+  // Separate candidate identities and measured evidence are serialized;
+  // the independent host parser checks the exact >=1.20 comparison.
+  ci_primary_event(static_cast<std::size_t>(baseline - candidates.data()),
+                   baseline->bpm, baselineEvidence, false, true,
+                   "general_alt_baseline_evidence");
+  ci_primary_event(static_cast<std::size_t>(best - candidates.data()),
+                   best->bpm, bestEvidence, false, true,
+                   "general_alt_challenger_evidence");
+  const bool ciPromoted = bestEvidence >= baselineEvidence * 1.20;
+  ci_primary_event(static_cast<std::size_t>(best - candidates.data()),
+                   best->bpm, bestEvidence, false, ciPromoted,
+                   ciPromoted ? "general_alt_challenger_promoted" :
+                                "general_alt_challenger_rejected");
+#endif
   return bestEvidence >= baselineEvidence * 1.20 ? best : baseline;
 }
 
