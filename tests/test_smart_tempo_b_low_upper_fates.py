@@ -83,7 +83,7 @@ class LowUpperFateTests(unittest.TestCase):
                     rows.insert(-1, evt("candidate_filter", "c1",
                                         "low_threshold_allowed"))
                 elif corruption == "false_allowed":
-                    rows[4]["reason_code"] = "low_upper_gate_allowed"
+                    rows[3]["reason_code"] = "low_upper_gate_allowed"
                 else:
                     rows.insert(8, evt("candidate_filter", "c1",
                                        "low_upper_branch_veto", "excluded", 60.))
