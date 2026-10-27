@@ -62,6 +62,7 @@ ENUMS = {
     "primary_compare": (None, None),
     "primary_terminal": ("selected", None),
     "primary_disposition": ("observed", None),
+    "primary_first_exclusion": (None, None),
     "policy_eligibility": ("included", None),
     "supplemental_candidate": ("observed", None),
     "primary_select": (None, None),
@@ -184,6 +185,7 @@ def validate(rows: list[dict], *, require_windows: bool = False,
         "supplemental_candidate": 2,
         "candidate_filter": 3, "primary_rank": 3, "primary_compare": 3,
         "primary_terminal": 3, "primary_disposition": 3,
+        "primary_first_exclusion": 3,
         "primary_select": 4,
         "policy_resolution": 5, "policy_pointer": 6,
         "policy_change": 7, "writer_resolution": 8,
@@ -364,6 +366,21 @@ def validate(rows: list[dict], *, require_windows: bool = False,
                     parents or item["reason_code"] not in ALLOWED_DISPOSITION_REASONS or
                     any(item["metrics"][key] != 0 for key in ("score", "support"))):
                 raise TraceError("invalid native candidate disposition")
+        elif stage == "primary_first_exclusion":
+            # Native source index is preserved; support is a one-based index
+            # into the full executed selector-event stream, not a confidence.
+            position = item["metrics"]["support"]
+            absent = item["reason_code"] == "no_native_exclusion_observed"
+            if (candidate_id is None or ids.get(candidate_id) != "candidate_transform" or
+                    parents or abs(bpm - candidate_bpm[candidate_id]) >= .001 or
+                    type(position) not in (int, float) or
+                    position != int(position) or not 0 <= position <= 4096 or
+                    (absent and (item["outcome"] != "observed" or position != 0 or
+                                 item["metrics"]["score"] != 0)) or
+                    (not absent and (item["outcome"] != "excluded" or
+                                     position == 0 or
+                                     item["reason_code"] not in ALLOWED_FILTER_REASONS))):
+                raise TraceError("malformed native first-exclusion source witness")
         elif stage in ("candidate_filter", "primary_rank", "primary_compare", "primary_terminal"):
             # Actual executed selector probes, with explicit raw/cluster source.
             reason_set = (ALLOWED_FILTER_REASONS if stage == "candidate_filter"
@@ -411,6 +428,37 @@ def validate(rows: list[dict], *, require_windows: bool = False,
         if stage == "policy_eligibility" and any(ids[p] != "candidate_transform" for p in parents):
             raise TraceError("policy candidate parent not collapsed")
         stage_indices[stage].append(item)
+    # Reconcile EVERY cluster's first executed exclusion against the complete
+    # selector event stream, including raw events and rank/compare episodes.
+    # A provisional exclusion is never silently promoted to a decisive veto.
+    first_rows = stage_indices["primary_first_exclusion"]
+    clusters_for_first = stage_indices["candidate_transform"]
+    if first_rows or require_windows:
+        if len(first_rows) != len(clusters_for_first):
+            raise TraceError("native first-exclusion inventory incomplete")
+        executed = [r for r in rows if r["stage"] in (
+            "candidate_filter", "primary_rank", "primary_compare", "primary_terminal")]
+        for cluster, observed in zip(clusters_for_first, first_rows):
+            cid = cluster["candidate_id"]
+            if observed["candidate_id"] != cid:
+                raise TraceError("native first-exclusion source order drift")
+            first = next(((index + 1, r) for index, r in enumerate(executed)
+                          if r["stage"] == "candidate_filter" and
+                          r["candidate_id"] == cid and r["outcome"] == "excluded"),
+                         None)
+            if first is None:
+                if (observed["outcome"] != "observed" or
+                        observed["reason_code"] != "no_native_exclusion_observed" or
+                        observed["metrics"]["support"] != 0 or
+                        observed["metrics"]["score"] != 0):
+                    raise TraceError("fabricated first native cluster exclusion")
+            else:
+                index, source = first
+                if (observed["outcome"] != "excluded" or
+                        observed["reason_code"] != source["reason_code"] or
+                        observed["metrics"]["support"] != index or
+                        observed["metrics"]["score"] != source["metrics"]["score"]):
+                    raise TraceError("native first-exclusion chronology or score drift")
     # Independent source-ID and time-ordered proof. The first provisional
     # exclusion is not a veto until the productive fallback has resolved.
     raw_gates = [r for r in stage_indices["candidate_filter"]
@@ -1199,6 +1247,12 @@ def validate(rows: list[dict], *, require_windows: bool = False,
         "unique_covered_seconds": round(covered, 6),
         "repeat_factor": round(total_decoded / covered, 6) if covered else 0.0,
         "primary_pool": len(primary_pool), "policy_board": len(fullboard),
+        "primary_first_exclusion_native_complete": int(
+            bool(first_rows) and len(first_rows) == len(collapsed)),
+        "primary_first_exclusion_sources": sum(
+            r["outcome"] == "excluded" for r in first_rows),
+        "primary_first_exclusion_no_observation": sum(
+            r["outcome"] == "observed" for r in first_rows),
         "primary_veto_reason_unknown": incomplete,
         "selector_cluster_gate_checked": len(checked_cluster_ids),
         "selector_cluster_gate_unvisited": len(collapsed) - len(checked_cluster_ids),
