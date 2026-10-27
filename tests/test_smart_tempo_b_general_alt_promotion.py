@@ -138,7 +138,8 @@ class GeneralAlternativeCausalTests(unittest.TestCase):
                     verdict = find("general_alt_challenger_promoted" if mode == "promote"
                                    else "general_alt_challenger_rejected")
                     if poison == "ratio":
-                        find("general_alt_baseline_evidence")["metrics"]["score"] = 2.
+                        find("general_alt_baseline_evidence")["metrics"]["score"] = (
+                            2. if mode == "promote" else .1)
                     elif poison == "evidence":
                         verdict["metrics"]["score"] = 10.
                     elif poison == "challenger":
