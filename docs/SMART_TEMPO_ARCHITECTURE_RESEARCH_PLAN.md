@@ -41,6 +41,8 @@ Each event carries a run-local `analysis_id`, monotonic `sequence`, `stage`, typ
 
 **Mandatory per-candidate chain:** raw measurement → source/lane/alias transform → primary eligibility and *veto reason* → primary score/rank → selected or rejected → downstream policy eligibility/rank/reason → final override/release/hold → same-analysis measured-witness proof → no-write decision.
 
+**CI-only first-exclusion witness (Phase B, partial):** the original production selector's run-local source-indexed events now produce exactly one `primary_first_exclusion` record per collapsed candidate. Its reason, native score and one-based position in the *entire executed selector-event stream* are independently replayed against source events; a zero position explicitly means **no observed exclusion**, not eligibility. A provisional exclusion followed by fallback/ranking/selection remains provisional; this witness is **not** a first-*decisive*-veto proof, and raw-only lanes may leave clusters unvisited. The original foobar Win32/x64 host gate, Python oracle and native-trace adversarial mutations must all pass at the **same new commit SHA** before this increment is qualified. Until per-branch final eligibility and all unindexed Policy branches are independently proven, Phase B is incomplete and Phase C remains closed.
+
 **Sufficient trace completeness gate** before expensive host matrix:
 1. Every final accepted BPM has a measured same-run witness ID; no orphan candidates.
 2. Every candidate entering Primary, FullBoard or supplemental pool has a stable origin/parent; count and rank denominators reconcile.
