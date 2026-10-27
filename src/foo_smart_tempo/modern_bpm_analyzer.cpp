@@ -3094,6 +3094,26 @@ double ModernBpmAnalyzer::analyze(metadb_handle_ptr track, threaded_process_stat
             FB2K_console_formatter()
                 << (traced ? "SMART_TEMPO_CI_PIPELINE_TRACE=PASS"
                            : "SMART_TEMPO_CI_PIPELINE_TRACE=FAIL");
+            if (!traced) {
+              // CI-only, exact runner-temp synthetic fixture. Emit no titles,
+              // audio, paths, tags, IDs or private data, only rejection gates.
+              const std::wstring debugFile =
+                  smart_tempo::ci_pipeline_trace::permitted_fixture() +
+                  L".trace-reject.txt";
+              const std::string detail =
+                  std::to_string(ciWindowCaptureFailed ? 1 : 0) + "," +
+                  std::to_string(mir_ci_primary_selector_trace_complete() ? 1 : 0) +
+                  "," + std::to_string(
+                      smart_tempo::ci_pipeline_trace::last_trace_reject_line()) + "\n";
+              HANDLE fd = ::CreateFileW(debugFile.c_str(), GENERIC_WRITE, 0,
+                  nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
+              if (fd != INVALID_HANDLE_VALUE) {
+                DWORD written = 0;
+                (void)::WriteFile(fd, detail.data(),
+                    static_cast<DWORD>(detail.size()), &written, nullptr);
+                ::CloseHandle(fd);
+              }
+            }
           }
 #endif
         }
