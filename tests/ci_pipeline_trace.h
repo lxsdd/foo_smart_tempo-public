@@ -847,7 +847,7 @@ inline bool record(
       ",\"mir_continuous_add_calls\":" + std::to_string(supply.continuous_add_calls) +
       ",\"mir_continuous_new_raw\":" + std::to_string(supply.continuous_new_raw));
   if (out.sequence != windows.size() + supply.segments.size() +
-                      board.raw_candidates.size() + 4 * collapsed.size() +
+                      board.raw_candidates.size() + 5 * collapsed.size() +
                       fullboard.size() + selectorEvents.size() +
                       supplemental_id.size() + collapsed.size() + 12 +
                        manual_source_count + manual.size() ||

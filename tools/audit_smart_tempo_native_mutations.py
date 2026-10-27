@@ -162,6 +162,44 @@ def mutations(rows: list[dict]) -> list[tuple[str, list[dict]]]:
             for i, row in enumerate(changed):
                 row["sequence"] = i
             result.append((label, changed))
+    if any(row["stage"] == "candidate_transform" for row in rows):
+        # Mutate the ACTUAL native cluster veto/final-choice witnesses.
+        # This is not an invented BPM-nearest candidate or surrogate trace.
+        add("veto_resolution_source", row_stage("primary_veto_resolution"),
+            lambda a, i: a[i].__setitem__("candidate_id", "c999999"),
+            required=True)
+        add("veto_resolution_reason", row_stage("primary_veto_resolution"),
+            lambda a, i: a[i].__setitem__(
+                "reason_code", "no_native_decisive_veto_observed"
+                if a[i]["reason_code"] != "no_native_decisive_veto_observed"
+                else "selected_without_native_decisive_veto"), required=True)
+        add("veto_resolution_position", row_stage("primary_veto_resolution"),
+            lambda a, i: a[i]["metrics"].__setitem__(
+                "support", a[i]["metrics"]["support"] + 1), required=True)
+        add("veto_resolution_score", row_stage("primary_veto_resolution"),
+            lambda a, i: a[i]["metrics"].__setitem__(
+                "score", a[i]["metrics"]["score"] + 1), required=True)
+        add("veto_resolution_outcome", row_stage("primary_veto_resolution"),
+            lambda a, i: a[i].__setitem__(
+                "outcome", "observed" if a[i]["outcome"] == "selected"
+                else "selected"), required=True)
+        add("veto_resolution_parent", row_stage("primary_veto_resolution"),
+            lambda a, i: a[i].__setitem__("parent_candidate_ids", ["c0"]),
+            required=True)
+        for label, altered in (
+            ("missing_veto_resolution",
+             [r for r in copy.deepcopy(rows)
+              if r["stage"] != "primary_veto_resolution"]),
+            ("duplicate_veto_resolution", None),
+        ):
+            if altered is None:
+                altered = copy.deepcopy(rows)
+                pos = next(i for i, row in enumerate(altered)
+                           if row["stage"] == "primary_veto_resolution")
+                altered.insert(pos, copy.deepcopy(altered[pos]))
+            for i, row in enumerate(altered):
+                row["sequence"] = i
+            result.append((label, altered))
     add("unknown_raw_origin", row_stage("candidate_create"),
         lambda a, i: a[i].__setitem__("reason_code", "unregistered_raw_source"))
     add("orphan_cluster", row_stage("candidate_transform"),

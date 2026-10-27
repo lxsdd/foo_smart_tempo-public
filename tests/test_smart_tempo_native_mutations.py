@@ -88,6 +88,11 @@ class NativeMutationGateTests(unittest.TestCase):
         self.assertIn("orphan_cluster", names)
         self.assertIn("wrong_disposition_source", names)
         self.assertIn("unknown_raw_origin", names)
+        for name in ("veto_resolution_source", "veto_resolution_reason",
+                     "veto_resolution_position", "veto_resolution_score",
+                     "veto_resolution_outcome", "veto_resolution_parent",
+                     "missing_veto_resolution", "duplicate_veto_resolution"):
+            self.assertIn(name, names)
 
 
 if __name__ == "__main__":

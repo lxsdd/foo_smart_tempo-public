@@ -134,6 +134,7 @@ class NativeVetoResolutionTests(unittest.TestCase):
         self.assertIn('out.push("primary_veto_resolution"', source)
         self.assertIn('std::strcmp(event.reason, "general_rail_decisive_veto")', source)
         self.assertIn("firstVeto != nullptr ? firstVeto->score", source)
+        self.assertIn("board.raw_candidates.size() + 5 * collapsed.size()", source)
         self.assertIn("reconcile_native_veto_resolution(", parser)
         self.assertIn("required=require_windows", parser)
         self.assertIn("test_smart_tempo_b_veto_resolution.py", workflow)
