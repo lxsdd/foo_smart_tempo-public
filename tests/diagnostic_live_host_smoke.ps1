@@ -210,6 +210,15 @@ function Run-Case([string]$installer,[string]$root,[string]$inputFile,[string[]]
       throw 'Original host did not prove native raw alias/support fallback sequence'
     }
     Write-Host ("SMART_TEMPO_NATIVE_RAW_FALLBACK_{0}_{1}=PASS" -f $Architecture,$label)
+    # Four original C++ General-144 native selector branches: promote, retain,
+    # no eligible challenger and non-144 bypass. Fabricated board only.
+    $generalAltProof=$inputFile+'.native-general-alt'
+    if (-not (Test-Path -LiteralPath $generalAltProof -PathType Leaf) -or
+        (Get-Content -LiteralPath $generalAltProof -Raw) -cne
+        "SMART_TEMPO_CI_NATIVE_GENERAL_ALT=PASS`n") {
+      throw 'Original host did not prove General-144 source-indexed promotion'
+    }
+    Write-Host ("SMART_TEMPO_NATIVE_GENERAL_ALT_{0}_{1}=PASS" -f $Architecture,$label)
     # Source-ID exact original selector General/Harmonic rail + fallback.
     $railProof=$inputFile+'.native-cluster-rail'
     if (-not (Test-Path -LiteralPath $railProof -PathType Leaf) -or
