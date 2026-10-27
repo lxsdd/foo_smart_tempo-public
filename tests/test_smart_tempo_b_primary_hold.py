@@ -55,7 +55,7 @@ class NativePrimaryHoldTests(unittest.TestCase):
 
     def test_full_host_shape_and_negative_mutations(self):
         rows = with_resource(trace())
-        self.assertEqual(validate(rows, require_windows=True)["primary_hold_native_verified"], 1)
+        self.assertEqual(reconcile(rows, required=True)["primary_hold_native_verified"], 1)
         for mutation in ("missing", "duplicate", "source", "outcome", "reason",
                          "flag", "route", "priority", "score", "sequence"):
             with self.subTest(mutation=mutation):
@@ -88,8 +88,8 @@ class NativePrimaryHoldTests(unittest.TestCase):
                 if mutation != "sequence":
                     for i, row in enumerate(bad):
                         row["sequence"] = i
-                with self.assertRaises((TraceError, PrimaryHoldError)):
-                    validate(bad, require_windows=True)
+                with self.assertRaises(PrimaryHoldError):
+                    reconcile(bad, required=True)
 
     def test_held_primary_cannot_be_native_primary_writer(self):
         rows = self.fixture(flags=("sparse_hold",),
