@@ -959,3 +959,26 @@ first-decisive universal veto and selected supplemental decoded-source
 Policy/writer lineage gates are still INCOMPLETE; Phase C CLOSED and
 musical NO_GO. No private media, productive DSP/threshold/writer,
 user metadata/DB writes, merge, tag, release or public binary.
+
+## Native-host adversarial provenance rejection (CI-only)
+
+The source-indexed pipeline audit and candidate-fate ledger are now followed
+by `tools/audit_smart_tempo_native_mutations.py` on **each actual Win32/x64
+original-host pilot JSONL trace**, including the empty/silence negative.
+The independent tool first validates the unmodified host trace, then corrupts
+separate in-memory copies (sequence, analysis identity, privacy field, decoded
+extent, MIR numeric validity, process resources, raw/window source inventory,
+primary candidate IDs, comparator verdict, Policy flags, final witness and
+writer guard). It must observe a parser/fate-replay rejection for **every**
+applicable corruption. The tool neither reads reference BPM nor writes a trace,
+media, tag, CUE, database, or artifact. The FAST source gate also exercises
+positive and negative synthetic fixtures and a deliberately permissive auditor
+to prove that an escaped corruption fails the gate.
+
+**Interpretation:** This checks the integrity and fail-closed rejection of
+the *observed* production-path telemetry. It is not a first-decisive-veto
+proof for unvisited candidates, an eligibility proof for merged manual-review
+rows, a musical hit-rate improvement, or permission for Phase C/production
+selector or writer changes. Source SHA, original host CI job and negative
+mutation count must be reported together; only the actual completed Windows
+run can establish runtime qualification.
