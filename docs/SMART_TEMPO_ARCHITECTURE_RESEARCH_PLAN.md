@@ -984,3 +984,18 @@ synthetic pull-request merge commit and fails before compilation if its Git
 HEAD differs. Source SHA, original host CI job and negative
 mutation count must be reported together; only the actual completed Windows
 run can establish runtime qualification.
+
+
+### 27 October 2026: actual native Policy FullBoard rail provenance (CI-only)
+
+The original `prepare_mir_policy_fullboard_candidates` now emits an indexed,
+CI-only decision for **every** collapsed source before its 40–220 BPM
+FullBoard filter: source identity, actual local-exact-resolved BPM, inclusion
+or decisive rail veto. The independent parser checks original source order,
+exactly one verdict per source, numeric gate truth, and one-to-one FullBoard
+membership/BPM identity. Original Win32/x64 foobar host and mutation gates
+require the proof; missing/forged/reordered/veto-flipped evidence fails closed.
+Primary eligibility, merged manual review and downstream Policy selection
+remain separate. No production DSP/selector/Policy output/writer behavior
+change, no owner media or labels; Phase B INCOMPLETE, Phase C CLOSED,
+private musical acceptance NO_GO.

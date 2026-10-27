@@ -18,7 +18,7 @@ from audit_smart_tempo_b_low_continuous_fates import (
     LowContinuousFateError, reconcile_native_low_continuous)
 
 SCHEMA = "smart_tempo_source_decision_trace_v1"
-MAX_BYTES, MAX_LINES = 2 * 1024 * 1024, 12300
+MAX_BYTES, MAX_LINES = 2 * 1024 * 1024, 16500
 FIELDS = frozenset(("schema", "analysis_id", "sequence", "stage", "outcome",
                     "reason_code", "candidate_id", "parent_candidate_ids", "metrics"))
 METRICS = frozenset(("bpm", "score", "support"))
@@ -54,6 +54,7 @@ ENUMS = {
     "candidate_create": ("observed", None),
     "candidate_transform": ("observed", "cluster_from_raw"),
     "primary_eligibility": ("observed", "pool_only_gate_unresolved"),
+    "policy_filter": (None, None),
     "candidate_filter": (None, None),
     "primary_rank": ("included", None),
     "primary_compare": (None, None),
@@ -157,7 +158,8 @@ class TraceError(ValueError):
 
 def validate(rows: list[dict], *, require_windows: bool = False,
              require_segments: bool = False,
-             require_native_comparator: bool = False) -> dict:
+             require_native_comparator: bool = False,
+             require_policy_filter: bool = False) -> dict:
     # Library callers may test legacy minimal traces. The real host CLI
     # always requires both actual windows and actual native MIR segments.
     if require_segments and not require_windows:
@@ -170,7 +172,7 @@ def validate(rows: list[dict], *, require_windows: bool = False,
     stage_order = {
         "decode_window": -1, "mir_segment": -1,
         "candidate_create": 0, "candidate_transform": 1,
-        "primary_eligibility": 1, "policy_eligibility": 2,
+        "primary_eligibility": 1, "policy_filter": 2, "policy_eligibility": 2,
         "supplemental_candidate": 2,
         "candidate_filter": 3, "primary_rank": 3, "primary_compare": 3,
         "primary_terminal": 3, "primary_disposition": 3,
@@ -307,6 +309,17 @@ def validate(rows: list[dict], *, require_windows: bool = False,
         elif stage == "primary_eligibility":
             if candidate_id is None or ids.get(candidate_id) != "candidate_transform":
                 raise TraceError("primary pool includes candidate not transformed")
+        elif stage == "policy_filter":
+            if (candidate_id is None or ids.get(candidate_id) != "candidate_transform" or
+                    parents or item["metrics"]["support"] != 0 or
+                    abs(bpm - candidate_bpm[candidate_id]) >= .001):
+                raise TraceError("Policy rail source identity mismatch")
+            resolved = item["metrics"]["score"]
+            eligible = 40 <= resolved <= 220
+            if (item["outcome"] != ("included" if eligible else "excluded") or
+                    item["reason_code"] != ("policy_rail_allowed" if eligible else
+                                            "policy_rail_decisive_veto")):
+                raise TraceError("Policy rail verdict contradicts native resolved BPM")
         elif stage == "policy_resolution":
             if candidate_id is not None or item["reason_code"] not in ALLOWED_POLICY_COMPARISONS:
                 raise TraceError("invalid policy comparison")
@@ -636,6 +649,7 @@ def validate(rows: list[dict], *, require_windows: bool = False,
     raw = stage_indices["candidate_create"]
     collapsed = stage_indices["candidate_transform"]
     primary_pool = stage_indices["primary_eligibility"]
+    rail_filters = stage_indices["policy_filter"]
     fullboard = stage_indices["policy_eligibility"]
     supplemental = stage_indices["supplemental_candidate"]
     if len(supplemental) > 1:
@@ -645,7 +659,7 @@ def validate(rows: list[dict], *, require_windows: bool = False,
     # terminal chain rather than treating it as an absent/broken trace.
     # This remains a distinct incomplete-causal outcome, never a B PASS.
     if not raw and not collapsed:
-        forbidden = ("primary_eligibility", "policy_eligibility",
+        forbidden = ("primary_eligibility", "policy_filter", "policy_eligibility",
                      "supplemental_candidate", "candidate_filter",
                      "primary_rank", "primary_compare", "primary_terminal",
                      "primary_disposition")
@@ -734,6 +748,14 @@ def validate(rows: list[dict], *, require_windows: bool = False,
             left["candidate_id"] == right["candidate_id"]
             for left, right in zip(primary_pool, collapsed)):
         raise TraceError("primary input pool not fully represented")
+    if require_policy_filter and len(rail_filters) != len(collapsed):
+        raise TraceError("native Policy rail source inventory missing")
+    if rail_filters:
+        if len(rail_filters) != len(collapsed):
+            raise TraceError("partial Policy rail source inventory")
+        for source, gate in zip(collapsed, rail_filters):
+            if gate["candidate_id"] != source["candidate_id"]:
+                raise TraceError("Policy rail source-index order drift")
     # FullBoard may legitimately exclude out-of-rail clusters, but cannot
     # invent, omit or duplicate a surviving candidate's source identity.
     seen_policy_sources = set()
@@ -744,6 +766,15 @@ def validate(rows: list[dict], *, require_windows: bool = False,
                 ids[parents[0]] != "candidate_transform"):
             raise TraceError("policy FullBoard source is not unique and indexed")
         seen_policy_sources.add(parents[0])
+    if rail_filters:
+        by_source = {row["parent_candidate_ids"][0]: row for row in fullboard}
+        for gate in rail_filters:
+            member = by_source.get(gate["candidate_id"])
+            if (member is None) != (gate["outcome"] == "excluded"):
+                raise TraceError("Policy rail/FullBoard membership contradiction")
+            if member is not None and abs(member["metrics"]["bpm"] -
+                                          gate["metrics"]["score"]) > .001:
+                raise TraceError("Policy rail/FullBoard resolved BPM mismatch")
     dispositions = stage_indices["primary_disposition"]
     if (require_windows and len(dispositions) != len(collapsed)) or (
             dispositions and len(dispositions) != len(collapsed)):
@@ -1066,6 +1097,9 @@ def validate(rows: list[dict], *, require_windows: bool = False,
         "raw_lineage_overlap_disambiguated": overlapping_raw,
         "policy_board_unique_cluster_sources": len(seen_policy_sources),
         "policy_board_filtered_clusters": len(collapsed) - len(seen_policy_sources),
+        "policy_rail_source_observations": len(rail_filters),
+        "policy_rail_decisive_vetos": sum(x["outcome"] == "excluded" for x in rail_filters),
+        "policy_rail_native_complete": int(bool(rail_filters) and len(rail_filters) == len(collapsed)),
         "process_wall_seconds": round(resources[0]["metrics"]["wall_seconds"], 6) if resources else None,
         "process_cpu_seconds": round(resources[0]["metrics"]["process_cpu_seconds"], 6) if resources else None,
         "process_peak_rss_bytes": int(resources[0]["metrics"]["process_peak_rss_after_bytes"]) if resources else None,
@@ -1214,7 +1248,8 @@ def main() -> None:
     a = parser.parse_args()
     result = validate(load(a.trace), require_windows=a.require_windows,
                       require_segments=a.require_windows,
-                      require_native_comparator=a.require_windows)
+                      require_native_comparator=a.require_windows,
+                      require_policy_filter=a.require_windows)
     print("SMART_TEMPO_CI_PIPELINE_TRACE_SCHEMA=PASS")
     for key, value in result.items():
         print(f"SMART_TEMPO_TRACE_{key.upper()}={value}")

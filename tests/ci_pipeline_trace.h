@@ -263,6 +263,8 @@ inline bool record(
   if (windows.empty() || windows.size() > 128 ||
       board.raw_candidates.size() > 4096 || collapsed.size() > 4096 ||
       selectorEvents.size() > 4096 || fullboard.size() > 4096 ||
+      !mir_pipeline::mir_ci_policy_rail_trace_complete() ||
+      mir_pipeline::mir_ci_policy_rail_events().size() != collapsed.size() ||
       collapsed.size() != primary.candidate_count)
     return false;
   if (supply.segments_evaluated > windows.size() ||
@@ -398,6 +400,20 @@ inline bool record(
              parents, cluster.bpm, cluster.score_sum, cluster.support);
     out.push("primary_eligibility", "observed", "pool_only_gate_unresolved",
              id, {}, cluster.bpm, cluster.best_combined_score, cluster.support);
+  }
+  // Original CI-only Policy FullBoard rail verdict for every collapsed source.
+  // Source-index order is authoritative; numerical BPM-nearest joins are not.
+  const auto railEvents = mir_pipeline::mir_ci_policy_rail_events();
+  for (std::size_t i = 0; i < collapsed.size(); ++i) {
+    const auto& gate = railEvents[i];
+    if (gate.source_index != i ||
+        !finite_bpm(gate.source_bpm) || !finite_bpm(gate.resolved_bpm) ||
+        std::abs(gate.source_bpm - collapsed[i].bpm) >= 0.001 ||
+        gate.included != (gate.resolved_bpm >= 40.0 && gate.resolved_bpm <= 220.0))
+      return false;
+    out.push("policy_filter", gate.included ? "included" : "excluded",
+             gate.included ? "policy_rail_allowed" : "policy_rail_decisive_veto",
+             cluster_ids[i], {}, gate.source_bpm, gate.resolved_bpm, 0.0);
   }
   // FullBoard is a filtered/reordered exact-BPM transform of collapsed
   // candidates. Each surviving source must occur at most once, even when
@@ -707,7 +723,7 @@ inline bool record(
       ",\"mir_continuous_add_calls\":" + std::to_string(supply.continuous_add_calls) +
       ",\"mir_continuous_new_raw\":" + std::to_string(supply.continuous_new_raw));
   if (out.sequence != windows.size() + supply.segments.size() +
-                      board.raw_candidates.size() + 2 * collapsed.size() +
+                      board.raw_candidates.size() + 3 * collapsed.size() +
                       fullboard.size() + selectorEvents.size() +
                       supplemental_id.size() + collapsed.size() + 9 ||
       out.lines.size() > 2 * 1024 * 1024) return false;

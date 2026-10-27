@@ -20,6 +20,20 @@ thread_local std::vector<MirCandidate> g_ci_primary_pool;
 thread_local bool g_ci_primary_trace_complete = true;
 thread_local std::span<const MirPolicyMeasuredCandidate> g_ci_policy_board;
 thread_local MirCiPolicyPointerSource g_ci_policy_source;
+thread_local std::vector<MirCiPolicyRailEvent> g_ci_policy_rail_events;
+thread_local bool g_ci_policy_rail_complete = true;
+inline void ci_policy_rail_event(std::size_t index, double sourceBpm,
+                                 double resolvedBpm, bool included) noexcept {
+  if (g_ci_policy_rail_events.size() >= 4096) {
+    g_ci_policy_rail_complete = false;
+    return;
+  }
+  try {
+    g_ci_policy_rail_events.push_back({index, sourceBpm, resolvedBpm, included});
+  } catch (...) {
+    g_ci_policy_rail_complete = false;
+  }
+}
 inline void ci_policy_selected(const MirPolicyMeasuredCandidate& selected) noexcept {
   g_ci_policy_source = {true, false, 0, selected.bpm};
   for (std::size_t i = 0; i < g_ci_policy_board.size(); ++i) {
@@ -70,6 +84,12 @@ const std::vector<MirCandidate>& mir_ci_primary_selector_pool() noexcept {
 }
 MirCiPolicyPointerSource mir_ci_policy_pointer_source() noexcept {
   return g_ci_policy_source;
+}
+std::span<const MirCiPolicyRailEvent> mir_ci_policy_rail_events() noexcept {
+  return {g_ci_policy_rail_events.data(), g_ci_policy_rail_events.size()};
+}
+bool mir_ci_policy_rail_trace_complete() noexcept {
+  return g_ci_policy_rail_complete;
 }
 #endif
 namespace {
@@ -2688,6 +2708,10 @@ compute_mir_soft_center_selection(
 prepare_mir_policy_fullboard_candidates(
     const MirCandidateBoard& board,
     MirLocalExactCache& localExactCache) {
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+  g_ci_policy_rail_events.clear();
+  g_ci_policy_rail_complete = true;
+#endif
   const std::vector<MirCandidate> collapsed =
       collapse_mir_candidates(board);
   struct PendingCandidate {
@@ -2716,11 +2740,16 @@ prepare_mir_policy_fullboard_candidates(
 
   std::vector<MirPolicyMeasuredCandidate> measured;
   measured.reserve(pending.size());
-  for (const auto& item : pending) {
+  for (std::size_t sourceIndex = 0; sourceIndex < pending.size(); ++sourceIndex) {
+    const auto& item = pending[sourceIndex];
     const double bpm =
         item.exact.bpm > 0.0 ? item.exact.bpm : item.candidate.bpm;
-    if (!(bpm >= kMirProductionMinBpm && bpm <= kMirProductionMaxBpm) ||
-        !std::isfinite(bpm)) {
+    const bool inRail = bpm >= kMirProductionMinBpm &&
+                        bpm <= kMirProductionMaxBpm && std::isfinite(bpm);
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+    ci_policy_rail_event(sourceIndex, item.candidate.bpm, bpm, inRail);
+#endif
+    if (!inRail) {
       continue;
     }
     const double baseScore =

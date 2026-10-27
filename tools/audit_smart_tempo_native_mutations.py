@@ -98,6 +98,16 @@ def mutations(rows: list[dict]) -> list[tuple[str, list[dict]]]:
         lambda a, i: a[i].__setitem__("reason_code", "unregistered_filter"))
     add("orphan_policy_board", row_stage("policy_eligibility"),
         lambda a, i: a[i].__setitem__("parent_candidate_ids", []))
+    add("policy_rail_wrong_source", row_stage("policy_filter"),
+        lambda a, i: a[i].__setitem__("candidate_id", "c999999"))
+    add("policy_rail_false_verdict", row_stage("policy_filter"),
+        lambda a, i: a[i].__setitem__("outcome",
+            "excluded" if a[i]["outcome"] == "included" else "included"))
+    if any(row["stage"] == "policy_filter" for row in rows):
+        altered = [x for x in copy.deepcopy(rows) if x["stage"] != "policy_filter"]
+        for i, row in enumerate(altered):
+            row["sequence"] = i
+        result.append(("missing_policy_rail", altered))
     add("unknown_supplemental", row_stage("supplemental_candidate"),
         lambda a, i: a[i].__setitem__("reason_code", "unregistered_supplemental"))
     add("decisive_veto_flip", lambda row: (
@@ -129,15 +139,18 @@ def mutations(rows: list[dict]) -> list[tuple[str, list[dict]]]:
     return result
 
 
-def audit(rows: list[dict], *, native_comparator: bool) -> tuple[int, int]:
+def audit(rows: list[dict], *, native_comparator: bool,
+          native_policy_rail: bool = False) -> tuple[int, int]:
     validate(rows, require_windows=True, require_segments=True,
-             require_native_comparator=native_comparator)
+             require_native_comparator=native_comparator,
+             require_policy_filter=native_policy_rail)
     reconcile(rows)
     mutated = mutations(rows)
     for name, altered in mutated:
         try:
             validate(altered, require_windows=True, require_segments=True,
-                     require_native_comparator=native_comparator)
+                     require_native_comparator=native_comparator,
+                     require_policy_filter=native_policy_rail)
             reconcile(altered)
         except TraceError:
             continue
@@ -152,7 +165,8 @@ def main() -> None:
     args = p.parse_args()
     if not args.require_windows:
         raise TraceError("native adversarial audit requires original-host mode")
-    rejected, extra = audit(load(args.trace), native_comparator=True)
+    rejected, extra = audit(load(args.trace), native_comparator=True,
+                            native_policy_rail=True)
     print("SMART_TEMPO_NATIVE_MUTATION_GATE=PASS")
     print(f"SMART_TEMPO_NATIVE_MUTATIONS_REJECTED={rejected}")
     print(f"SMART_TEMPO_NATIVE_MUTATIONS_ADDITIONAL={extra}")

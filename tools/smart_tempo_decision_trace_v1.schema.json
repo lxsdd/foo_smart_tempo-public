@@ -17,7 +17,7 @@
       "enum": [
         "decode_window", "resample", "odf", "onset", "tatum_meter",
         "mir_segment", "candidate_create", "candidate_transform",
-        "candidate_filter", "primary_eligibility", "primary_rank", "primary_compare",
+        "candidate_filter", "primary_eligibility", "policy_filter", "primary_rank", "primary_compare",
         "primary_terminal", "primary_disposition", "primary_select", "primary_hold", "policy_eligibility", "policy_resolution", "policy_pointer",
         "policy_rank", "policy_change", "policy_hold_release", "supplemental_candidate",
         "measured_witness", "final_output", "resource_usage", "write_guard",
@@ -52,6 +52,7 @@
     "Every exclusion must name its exact stage and reason",
     "Raw-to-cluster parentage must be the exact ordered first-match partition, never an approximate many-to-many BPM join",
     "Every policy FullBoard row must have exactly one unique indexed cluster source; missing sources fail closed",
+    "Every native Policy rail verdict must reconcile source-index, resolved BPM and FullBoard membership",
     "CI-only raw and general-baseline executed comparator ties preserve the four ordered numeric tie fields",
     "CI-only low continuous-center comparator preserves the fifth tie field for source-identity replay",
     "Review Hold is a first-class outcome, not counted as a wrong BPM",
