@@ -190,6 +190,12 @@ def with_resource(rows):
         first_rows.append(summary)
     at = next(i for i, r in enumerate(rows) if r["stage"] == "primary_select")
     rows[at:at] = first_rows
+    manual_at = next(i for i, row in enumerate(rows)
+                     if row["stage"] == "final_output")
+    manual = event("manual_state", None, [], 0., "observed",
+                   "manual_not_requested", 0)
+    manual["metrics"] = {"bpm": 0., "score": 0., "support": 0.}
+    rows.insert(manual_at, manual)
     rows.insert(-1, resource_event())
     for i, row in enumerate(rows):
         row["sequence"] = i
@@ -217,8 +223,10 @@ def empty_board_native_trace():
               "pointer_no_output", 3),
         event("policy_change", None, [], 0., "review_hold",
               "no_policy_write", 4),
+        event("manual_state", None, [], 0., "observed",
+              "manual_not_requested", 5),
         event("final_output", None, [], 0., "review_hold",
-              "final_abstained", 5),
+              "final_abstained", 6),
         event("measured_witness", None, [], 0., "rejected",
               "not_accepted", 6),
         resource_event(),

@@ -18,6 +18,8 @@ from audit_smart_tempo_b_writer_resolution import (
 from audit_smart_tempo_b_low_upper_fates import LowUpperFateError, reconcile_native_low_upper
 from audit_smart_tempo_b_low_continuous_fates import (
     LowContinuousFateError, reconcile_native_low_continuous)
+from audit_smart_tempo_b_manual_export import (
+    ManualTraceError, reconcile as reconcile_manual_export)
 
 SCHEMA = "smart_tempo_source_decision_trace_v1"
 MAX_BYTES, MAX_LINES = 2 * 1024 * 1024, 16500
@@ -25,6 +27,8 @@ FIELDS = frozenset(("schema", "analysis_id", "sequence", "stage", "outcome",
                     "reason_code", "candidate_id", "parent_candidate_ids", "metrics"))
 METRICS = frozenset(("bpm", "score", "support"))
 LOW_POOL_METRICS = METRICS | frozenset(("low_pool_epoch",))
+MANUAL_METRICS = METRICS | frozenset((
+    "winner_support", "local_exact_score", "evidence_rank", "origin_mask"))
 TIE_METRICS = METRICS | frozenset(("tie_0", "tie_1", "tie_2", "tie_3"))
 TIE5_METRICS = TIE_METRICS | frozenset(("tie_4",))
 RESOURCE_METRICS = METRICS | frozenset((
@@ -49,7 +53,8 @@ WINDOW_METRICS = METRICS | frozenset(("pass_index", "pass_total", "start_sec",
     "requested_frames", "decoded_frames", "analysis_frames",
     "source_rate_hz", "analysis_rate_hz"))
 CREATORS = frozenset(("candidate_create", "candidate_transform",
-                      "policy_eligibility", "supplemental_candidate"))
+                      "policy_eligibility", "supplemental_candidate",
+                      "manual_source", "manual_export"))
 ENUMS = {
     "decode_window": ("observed", "actual_decoded_extent"),
     "mir_segment": ("observed", None),
@@ -70,6 +75,9 @@ ENUMS = {
     "policy_pointer": ("observed", None),
     "policy_change": (None, None),
     "writer_resolution": (None, None),
+    "manual_state": ("observed", None),
+    "manual_source": ("observed", None),
+    "manual_export": ("observed", "manual_merged_export"),
     "final_output": (None, None),
     "measured_witness": (None, None),
     "resource_usage": ("observed", "process_resource_snapshot"),
@@ -189,6 +197,7 @@ def validate(rows: list[dict], *, require_windows: bool = False,
         "primary_select": 4,
         "policy_resolution": 5, "policy_pointer": 6,
         "policy_change": 7, "writer_resolution": 8,
+            "manual_state": 8, "manual_source": 8, "manual_export": 8,
         "final_output": 9, "measured_witness": 10, "resource_usage": 11,
         "write_guard": 12, "source_inventory": 13
     }
@@ -236,7 +245,9 @@ def validate(rows: list[dict], *, require_windows: bool = False,
                             INVENTORY_METRICS if stage == "source_inventory" else
                             TIE5_METRICS if continuous_tie else
                             TIE_METRICS if has_native_tie else
-                            LOW_POOL_METRICS if low_episode else METRICS)
+                            LOW_POOL_METRICS if low_episode else
+                            MANUAL_METRICS if stage in ("manual_source", "manual_export")
+                            else METRICS)
         if type(item["metrics"]) is not dict or set(item["metrics"]) != expected_metrics:
             raise TraceError("non-numeric-only telemetry")
         for key, value in item["metrics"].items():
@@ -302,6 +313,23 @@ def validate(rows: list[dict], *, require_windows: bool = False,
         if stage == "decode_window" and (candidate_id is not None or parents):
             raise TraceError("window must not contain candidate identity")
         if stage in CREATORS:
+            if stage in ("manual_source", "manual_export"):
+                if (not 40 <= bpm <= 220 or
+                        item["metrics"]["evidence_rank"] !=
+                        int(item["metrics"]["evidence_rank"]) or
+                        not 0 <= item["metrics"]["evidence_rank"] <= 8192 or
+                        item["metrics"]["origin_mask"] !=
+                        int(item["metrics"]["origin_mask"]) or
+                        not 1 <= item["metrics"]["origin_mask"] <= 31):
+                    raise TraceError("invalid native manual numeric provenance")
+                if (stage == "manual_source" and
+                        item["reason_code"] not in (
+                            "manual_full_board", "manual_primary_selector",
+                            "manual_material_risk", "manual_partial_aggregate",
+                            "manual_partial_topk")) or (
+                        stage == "manual_export" and
+                        any(ids[x] != "manual_source" for x in parents)):
+                    raise TraceError("unrecognized manual source identity")
             if stage == "candidate_create" and item["reason_code"] not in RAW_SOURCE_MASKS:
                 raise TraceError("raw source origin missing or fabricated")
             if stage == "supplemental_candidate" and (
@@ -317,6 +345,15 @@ def validate(rows: list[dict], *, require_windows: bool = False,
                 raise TraceError("cluster did not descend from matching raw BPM")
             ids[candidate_id] = stage
             candidate_bpm[candidate_id] = bpm
+        elif stage == "manual_state":
+            if (candidate_id is not None or parents or
+                    item["reason_code"] not in ("manual_requested",
+                                               "manual_not_requested") or
+                    bpm != 0 or
+                    any(item["metrics"][x] != int(item["metrics"][x]) or
+                        not 0 <= item["metrics"][x] <= 8192
+                        for x in ("score", "support"))):
+                raise TraceError("malformed native manual capture state")
         elif stage == "primary_eligibility":
             if candidate_id is None or ids.get(candidate_id) != "candidate_transform":
                 raise TraceError("primary pool includes candidate not transformed")
@@ -1213,12 +1250,17 @@ def validate(rows: list[dict], *, require_windows: bool = False,
         low_upper_fates = {}
         continuous_fates = {}
     try:
+        manual_status = reconcile_manual_export(rows, required=require_windows)
+    except ManualTraceError as exc:
+        raise TraceError("native manual-export lineage: " + str(exc)) from exc
+    try:
         writer_status = reconcile_writer_resolution(
             rows, required=require_writer_resolution)
     except WriterResolutionError as exc:
         raise TraceError("applied native writer chain: " + str(exc)) from exc
     return {
         **writer_status,
+        **manual_status,
         **raw_fates,
         **rail_fates,
         **low_upper_fates,

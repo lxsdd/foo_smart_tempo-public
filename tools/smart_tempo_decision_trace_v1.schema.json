@@ -6,38 +6,104 @@
   "type": "object",
   "additionalProperties": false,
   "required": [
-    "schema", "analysis_id", "sequence", "stage", "outcome",
-    "reason_code", "candidate_id", "parent_candidate_ids", "metrics"
+    "schema",
+    "analysis_id",
+    "sequence",
+    "stage",
+    "outcome",
+    "reason_code",
+    "candidate_id",
+    "parent_candidate_ids",
+    "metrics"
   ],
   "properties": {
-    "schema": {"const": "smart_tempo_source_decision_trace_v1"},
-    "analysis_id": {"type": "string", "pattern": "^[a-f0-9]{16,64}$"},
-    "sequence": {"type": "integer", "minimum": 0},
+    "schema": {
+      "const": "smart_tempo_source_decision_trace_v1"
+    },
+    "analysis_id": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{16,64}$"
+    },
+    "sequence": {
+      "type": "integer",
+      "minimum": 0
+    },
     "stage": {
       "enum": [
-        "decode_window", "resample", "odf", "onset", "tatum_meter",
-        "mir_segment", "candidate_create", "candidate_transform",
-        "candidate_filter", "primary_eligibility", "policy_filter", "primary_rank", "primary_compare",
-        "primary_terminal", "primary_disposition", "primary_first_exclusion", "primary_select", "primary_hold", "policy_eligibility", "policy_resolution", "policy_pointer",
-        "policy_rank", "policy_change", "writer_resolution", "policy_hold_release", "supplemental_candidate",
-        "measured_witness", "final_output", "resource_usage", "write_guard",
+        "decode_window",
+        "resample",
+        "odf",
+        "onset",
+        "tatum_meter",
+        "mir_segment",
+        "candidate_create",
+        "candidate_transform",
+        "candidate_filter",
+        "primary_eligibility",
+        "policy_filter",
+        "primary_rank",
+        "primary_compare",
+        "primary_terminal",
+        "primary_disposition",
+        "primary_first_exclusion",
+        "primary_select",
+        "primary_hold",
+        "policy_eligibility",
+        "policy_resolution",
+        "policy_pointer",
+        "policy_rank",
+        "policy_change",
+        "writer_resolution",
+        "manual_state",
+        "manual_source",
+        "manual_export",
+        "policy_hold_release",
+        "supplemental_candidate",
+        "measured_witness",
+        "final_output",
+        "resource_usage",
+        "write_guard",
         "source_inventory"
       ]
     },
     "outcome": {
       "enum": [
-        "observed", "included", "excluded", "selected", "rejected",
-        "review_hold", "no_candidate", "write_permitted", "write_blocked"
+        "observed",
+        "included",
+        "excluded",
+        "selected",
+        "rejected",
+        "review_hold",
+        "no_candidate",
+        "write_permitted",
+        "write_blocked"
       ]
     },
-    "reason_code": {"type": "string", "pattern": "^[a-z][a-z0-9_]{0,95}$"},
-    "candidate_id": {"type": ["string", "null"], "pattern": "^c[0-9]{1,7}$"},
+    "reason_code": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{0,95}$"
+    },
+    "candidate_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^c[0-9]{1,7}$"
+    },
     "parent_candidate_ids": {
-      "type": "array", "uniqueItems": true, "maxItems": 128,
-      "items": {"type": "string", "pattern": "^c[0-9]{1,7}$"}
+      "type": "array",
+      "uniqueItems": true,
+      "maxItems": 128,
+      "items": {
+        "type": "string",
+        "pattern": "^c[0-9]{1,7}$"
+      }
     },
     "metrics": {
-      "type": "object", "additionalProperties": {"type": "number"},
+      "type": "object",
+      "additionalProperties": {
+        "type": "number"
+      },
       "maxProperties": 48
     }
   },
@@ -60,6 +126,7 @@
     "An applied primary or Policy writer source may be indexed only to the actual native selected object; unknown micro-upgrade source identity stays unindexed",
     "Review Hold is a first-class outcome, not counted as a wrong BPM",
     "Window geometry and decoding costs must be independently measured",
-    "Ground-truth labels never flow into candidate creation or production selection"
+    "Ground-truth labels never flow into candidate creation or production selection",
+    "Manual merged-export source identity and rank are not Primary selector eligibility; independently replay first-match source grouping and stable sort."
   ]
 }

@@ -232,6 +232,8 @@ struct EventWriter {
   }
 };
 
+#include "ci_manual_export_trace.h"
+
 inline bool record(
     const mir_pipeline::MirCandidateBoard& board,
     const std::vector<WindowObservation>& windows,
@@ -243,6 +245,8 @@ inline bool record(
     const MirPolicyDecision& policy,
     double final_bpm, bool withheld, bool same_run_measured_witness,
     const char* applied_writer_reason, bool policy_runtime_enabled,
+    std::span<const IBpmAnalyzer::MeasuredBpmCandidate> manual,
+    bool manual_requested,
     const ProcessResourceObservation& resource,
     const MirSourceSupplyObservation& supply,
     const smart_tempo::HodgkinsonMaterialRiskLocalExactProbe* risk,
@@ -727,6 +731,11 @@ inline bool record(
            applied_writer_reason, "", applied_writer_source, final_bpm,
            static_cast<double>(policy_runtime_enabled),
            static_cast<double>(policy.output_would_write));
+  std::size_t manual_source_count = 0;
+  if (!record_manual_export(out, fullboard, policy_ids, primary,
+                            primary_parent, risk, partial, topK, manual,
+                            manual_requested, manual_source_count))
+    return false;
   out.push("final_output",
            withheld || final_bpm <= 0.0 ? "review_hold" : "selected",
            withheld || final_bpm <= 0.0 ? "final_abstained" : "final_numeric",
@@ -786,7 +795,8 @@ inline bool record(
   if (out.sequence != windows.size() + supply.segments.size() +
                       board.raw_candidates.size() + 4 * collapsed.size() +
                       fullboard.size() + selectorEvents.size() +
-                      supplemental_id.size() + collapsed.size() + 10 ||
+                      supplemental_id.size() + collapsed.size() + 11 +
+                       manual_source_count + manual.size() ||
       out.lines.size() > 2 * 1024 * 1024) return false;
   const std::wstring output = fixture + L".pipeline.jsonl";
   HANDLE h = CreateFileW(output.c_str(), GENERIC_WRITE, 0, nullptr,

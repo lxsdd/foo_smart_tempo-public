@@ -36,6 +36,25 @@ def mutations(rows: list[dict]) -> list[tuple[str, list[dict]]]:
     def row_stage(stage):
         return lambda row: row["stage"] == stage
 
+    # Real host manual-export state, plus source/output identity mutations.
+    add("manual_state_count", row_stage("manual_state"),
+        lambda a, i: a[i]["metrics"].__setitem__(
+            "score", a[i]["metrics"]["score"] + 1), required=True)
+    add("manual_state_reason", row_stage("manual_state"),
+        lambda a, i: a[i].__setitem__("reason_code", "manual_unverified"),
+        required=True)
+    add("manual_source_origin", row_stage("manual_source"),
+        lambda a, i: a[i]["metrics"].__setitem__("origin_mask", 31))
+    add("manual_export_rank", row_stage("manual_export"),
+        lambda a, i: a[i]["metrics"].__setitem__("evidence_rank", 0))
+    add("manual_export_parent", row_stage("manual_export"),
+        lambda a, i: a[i].__setitem__("parent_candidate_ids", []))
+    add("manual_export_score", row_stage("manual_export"),
+        lambda a, i: a[i]["metrics"].__setitem__(
+            "score", a[i]["metrics"]["score"] + 10))
+    add("manual_export_origin", row_stage("manual_export"),
+        lambda a, i: a[i]["metrics"].__setitem__("origin_mask", 31))
+
     add("sequence_gap", lambda row: True,
         lambda a, i: a[i].__setitem__("sequence", -1), required=True)
     add("schema_spoof", lambda row: True,

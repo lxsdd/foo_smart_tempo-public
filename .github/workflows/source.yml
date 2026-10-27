@@ -73,6 +73,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Independent native low continuous-center fate chronology failed' }
           python -m unittest discover -s tests -p 'test_smart_tempo_b_raw_fates.py' -v
           if ($LASTEXITCODE -ne 0) { throw 'Independent native raw-selector fate automaton failed' }
+          python -m unittest discover -s tests -p 'test_smart_tempo_b_manual_export.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'Manual review export native provenance regressions failed' }
           python -m unittest discover -s tests -p 'test_smart_tempo_b_candidate_fates.py' -v
           if ($LASTEXITCODE -ne 0) { throw 'Independent candidate-fate chronology regressions failed' }
           python -m unittest discover -s tests -p 'test_smart_tempo_native_mutations.py' -v

@@ -1064,3 +1064,21 @@ branches, all supplemental/partial-bar source identities, and an independent
 review of complete candidate causality are explicitly unresolved. Even
 if source/host CI is green, it is not independent real-music BPM QA.
 No productive DSP, Selector, Policy, writer, media or preferences change.
+
+## CI-only native manual-export provenance (Phase B, not final eligibility)
+
+The native analyzer's **actual** manual-review vector is passed to the
+disposable observer after measured-witness/Writer resolution. The observer
+captures requested/not-requested state and source-indexed numeric inputs for
+Policy FullBoard, selected Primary, material risk, partial-bar aggregate and
+partial-bar TopK. Each native merged output has first-match source IDs, a
+bounded five-bit origin mask and the final rank/score/support. No source
+labels, titles, genres, filenames, oracle BPM or paths are serialized.
+
+An independent Python replay checks 0.001-BPM first-match grouping, numeric
+maxima, minimum positive original rank, stable sort and final unranked rank.
+Native host mutations target actual output rows. Not-requested capture is
+explicit missing evidence, never complete manual coverage. Supplemental-only
+origins are not proof of Primary eligibility. No production DSP, selector,
+Policy, writer or user-media behavior changes. This block does not close
+first-decisive-veto and unindexed Policy gaps; Phase C remains gated.
