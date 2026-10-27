@@ -985,6 +985,50 @@ HEAD differs. Source SHA, original host CI job and negative
 mutation count must be reported together; only the actual completed Windows
 run can establish runtime qualification.
 
+
+### 27 October 2026: actual native Policy FullBoard rail provenance (CI-only)
+
+The original `prepare_mir_policy_fullboard_candidates` now emits an indexed,
+CI-only decision for **every** collapsed source before its 40–220 BPM
+FullBoard filter: source identity, actual local-exact-resolved BPM, inclusion
+or decisive rail veto. The independent parser checks original source order,
+exactly one verdict per source, numeric gate truth, and one-to-one FullBoard
+membership/BPM identity. Original Win32/x64 foobar host and mutation gates
+require the proof; missing/forged/reordered/veto-flipped evidence fails closed.
+Primary eligibility, merged manual review and downstream Policy selection
+remain separate. No production DSP/selector/Policy output/writer behavior
+change, no owner media or labels; Phase B INCOMPLETE, Phase C CLOSED,
+private musical acceptance NO_GO.
+
+## Phase-B General-144 native promotion provenance (CI-only, 2026-10-27)
+
+This source-bound qualification slice closes one previously unobserved causal
+decision **after** the General lane baseline comparator. The original C++
+selector can consider a 126–141.5 BPM alternative when its initial winner
+is a 143–145 BPM 3:2/4:3 alias and the route center permits it. An alternative
+being ranked is not proof that it wins the later evidence comparison.
+
+- CI-only native events now distinguish the actual baseline object,
+  no-challenger/non-144/route bypass, exact baseline and challenger measured
+  evidence, and the original `challenger >= 1.20 * baseline` promotion verdict.
+  The production predicate, candidate ranking, final BPM, ReviewHold and
+  writer path are untouched. No reference/oracle BPM enters this decision.
+- The independent JSONL auditor enforces source IDs, stage chronology,
+  challenger comparator winner, numerical evidence ratio and exact terminal
+  lane object. Positive promotion, retained baseline, missing challenger and
+  bypass are all tested; corrupt source identity, verdict, ratio, evidence,
+  chronology and terminal transitions fail closed.
+- The CI-only original foobar Win32/x64 host dispatcher exercises all four
+  cases on disposable **fabricated** candidate boards and emits a guarded
+  marker only after the real selector passes. The host harness requires the
+  marker alongside existing no-write WAV/CUE and pipeline traces.
+- This is **not** a real decoded-WAV observation of a General-144 promotion,
+  not the complete first-veto proof for all primary branches, and not a
+  replacement for independent musical holdouts. Package B remains open;
+  Package C and production changes remain gated. The technical CI result
+  must be attached to its exact post-change commit before qualification.
+
+
 ## Extended original-host Phase-B exploratory cohort (2026-10-27)
 
 Seven additional **pre-existing**, deterministic 20-second synthetic rhythm fixtures

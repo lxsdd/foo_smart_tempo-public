@@ -263,6 +263,15 @@ struct MirPolicyMeasuredCandidate {
 };
 
 #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+// Actual CI-only FullBoard rail decision for every collapsed source index.
+struct MirCiPolicyRailEvent {
+  std::size_t source_index = 0;
+  double source_bpm = 0.0;
+  double resolved_bpm = 0.0;
+  bool included = false;
+};
+[[nodiscard]] std::span<const MirCiPolicyRailEvent> mir_ci_policy_rail_events() noexcept;
+[[nodiscard]] bool mir_ci_policy_rail_trace_complete() noexcept;
 // Observes the last ACTUALLY chosen object passed to the Policy candidate
 // selector. A coincident BPM alone is explicitly insufficient evidence.
 enum class MirCiSupplementalKind { none, partial_bar_aggregate, material_risk, partial_bar_topk };

@@ -18,7 +18,7 @@ from audit_smart_tempo_b_low_continuous_fates import (
     LowContinuousFateError, reconcile_native_low_continuous)
 
 SCHEMA = "smart_tempo_source_decision_trace_v1"
-MAX_BYTES, MAX_LINES = 2 * 1024 * 1024, 12300
+MAX_BYTES, MAX_LINES = 2 * 1024 * 1024, 16500
 FIELDS = frozenset(("schema", "analysis_id", "sequence", "stage", "outcome",
                     "reason_code", "candidate_id", "parent_candidate_ids", "metrics"))
 METRICS = frozenset(("bpm", "score", "support"))
@@ -55,6 +55,7 @@ ENUMS = {
     "candidate_create": ("observed", None),
     "candidate_transform": ("observed", "cluster_from_raw"),
     "primary_eligibility": ("observed", "pool_only_gate_unresolved"),
+    "policy_filter": (None, None),
     "candidate_filter": (None, None),
     "primary_rank": ("included", None),
     "primary_compare": (None, None),
@@ -98,6 +99,10 @@ ALLOWED_FILTER_REASONS = frozenset((
     "harmonic_direct_gate_allowed", "harmonic_direct_gate_provisional_exclusion",
     "raw_alias_fallback_readmitted", "raw_support_fallback_readmitted",
     "general_alt_window_allowed", "general_alt_window_provisional_exclusion",
+    "general_alt_baseline_source", "general_alt_bypass_route",
+    "general_alt_bypass_non144", "general_alt_no_challenger",
+    "general_alt_baseline_evidence", "general_alt_challenger_evidence",
+    "general_alt_challenger_promoted", "general_alt_challenger_rejected",
     "low_mid_58_61_allowed", "low_mid_58_61_provisional_exclusion",
     "low_lower_mid_58_61_allowed", "low_lower_mid_58_61_provisional_exclusion",
     "low_midlow_56_58_allowed", "low_midlow_56_58_provisional_exclusion",
@@ -158,7 +163,8 @@ class TraceError(ValueError):
 
 def validate(rows: list[dict], *, require_windows: bool = False,
              require_segments: bool = False,
-             require_native_comparator: bool = False) -> dict:
+             require_native_comparator: bool = False,
+             require_policy_filter: bool = False) -> dict:
     # Library callers may test legacy minimal traces. The real host CLI
     # always requires both actual windows and actual native MIR segments.
     if require_segments and not require_windows:
@@ -171,7 +177,7 @@ def validate(rows: list[dict], *, require_windows: bool = False,
     stage_order = {
         "decode_window": -1, "mir_segment": -1,
         "candidate_create": 0, "candidate_transform": 1,
-        "primary_eligibility": 1, "policy_eligibility": 2,
+        "primary_eligibility": 1, "policy_filter": 2, "policy_eligibility": 2,
         "supplemental_candidate": 2,
         "candidate_filter": 3, "primary_rank": 3, "primary_compare": 3,
         "primary_terminal": 3, "primary_disposition": 3,
@@ -310,6 +316,17 @@ def validate(rows: list[dict], *, require_windows: bool = False,
         elif stage == "primary_eligibility":
             if candidate_id is None or ids.get(candidate_id) != "candidate_transform":
                 raise TraceError("primary pool includes candidate not transformed")
+        elif stage == "policy_filter":
+            if (candidate_id is None or ids.get(candidate_id) != "candidate_transform" or
+                    parents or item["metrics"]["support"] != 0 or
+                    abs(bpm - candidate_bpm[candidate_id]) >= .001):
+                raise TraceError("Policy rail source identity mismatch")
+            resolved = item["metrics"]["score"]
+            eligible = 40 <= resolved <= 220
+            if (item["outcome"] != ("included" if eligible else "excluded") or
+                    item["reason_code"] != ("policy_rail_allowed" if eligible else
+                                            "policy_rail_decisive_veto")):
+                raise TraceError("Policy rail verdict contradicts native resolved BPM")
         elif stage == "policy_resolution":
             if candidate_id is not None or item["reason_code"] not in ALLOWED_POLICY_COMPARISONS:
                 raise TraceError("invalid policy comparison")
@@ -639,6 +656,7 @@ def validate(rows: list[dict], *, require_windows: bool = False,
     raw = stage_indices["candidate_create"]
     collapsed = stage_indices["candidate_transform"]
     primary_pool = stage_indices["primary_eligibility"]
+    rail_filters = stage_indices["policy_filter"]
     fullboard = stage_indices["policy_eligibility"]
     supplemental = stage_indices["supplemental_candidate"]
     if len(supplemental) > 1:
@@ -648,7 +666,7 @@ def validate(rows: list[dict], *, require_windows: bool = False,
     # terminal chain rather than treating it as an absent/broken trace.
     # This remains a distinct incomplete-causal outcome, never a B PASS.
     if not raw and not collapsed:
-        forbidden = ("primary_eligibility", "policy_eligibility",
+        forbidden = ("primary_eligibility", "policy_filter", "policy_eligibility",
                      "supplemental_candidate", "candidate_filter",
                      "primary_rank", "primary_compare", "primary_terminal",
                      "primary_disposition")
@@ -737,6 +755,14 @@ def validate(rows: list[dict], *, require_windows: bool = False,
             left["candidate_id"] == right["candidate_id"]
             for left, right in zip(primary_pool, collapsed)):
         raise TraceError("primary input pool not fully represented")
+    if require_policy_filter and len(rail_filters) != len(collapsed):
+        raise TraceError("native Policy rail source inventory missing")
+    if rail_filters:
+        if len(rail_filters) != len(collapsed):
+            raise TraceError("partial Policy rail source inventory")
+        for source, gate in zip(collapsed, rail_filters):
+            if gate["candidate_id"] != source["candidate_id"]:
+                raise TraceError("Policy rail source-index order drift")
     # FullBoard may legitimately exclude out-of-rail clusters, but cannot
     # invent, omit or duplicate a surviving candidate's source identity.
     seen_policy_sources = set()
@@ -747,6 +773,15 @@ def validate(rows: list[dict], *, require_windows: bool = False,
                 ids[parents[0]] != "candidate_transform"):
             raise TraceError("policy FullBoard source is not unique and indexed")
         seen_policy_sources.add(parents[0])
+    if rail_filters:
+        by_source = {row["parent_candidate_ids"][0]: row for row in fullboard}
+        for gate in rail_filters:
+            member = by_source.get(gate["candidate_id"])
+            if (member is None) != (gate["outcome"] == "excluded"):
+                raise TraceError("Policy rail/FullBoard membership contradiction")
+            if member is not None and abs(member["metrics"]["bpm"] -
+                                          gate["metrics"]["score"]) > .001:
+                raise TraceError("Policy rail/FullBoard resolved BPM mismatch")
     dispositions = stage_indices["primary_disposition"]
     if (require_windows and len(dispositions) != len(collapsed)) or (
             dispositions and len(dispositions) != len(collapsed)):
@@ -805,6 +840,74 @@ def validate(rows: list[dict], *, require_windows: bool = False,
                  for p in primary["parent_candidate_ids"]))):
         raise TraceError("selected primary candidate has no matching clustered witness")
     terminal = stage_indices["primary_terminal"]
+    # The General-144 alternative is a TWO-stage decision: native baseline
+    # comparator, then a bounded 126..141.5 challenger and its 1.20 evidence
+    # promotion gate. Source-indexed candidate events make it impossible to
+    # treat a ranked challenger as automatically selected.
+    general = [r for r in stage_indices["candidate_filter"]
+               if r["reason_code"].startswith("general_alt_") and
+               not r["reason_code"].startswith("general_alt_window_")]
+    if require_windows and any(
+            r["reason_code"].startswith("general_alt_window_")
+            for r in stage_indices["candidate_filter"]) and not any(
+            r["reason_code"] == "general_alt_baseline_source" for r in general):
+        raise TraceError("host General alternative window lacks native baseline")
+    baseline = [r for r in general
+                if r["reason_code"] == "general_alt_baseline_source"]
+    resolutions = [r for r in general if r["reason_code"] in (
+        "general_alt_bypass_route", "general_alt_bypass_non144",
+        "general_alt_no_challenger", "general_alt_challenger_promoted",
+        "general_alt_challenger_rejected")]
+    if general and (len(baseline) != 1 or len(resolutions) != 1 or not terminal):
+        raise TraceError("General alternative source/resolution incomplete")
+    if baseline:
+        base_id = baseline[0]["candidate_id"]
+        verdict = resolutions[0]
+        reason = verdict["reason_code"]
+        if (baseline[0]["outcome"] != "included" or
+                verdict["sequence"] <= baseline[0]["sequence"]):
+            raise TraceError("General baseline source chronology invalid")
+        alt_ranks = [r for r in stage_indices["primary_rank"]
+                     if r["reason_code"] == "general_alt_rank_scored"]
+        alt_compares = [r for r in comparisons
+                        if r["reason_code"].startswith("general_alt_compare_")]
+        if reason in ("general_alt_bypass_route", "general_alt_bypass_non144",
+                      "general_alt_no_challenger"):
+            if (verdict["candidate_id"] != base_id or
+                    verdict["outcome"] != "included" or
+                    alt_ranks or alt_compares or
+                    any(r["reason_code"] in (
+                        "general_alt_baseline_evidence",
+                        "general_alt_challenger_evidence") for r in general)):
+                raise TraceError("General bypass/no-challenger falsely ranked")
+            expected_lane_id = base_id
+        else:
+            base_ev = [r for r in general
+                       if r["reason_code"] == "general_alt_baseline_evidence"]
+            alt_ev = [r for r in general
+                      if r["reason_code"] == "general_alt_challenger_evidence"]
+            if (len(base_ev) != 1 or len(alt_ev) != 1 or
+                    base_ev[0]["candidate_id"] != base_id or
+                    alt_ev[0]["candidate_id"] != verdict["candidate_id"] or
+                    not (base_ev[0]["sequence"] < alt_ev[0]["sequence"] <
+                         verdict["sequence"]) or
+                    base_ev[0]["outcome"] != "included" or
+                    alt_ev[0]["outcome"] != "included" or
+                    not alt_ranks or not alt_compares):
+                raise TraceError("General promotion has no measured source pair")
+            base_score = base_ev[0]["metrics"]["score"]
+            alt_score = alt_ev[0]["metrics"]["score"]
+            promoted = alt_score >= base_score * 1.20
+            if (abs(alt_score - verdict["metrics"]["score"]) > 1e-8 or
+                    verdict["outcome"] != ("included" if promoted else "excluded") or
+                    reason != ("general_alt_challenger_promoted" if promoted else
+                               "general_alt_challenger_rejected") or
+                    current_best.get("general_alt", (None, None, None))[2] !=
+                        verdict["candidate_id"]):
+                raise TraceError("General promotion ratio/native challenger contradicted")
+            expected_lane_id = verdict["candidate_id"] if promoted else base_id
+        if terminal[0]["candidate_id"] != expected_lane_id:
+            raise TraceError("General alternative terminal contradicts native promotion")
     # Replay the actual terminal lane object against the final winner of
     # each executed comparator pool. A ranked loser cannot become the lane
     # terminal by simply retaining a valid candidate ID and matching BPM.
@@ -1088,6 +1191,9 @@ def validate(rows: list[dict], *, require_windows: bool = False,
         "raw_lineage_overlap_disambiguated": overlapping_raw,
         "policy_board_unique_cluster_sources": len(seen_policy_sources),
         "policy_board_filtered_clusters": len(collapsed) - len(seen_policy_sources),
+        "policy_rail_source_observations": len(rail_filters),
+        "policy_rail_decisive_vetos": sum(x["outcome"] == "excluded" for x in rail_filters),
+        "policy_rail_native_complete": int(bool(rail_filters) and len(rail_filters) == len(collapsed)),
         "process_wall_seconds": round(resources[0]["metrics"]["wall_seconds"], 6) if resources else None,
         "process_cpu_seconds": round(resources[0]["metrics"]["process_cpu_seconds"], 6) if resources else None,
         "process_peak_rss_bytes": int(resources[0]["metrics"]["process_peak_rss_after_bytes"]) if resources else None,
@@ -1236,7 +1342,8 @@ def main() -> None:
     a = parser.parse_args()
     result = validate(load(a.trace), require_windows=a.require_windows,
                       require_segments=a.require_windows,
-                      require_native_comparator=a.require_windows)
+                      require_native_comparator=a.require_windows,
+                      require_policy_filter=a.require_windows)
     print("SMART_TEMPO_CI_PIPELINE_TRACE_SCHEMA=PASS")
     for key, value in result.items():
         print(f"SMART_TEMPO_TRACE_{key.upper()}={value}")

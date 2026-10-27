@@ -20,6 +20,20 @@ thread_local std::vector<MirCandidate> g_ci_primary_pool;
 thread_local bool g_ci_primary_trace_complete = true;
 thread_local std::span<const MirPolicyMeasuredCandidate> g_ci_policy_board;
 thread_local MirCiPolicyPointerSource g_ci_policy_source;
+thread_local std::vector<MirCiPolicyRailEvent> g_ci_policy_rail_events;
+thread_local bool g_ci_policy_rail_complete = true;
+inline void ci_policy_rail_event(std::size_t index, double sourceBpm,
+                                 double resolvedBpm, bool included) noexcept {
+  if (g_ci_policy_rail_events.size() >= 4096) {
+    g_ci_policy_rail_complete = false;
+    return;
+  }
+  try {
+    g_ci_policy_rail_events.push_back({index, sourceBpm, resolvedBpm, included});
+  } catch (...) {
+    g_ci_policy_rail_complete = false;
+  }
+}
 inline void ci_policy_selected(const MirPolicyMeasuredCandidate& selected) noexcept {
   g_ci_policy_source = {true, false, 0, selected.bpm};
   for (std::size_t i = 0; i < g_ci_policy_board.size(); ++i) {
@@ -70,6 +84,12 @@ const std::vector<MirCandidate>& mir_ci_primary_selector_pool() noexcept {
 }
 MirCiPolicyPointerSource mir_ci_policy_pointer_source() noexcept {
   return g_ci_policy_source;
+}
+std::span<const MirCiPolicyRailEvent> mir_ci_policy_rail_events() noexcept {
+  return {g_ci_policy_rail_events.data(), g_ci_policy_rail_events.size()};
+}
+bool mir_ci_policy_rail_trace_complete() noexcept {
+  return g_ci_policy_rail_complete;
 }
 #endif
 namespace {
@@ -1851,6 +1871,16 @@ select_mir_low_pulse_continuous_center_rescue(
 #endif
   const MirCandidate* baseline = best_mir_cluster_candidate(
       candidates, pool, lane, routeMin, routeMax, routeCenter);
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+  if (baseline != nullptr)
+    ci_primary_event(static_cast<std::size_t>(baseline - candidates.data()),
+                     baseline->bpm, 0.0, false, true,
+                     "general_alt_baseline_source");
+  if (baseline != nullptr && routeCenter >= 150.0)
+    ci_primary_event(static_cast<std::size_t>(baseline - candidates.data()),
+                     baseline->bpm, 0.0, false, true,
+                     "general_alt_bypass_route");
+#endif
   if (baseline == nullptr || routeCenter >= 150.0) {
     return baseline;
   }
@@ -1859,6 +1889,11 @@ select_mir_low_pulse_continuous_center_rescue(
       (mir_has_alias(baseline->alias_bits, MirAlias::three_halves) ||
        mir_has_alias(baseline->alias_bits, MirAlias::four_thirds));
   if (!baseline144) {
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+    ci_primary_event(static_cast<std::size_t>(baseline - candidates.data()),
+                     baseline->bpm, 0.0, false, true,
+                     "general_alt_bypass_non144");
+#endif
     return baseline;
   }
 
@@ -1932,12 +1967,33 @@ select_mir_low_pulse_continuous_center_rescue(
 #endif
   }
   if (best == nullptr) {
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+    ci_primary_event(static_cast<std::size_t>(baseline - candidates.data()),
+                     baseline->bpm, 0.0, false, true,
+                     "general_alt_no_challenger");
+#endif
     return baseline;
   }
   const double bestEvidence =
       best->best_combined_score + best->pulse_section_support * 0.12;
   const double baselineEvidence =
       baseline->best_combined_score + baseline->pulse_section_support * 0.12;
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+  // Causal promotion witness from the ACTUAL native baseline and challenger.
+  // Separate candidate identities and measured evidence are serialized;
+  // the independent host parser checks the exact >=1.20 comparison.
+  ci_primary_event(static_cast<std::size_t>(baseline - candidates.data()),
+                   baseline->bpm, baselineEvidence, false, true,
+                   "general_alt_baseline_evidence");
+  ci_primary_event(static_cast<std::size_t>(best - candidates.data()),
+                   best->bpm, bestEvidence, false, true,
+                   "general_alt_challenger_evidence");
+  const bool ciPromoted = bestEvidence >= baselineEvidence * 1.20;
+  ci_primary_event(static_cast<std::size_t>(best - candidates.data()),
+                   best->bpm, bestEvidence, false, ciPromoted,
+                   ciPromoted ? "general_alt_challenger_promoted" :
+                                "general_alt_challenger_rejected");
+#endif
   return bestEvidence >= baselineEvidence * 1.20 ? best : baseline;
 }
 
@@ -2688,6 +2744,10 @@ compute_mir_soft_center_selection(
 prepare_mir_policy_fullboard_candidates(
     const MirCandidateBoard& board,
     MirLocalExactCache& localExactCache) {
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+  g_ci_policy_rail_events.clear();
+  g_ci_policy_rail_complete = true;
+#endif
   const std::vector<MirCandidate> collapsed =
       collapse_mir_candidates(board);
   struct PendingCandidate {
@@ -2716,11 +2776,16 @@ prepare_mir_policy_fullboard_candidates(
 
   std::vector<MirPolicyMeasuredCandidate> measured;
   measured.reserve(pending.size());
-  for (const auto& item : pending) {
+  for (std::size_t sourceIndex = 0; sourceIndex < pending.size(); ++sourceIndex) {
+    const auto& item = pending[sourceIndex];
     const double bpm =
         item.exact.bpm > 0.0 ? item.exact.bpm : item.candidate.bpm;
-    if (!(bpm >= kMirProductionMinBpm && bpm <= kMirProductionMaxBpm) ||
-        !std::isfinite(bpm)) {
+    const bool inRail = bpm >= kMirProductionMinBpm &&
+                        bpm <= kMirProductionMaxBpm && std::isfinite(bpm);
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+    ci_policy_rail_event(sourceIndex, item.candidate.bpm, bpm, inRail);
+#endif
+    if (!inRail) {
       continue;
     }
     const double baseScore =
