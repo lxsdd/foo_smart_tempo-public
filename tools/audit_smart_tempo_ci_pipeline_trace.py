@@ -796,12 +796,17 @@ def validate(rows: list[dict], *, require_windows: bool = False,
         if not windows or len(windows) != declared_passes or len(resources) != 1:
             raise TraceError("empty MIR native window/resource evidence incomplete")
         try:
+            manual_status = reconcile_manual_export(rows, required=require_windows)
+        except ManualTraceError as exc:
+            raise TraceError("empty native manual-export chain: " + str(exc)) from exc
+        try:
             writer_status = reconcile_writer_resolution(
                 rows, required=require_writer_resolution)
         except WriterResolutionError as exc:
             raise TraceError("applied native writer chain: " + str(exc)) from exc
         return {
             **writer_status,
+            **manual_status,
             "rows": len(rows), "raw": 0, "collapsed": 0,
             "primary_pool": 0, "policy_board": 0,
             "decoded_windows": len(windows), "declared_windows": declared_passes,
