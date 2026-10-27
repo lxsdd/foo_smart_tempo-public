@@ -718,6 +718,103 @@ bool write_native_continuous_marker() {
     return ok;
 }
 
+// One original C++ General-144 selector on four independent fabricated
+// boards: evidence promotion, evidence rejection, absent challenger and
+// non-144 bypass. The BPM label is never a ground-truth input.
+bool native_general_alt_contract(int variant) {
+    using namespace smart_tempo;
+    using namespace smart_tempo::mir_pipeline;
+    if (variant < 0 || variant > 3) return false;
+    MirCandidateBoard board{};
+    board.segment_count = 10;
+    for (int index = 0; index < 2; ++index) {
+        MirRawCandidate raw{};
+        raw.bpm = index == 0 ? 144.0 : variant == 2 ? 125.5 : 130.0;
+        raw.alias_bit = static_cast<uint16_t>(
+            index == 0 && variant != 3 ? MirAlias::three_halves : MirAlias::direct);
+        raw.alias_class = index == 0 && variant != 3 ? "three_halves" : "direct";
+        raw.synthetic_support = index == 0 ? .90 : .60;
+        raw.synthetic_winner_support = index == 0 ? .50 : .20;
+        raw.best_combined_score = index == 0 ? .50 :
+            variant == 1 ? .55 : .75;
+        raw.score_sum = index == 0 ? 12.0 : 1.0;
+        raw.rows = 1;
+        raw.pulse_score = .20;
+        raw.pulse_section_support = .50;
+        board.raw_candidates.push_back(raw);
+    }
+    const HodgkinsonTatumProbeResult mir{};
+    const HodgkinsonMaterialRiskEvidence risk{};
+    const auto result = compute_mir_primary_selection(
+        board, mir, risk, nullptr, 98.0, 130.0, true);
+    const double expected = variant == 0 ? 130.0 : 144.0;
+    if (std::string_view(result.lane) != "general" ||
+        std::string_view(result.lane_variant) != "general_144_soft" ||
+        result.selected_bpm != expected ||
+        !mir_ci_primary_selector_trace_complete()) return false;
+    const auto events = mir_ci_primary_selector_events();
+    const char* expectedReason = variant == 0
+        ? "general_alt_challenger_promoted" : variant == 1
+        ? "general_alt_challenger_rejected" : variant == 2
+        ? "general_alt_no_challenger" : "general_alt_bypass_non144";
+    std::size_t baseline = 0, resolutions = 0, baseEvidence = 0;
+    std::size_t challengerEvidence = 0, altRank = 0, altCompare = 0;
+    std::size_t laneTerminal = 0;
+    for (const auto& event : events) {
+        if (std::strcmp(event.reason, "general_alt_baseline_source") == 0) {
+            if (event.raw || event.source_index != 0 ||
+                event.bpm != 144.0) return false;
+            ++baseline;
+        } else if (std::strcmp(event.reason, expectedReason) == 0) {
+            if (event.raw || event.source_index !=
+                    (variant < 2 ? 1u : 0u) ||
+                event.included != (variant != 1)) return false;
+            ++resolutions;
+        } else if (std::strcmp(event.reason, "general_alt_baseline_evidence") == 0) {
+            if (event.source_index != 0 || std::abs(event.score - .56) > 1e-8)
+                return false;
+            ++baseEvidence;
+        } else if (std::strcmp(event.reason, "general_alt_challenger_evidence") == 0) {
+            if (event.source_index != 1 ||
+                std::abs(event.score - (variant == 1 ? .61 : .81)) > 1e-8)
+                return false;
+            ++challengerEvidence;
+        } else if (std::strcmp(event.reason, "general_alt_rank_scored") == 0) {
+            if (event.source_index != 1) return false;
+            ++altRank;
+        } else if (std::strcmp(event.reason, "general_alt_compare_won") == 0) {
+            if (event.source_index != 1 || !event.included) return false;
+            ++altCompare;
+        } else if (std::strcmp(event.reason, "terminal_lane_choice") == 0) {
+            if (event.source_index != (variant == 0 ? 1u : 0u) ||
+                event.bpm != expected) return false;
+            ++laneTerminal;
+        }
+    }
+    const bool compared = variant <= 1;
+    return baseline == 1 && resolutions == 1 && laneTerminal == 1 &&
+           baseEvidence == (compared ? 1u : 0u) &&
+           challengerEvidence == (compared ? 1u : 0u) &&
+           altRank == (compared ? 1u : 0u) &&
+           altCompare == (compared ? 1u : 0u);
+}
+
+bool write_native_general_alt_marker() {
+    for (int variant = 0; variant < 4; ++variant)
+        if (!native_general_alt_contract(variant)) return false;
+    const std::wstring path = g_ci_fixture + L".native-general-alt";
+    const HANDLE handle = ::CreateFileW(path.c_str(), GENERIC_WRITE, 0,
+        nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (handle == INVALID_HANDLE_VALUE) return false;
+    constexpr char proof[] = "SMART_TEMPO_CI_NATIVE_GENERAL_ALT=PASS\n";
+    DWORD written = 0;
+    const bool ok = ::WriteFile(handle, proof,
+        static_cast<DWORD>(sizeof(proof) - 1), &written, nullptr) &&
+        written == sizeof(proof) - 1;
+    ::CloseHandle(handle);
+    return ok;
+}
+
 void CALLBACK run_ci_probe(HWND, UINT, UINT_PTR timer, DWORD) {
     // Complete foobar's one-time appearance wizard before invoking any menu.
     if (::FindWindowW(nullptr, L"Quick Appearance Setup") != nullptr) return;
@@ -752,6 +849,11 @@ void CALLBACK run_ci_probe(HWND, UINT, UINT_PTR timer, DWORD) {
             return;
         }
         FB2K_console_formatter() << "SMART_TEMPO_CI_NATIVE_RAW_FALLBACK=PASS";
+        if (!write_native_general_alt_marker()) {
+            FB2K_console_formatter() << "SMART_TEMPO_CI_NATIVE_GENERAL_ALT=FAIL";
+            return;
+        }
+        FB2K_console_formatter() << "SMART_TEMPO_CI_NATIVE_GENERAL_ALT=PASS";
         if (!write_native_continuous_marker()) {
             FB2K_console_formatter() << "SMART_TEMPO_CI_NATIVE_CONTINUOUS=FAIL";
             return;
