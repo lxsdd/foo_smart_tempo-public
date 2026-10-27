@@ -1439,9 +1439,17 @@ class NativePipelineTraceTests(unittest.TestCase):
                   "general_alt_compare_won", 0),
         ]
         rows[insert_at:insert_at] = events
+        # The raw exclusion occupies event index 1; the cluster's first
+        # provisional exclusion is event index 2, not a decisive veto.
+        first = next(r for r in rows if r["stage"] == "primary_first_exclusion")
+        first["reason_code"] = "general_out_of_rail_provisional"
+        first["outcome"] = "excluded"
+        first["metrics"]["score"] = .95
+        first["metrics"]["support"] = 2
         for i, row in enumerate(rows):
             row["sequence"] = i
         result = validate(rows)
+        self.assertEqual(result["primary_first_exclusion_sources"], 1)
         self.assertEqual(result["selector_cluster_gate_checked"], 1)
         self.assertEqual(result["selector_cluster_gate_unvisited"], 0)
         self.assertEqual(result["selector_cluster_first_exclusion_observed"], 1)
