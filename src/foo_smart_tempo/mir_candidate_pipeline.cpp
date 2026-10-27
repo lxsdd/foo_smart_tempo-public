@@ -1712,6 +1712,23 @@ select_mir_low_pulse_continuous_center_rescue(
       best = &candidate;
     }
   }
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+  // Executed continuous-center rescue: complete BRANCH-LOCAL source fates.
+  // A veto here is not global ineligibility (the prior low lane may win).
+  for (const auto& candidate : candidates) {
+    const bool qualifies = candidate.bpm >= 95.0 && candidate.bpm <= 102.0 &&
+        std::abs(candidate.bpm - selected->bpm) >= 10.0 &&
+        candidate.continuous_score_ratio >= 1.50 &&
+        candidate.continuous_section_support >= 0.80 &&
+        candidate.continuous_section_stability >= 0.70;
+    const bool winner = qualifies && &candidate == best;
+    ci_primary_event(static_cast<std::size_t>(&candidate - candidates.data()),
+                     candidate.bpm, candidate.continuous_score_ratio, false,
+                     winner, !qualifies ? "low_continuous_branch_veto" :
+                         winner ? "low_continuous_branch_winner" :
+                                  "low_continuous_branch_ranked_out");
+  }
+#endif
   return best;
 }
 

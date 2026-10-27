@@ -21,3 +21,22 @@ global selector eligibility completeness. The final primary first-veto
 remains unproven in other rescue/policy paths; Phase C and owner musical
 acceptance are not unlocked by this contract. Do not change production
 DSP, candidate scoring, Policy, writer or Review Hold on this evidence.
+
+## Executed continuous-center rescue: complete branch-local closure
+
+The original low-pulse selector may replace an already-selected 45–90 BPM
+candidate with a 95–102 BPM continuous-center candidate. The CI-only
+observer now emits a **full source-indexed closure** after the executed
+five-field lexicographic comparator: each collapsed source is either
+`low_continuous_branch_veto`, `low_continuous_branch_ranked_out` or
+`low_continuous_branch_winner`. No closure is fabricated when the rescue
+function was not invoked.
+
+An independent oracle-blind parser replays gate, rank, comparison, source
+identity and terminal ordering; positive and adversarial regressions run
+before SDK acquisition. The original Win32/x64 foobar host probe checks
+both opposing route-center winners on the same fabricated numeric board.
+The native marker now requires the three exhaustive branch outcomes.
+This is **branch-local** only: the prior low lane may still win a rejected
+source. No global first-veto, musical quality, Phase C readiness, productive
+selector change, ReviewHold release or writer permission is inferred.

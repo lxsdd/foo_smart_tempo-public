@@ -75,6 +75,7 @@ bool native_continuous_selector_contract(double center,
         !mir_ci_primary_selector_trace_complete())
         return false;
     std::size_t wins = 0, losses = 0, laneTerminals = 0;
+    std::size_t branchWinners = 0, branchVetoes = 0, branchRankedOut = 0;
     for (const auto& row : mir_ci_primary_selector_events()) {
         if (std::strcmp(row.reason, "low_continuous_compare_won") == 0 ||
             std::strcmp(row.reason, "low_continuous_compare_lost") == 0) {
@@ -90,6 +91,19 @@ bool native_continuous_selector_contract(double center,
                 ++wins;
             else
                 ++losses;
+        } else if (std::strcmp(row.reason, "low_continuous_branch_winner") == 0) {
+            if (row.raw || !row.included || row.bpm != expectedBpm)
+                return false;
+            ++branchWinners;
+        } else if (std::strcmp(row.reason, "low_continuous_branch_veto") == 0) {
+            if (row.raw || row.included || row.bpm != 60.0)
+                return false;
+            ++branchVetoes;
+        } else if (std::strcmp(row.reason, "low_continuous_branch_ranked_out") == 0) {
+            if (row.raw || row.included || row.bpm == expectedBpm ||
+                (row.bpm != 96.0 && row.bpm != 99.0))
+                return false;
+            ++branchRankedOut;
         } else if (std::strcmp(row.reason, "terminal_lane_choice") == 0) {
             if (row.raw || row.bpm != expectedBpm)
                 return false;
@@ -97,7 +111,8 @@ bool native_continuous_selector_contract(double center,
         }
     }
     return wins == expectedWins && losses == expectedLosses &&
-           laneTerminals == 1;
+           laneTerminals == 1 && branchWinners == 1 &&
+           branchVetoes == 1 && branchRankedOut == 1;
 }
 
 

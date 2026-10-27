@@ -63,6 +63,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Independent native cluster rail fate chronology failed' }
           python -m unittest discover -s tests -p 'test_smart_tempo_b_low_upper_fates.py' -v
           if ($LASTEXITCODE -ne 0) { throw 'Independent native low upper-branch fate chronology failed' }
+          python -m unittest discover -s tests -p 'test_smart_tempo_b_low_continuous_fates.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'Independent native low continuous-center fate chronology failed' }
           python -m unittest discover -s tests -p 'test_smart_tempo_b_raw_fates.py' -v
           if ($LASTEXITCODE -ne 0) { throw 'Independent native raw-selector fate automaton failed' }
           python -m unittest discover -s tests -p 'test_smart_tempo_b_candidate_fates.py' -v
