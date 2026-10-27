@@ -87,7 +87,10 @@ class GeneralAlternativeCausalTests(unittest.TestCase):
         for mode in ("promote", "retain", "no_challenger", "bypass"):
             with self.subTest(mode=mode):
                 result = validate(fixture(mode))
-                self.assertEqual(result["primary_bpm"], 130. if mode == "promote" else 144.)
+                self.assertEqual(result["selector_terminal_observations"], 3)
+                self.assertEqual(next(r["metrics"]["bpm"] for r in fixture(mode)
+                                      if r["stage"] == "primary_select"),
+                                 130. if mode == "promote" else 144.)
 
     def test_independent_adversarial_source_and_promotion_mutations(self):
         for mode in ("promote", "retain", "no_challenger", "bypass"):
