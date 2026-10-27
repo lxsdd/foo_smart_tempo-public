@@ -98,6 +98,10 @@ ALLOWED_FILTER_REASONS = frozenset((
     "harmonic_direct_gate_allowed", "harmonic_direct_gate_provisional_exclusion",
     "raw_alias_fallback_readmitted", "raw_support_fallback_readmitted",
     "general_alt_window_allowed", "general_alt_window_provisional_exclusion",
+    "general_alt_baseline_source", "general_alt_bypass_route",
+    "general_alt_bypass_non144", "general_alt_no_challenger",
+    "general_alt_baseline_evidence", "general_alt_challenger_evidence",
+    "general_alt_challenger_promoted", "general_alt_challenger_rejected",
     "low_mid_58_61_allowed", "low_mid_58_61_provisional_exclusion",
     "low_lower_mid_58_61_allowed", "low_lower_mid_58_61_provisional_exclusion",
     "low_midlow_56_58_allowed", "low_midlow_56_58_provisional_exclusion",
@@ -813,6 +817,68 @@ def validate(rows: list[dict], *, require_windows: bool = False,
                  for p in primary["parent_candidate_ids"]))):
         raise TraceError("selected primary candidate has no matching clustered witness")
     terminal = stage_indices["primary_terminal"]
+    # The General-144 alternative is a TWO-stage decision: native baseline
+    # comparator, then a bounded 126..141.5 challenger and its 1.20 evidence
+    # promotion gate. Source-indexed candidate events make it impossible to
+    # treat a ranked challenger as automatically selected.
+    general = [r for r in stage_indices["candidate_filter"]
+               if r["reason_code"].startswith("general_alt_")]
+    baseline = [r for r in general
+                if r["reason_code"] == "general_alt_baseline_source"]
+    resolutions = [r for r in general if r["reason_code"] in (
+        "general_alt_bypass_route", "general_alt_bypass_non144",
+        "general_alt_no_challenger", "general_alt_challenger_promoted",
+        "general_alt_challenger_rejected")]
+    if general and (len(baseline) != 1 or len(resolutions) != 1 or not terminal):
+        raise TraceError("General alternative source/resolution incomplete")
+    if baseline:
+        base_id = baseline[0]["candidate_id"]
+        verdict = resolutions[0]
+        reason = verdict["reason_code"]
+        if (baseline[0]["outcome"] != "included" or
+                verdict["sequence"] <= baseline[0]["sequence"]):
+            raise TraceError("General baseline source chronology invalid")
+        alt_ranks = [r for r in stage_indices["primary_rank"]
+                     if r["reason_code"] == "general_alt_rank_scored"]
+        alt_compares = [r for r in comparisons
+                        if r["reason_code"].startswith("general_alt_compare_")]
+        if reason in ("general_alt_bypass_route", "general_alt_bypass_non144",
+                      "general_alt_no_challenger"):
+            if (verdict["candidate_id"] != base_id or
+                    verdict["outcome"] != "included" or
+                    alt_ranks or alt_compares or
+                    any(r["reason_code"] in (
+                        "general_alt_baseline_evidence",
+                        "general_alt_challenger_evidence") for r in general)):
+                raise TraceError("General bypass/no-challenger falsely ranked")
+            expected_lane_id = base_id
+        else:
+            base_ev = [r for r in general
+                       if r["reason_code"] == "general_alt_baseline_evidence"]
+            alt_ev = [r for r in general
+                      if r["reason_code"] == "general_alt_challenger_evidence"]
+            if (len(base_ev) != 1 or len(alt_ev) != 1 or
+                    base_ev[0]["candidate_id"] != base_id or
+                    alt_ev[0]["candidate_id"] != verdict["candidate_id"] or
+                    not (base_ev[0]["sequence"] < alt_ev[0]["sequence"] <
+                         verdict["sequence"]) or
+                    base_ev[0]["outcome"] != "included" or
+                    alt_ev[0]["outcome"] != "included" or
+                    not alt_ranks or not alt_compares):
+                raise TraceError("General promotion has no measured source pair")
+            base_score = base_ev[0]["metrics"]["score"]
+            alt_score = alt_ev[0]["metrics"]["score"]
+            promoted = alt_score >= base_score * 1.20
+            if (abs(alt_score - verdict["metrics"]["score"]) > 1e-8 or
+                    verdict["outcome"] != ("included" if promoted else "excluded") or
+                    reason != ("general_alt_challenger_promoted" if promoted else
+                               "general_alt_challenger_rejected") or
+                    current_best.get("general_alt", (None, None, None))[2] !=
+                        verdict["candidate_id"]):
+                raise TraceError("General promotion ratio/native challenger contradicted")
+            expected_lane_id = verdict["candidate_id"] if promoted else base_id
+        if terminal[0]["candidate_id"] != expected_lane_id:
+            raise TraceError("General alternative terminal contradicts native promotion")
     # Replay the actual terminal lane object against the final winner of
     # each executed comparator pool. A ranked loser cannot become the lane
     # terminal by simply retaining a valid candidate ID and matching BPM.
