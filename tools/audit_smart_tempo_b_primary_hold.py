@@ -11,7 +11,7 @@ FLAGS = ("enabled", "candidate", "auto_candidate", "review_hold",
 HOLD_FLAGS = ("material_hold", "high_family_hold",
               "soft_center_hold", "sparse_hold")
 ALLOWED_EMPTY = frozenset(("empty_mir_primary_candidate_board",
-                           "selector_returned_no_candidate"))
+                           "selector_returned_no_candidate", "invalid_primary_candidate"))
 
 
 class PrimaryHoldError(ValueError):
