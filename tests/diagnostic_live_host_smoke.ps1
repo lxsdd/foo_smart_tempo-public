@@ -290,6 +290,272 @@ function Run-Case([string]$installer,[string]$root,[string]$inputFile,[string[]]
       if (-not ($traceOutput -contains 'SMART_TEMPO_TRACE_WRITER_RESOLUTION_NATIVE=1')) {
         throw 'Original foobar native applied-writer decision is not evidenced'
       }
+      # CI-only capture is deliberately forced for the fixed synthetic
+      # fixtures. A technically green trace with zero rhythmic manual rows
+      # would NOT prove the production merge/source-ID path.
+      if (-not ($traceOutput -contains 'SMART_TEMPO_TRACE_MANUAL_NATIVE_STATE=REQUESTED_VERIFIED')) {
+        throw 'Original host did not execute requested manual-export capture'
+      }
+      if ($label -cne 'SYNTHETIC_silence') {
+        foreach ($key in @('MANUAL_SOURCE_COUNT','MANUAL_EXPORT_COUNT')) {
+          $positive=@($traceOutput | Where-Object {
+            $_ -cmatch ('^SMART_TEMPO_TRACE_'+$key+'=([1-9][0-9]*)
+      # Mutation battery runs on the *actual* native-host trace, not only
+      # on a fabricated unit-test event list. It must reject corrupted
+      # source IDs, decoder windows, policy/witness and write-guard evidence.
+      $mutationOutput=@(python ./tools/audit_smart_tempo_native_mutations.py --trace $trace --require-windows 2>&1)
+      $mutationMarker=@($mutationOutput | Where-Object {
+        $_ -ceq 'SMART_TEMPO_NATIVE_MUTATION_GATE=PASS'
+      })
+      $mutationCounts=@($mutationOutput | Where-Object {
+        $_ -cmatch '^SMART_TEMPO_NATIVE_MUTATIONS_REJECTED=([0-9]+)$'
+      })
+      if ($LASTEXITCODE -ne 0 -or $mutationMarker.Count -ne 1 -or
+          $mutationCounts.Count -ne 1 -or
+          [int]($mutationCounts[0] -replace '^.*=', '') -lt 19) {
+        throw ('Original-host adversarial lineage gate failed: '+($mutationOutput -join '; '))
+      }
+      $mutationOutput | ForEach-Object { Write-Host $_ }
+      # Independent post-host recall audit: the predeclared reference BPM is
+      # read only by this Python scorer AFTER the native worker has exited.
+      # Crucially, neither MIR, Policy nor the host component sees the oracle.
+      if (-not $RequireLowPulseCoverage) {
+        # The recall scorer is deliberately frozen to exactly the original
+        # four cases; the additional low-genre CUE probes branch coverage.
+        $recallOutput=@(python ./tools/audit_smart_tempo_b_candidate_recall.py --manifest $reference --observed $observed --trace $trace --case $label.Substring(10) 2>&1)
+        if ($LASTEXITCODE -ne 0 -or
+            @($recallOutput | Where-Object { $_ -ceq 'SMART_TEMPO_B_RECALL_VERIFIED=1' }).Count -ne 1) {
+          throw ('Native source/ground-truth recall audit failed: '+($recallOutput -join '; '))
+        }
+        # Independent native-ID comparator attribution must complete before
+        # any reference-conditioned summary is treated as usable evidence.
+        if (@($recallOutput | Where-Object {
+            $_ -ceq 'SMART_TEMPO_B_RECALL_PRIMARY_COMPARATOR_PROVENANCE=PASS'
+          }).Count -ne 1 -or
+          @($recallOutput | Where-Object {
+            $_ -cmatch '^SMART_TEMPO_B_RECALL_PRIMARY_COMPARATOR_DIAGNOSIS=(reference_primary_selected|reference_missing_cluster|reference_not_ranked|reference_ranked_lost|reference_won_nonterminal_family|negative_no_candidates)$'
+          }).Count -ne 1) {
+          throw 'Native reference-to-executed-comparator attribution incomplete'
+        }
+        $recallOutput | ForEach-Object { Write-Host $_ }
+      }
+      $traceEvidence=@{}
+      foreach ($line in $traceOutput) {
+        if ([string]$line -cmatch '^SMART_TEMPO_TRACE_([A-Z0-9_]+)=([A-Za-z0-9_.]+)$' -and
+            $Matches[1] -cin $script:pilotTraceKeys) {
+          $key=$Matches[1]; $value=$Matches[2]
+          if ($traceEvidence.ContainsKey($key)) { throw 'Duplicate trace key' }
+          if ($key -in @('PHASE_B_CAUSAL_COMPLETENESS','WRITER_REASON')) {
+            $traceEvidence[$key]=$value
+          } elseif ($key -in @('PROCESS_CPU_SECONDS','PROCESS_PEAK_RSS_BYTES')) {
+            $traceEvidence[$key]=[double]::Parse($value,[Globalization.CultureInfo]::InvariantCulture)
+          } elseif ($value -cmatch '^[0-9]+$') {
+            $traceEvidence[$key]=[int]$value
+          } else { throw 'Malformed trace counter' }
+        }
+      }
+      foreach ($required in @('NATIVE_SOURCE_INVENTORY_VERIFIED','RAW','COLLAPSED',
+          'WRITE_GUARD_BLOCKED','PHASE_B_CAUSAL_COMPLETENESS','DECODED_WINDOWS',
+          'DECLARED_WINDOWS','WINDOWS_COMPLETE','FINAL_ACCEPT',
+          'PROCESS_CPU_SECONDS','PROCESS_PEAK_RSS_BYTES',
+          'WRITER_RESOLUTION_NATIVE','WRITER_SOURCE_INDEXED',
+          'WRITER_SOURCE_UNINDEXED','WRITER_POLICY_APPLIED','WRITER_REASON')) {
+        if (-not $traceEvidence.ContainsKey($required)) {
+          throw "Incomplete native pilot trace evidence: $required"
+        }
+      }
+      if ($traceEvidence['WRITER_RESOLUTION_NATIVE'] -ne 1 -or
+          ($traceEvidence['WRITER_SOURCE_INDEXED'] +
+           $traceEvidence['WRITER_SOURCE_UNINDEXED']) -ne
+          $traceEvidence['FINAL_ACCEPT']) {
+        throw 'Applied writer identity conservation failed'
+      }
+      Write-Host ("SMART_TEMPO_NATIVE_WRITER_RESOLUTION_{0}_{1}=PASS" -f $Architecture,$label)
+      # Independently replay source-ID comparator fates without oracle labels.
+      # The per-source partition must reconcile with the native inventory.
+      # This does NOT claim first-decisive-veto completeness.
+      $fateOutput=@(python ./tools/audit_smart_tempo_b_candidate_fates.py --trace $trace --require-windows 2>&1)
+      if ($LASTEXITCODE -ne 0 -or
+          @($fateOutput | Where-Object { $_ -ceq 'SMART_TEMPO_B_FATES_LEDGER=PASS' }).Count -ne 1) {
+        throw ('Original-host source-ID candidate-fate ledger failed: '+($fateOutput -join '; '))
+      }
+      $fateOutput | ForEach-Object { Write-Host $_ }
+      $fateCounts=@{}
+      foreach ($line in $fateOutput) {
+        if ([string]$line -cmatch '^SMART_TEMPO_B_FATES_([A-Z_]+)=([0-9]+)$') {
+          if ($fateCounts.ContainsKey($Matches[1])) { throw 'Duplicate candidate-fate counter' }
+          $fateCounts[$Matches[1]]=[int]$Matches[2]
+        }
+      }
+      foreach ($required in @('TOTAL','SELECTED','UNSELECTED_POOL_WINNER',
+          'DISPLACED_WINNER','COMPARATOR_LOSER','GATE_ONLY','UNVISITED',
+          'FIRST_DECISIVE_VETO_UNPROVEN')) {
+        if (-not $fateCounts.ContainsKey($required)) {
+          throw "Missing source-ID fate counter: $required"
+        }
+      }
+      if ($fateCounts['TOTAL'] -ne $traceEvidence['COLLAPSED'] -or
+          $fateCounts['FIRST_DECISIVE_VETO_UNPROVEN'] -ne $traceEvidence['COLLAPSED'] -or
+          ($fateCounts['SELECTED']+$fateCounts['UNSELECTED_POOL_WINNER']+
+           $fateCounts['DISPLACED_WINNER']+$fateCounts['COMPARATOR_LOSER']+
+           $fateCounts['GATE_ONLY']+$fateCounts['UNVISITED']) -ne $fateCounts['TOTAL']) {
+        throw 'Source-ID fate conservation or unresolved-veto status contradicted'
+      }
+      $shadowEvidence=@{}
+      if (-not $RequireLowPulseCoverage) {
+        # Shadow models run ONLY after actual worker completion, using the
+        # frozen case oracle solely to SCORE predictions after selection.
+        $shadowOutput=@(python ./tools/audit_smart_tempo_b_shadow_rank.py --manifest $reference --observed $observed --trace $trace --case $label.Substring(10) 2>&1)
+        if ($LASTEXITCODE -ne 0 -or
+            @($shadowOutput | Where-Object { $_ -ceq 'SMART_TEMPO_B_SHADOW_VERIFIED=1' }).Count -ne 1) {
+          throw ('Synthetic source-only shadow audit failed: '+($shadowOutput -join '; '))
+        }
+        $shadowOutput | ForEach-Object { Write-Host $_ }
+        foreach ($line in $shadowOutput) {
+          if ([string]$line -cmatch '^SMART_TEMPO_B_SHADOW_([A-Z0-9_]+)=([0-9]+)$' -and
+              $Matches[1] -cin $script:pilotShadowKeys) {
+            if ($shadowEvidence.ContainsKey($Matches[1])) {
+              throw 'Duplicate shadow model evidence'
+            }
+            $shadowEvidence[$Matches[1]]=[int]$Matches[2]
+          }
+        }
+        if ($shadowEvidence.Count -ne $script:pilotShadowKeys.Count) {
+          throw 'Missing independent shadow model counter'
+        }
+        if ($shadowEvidence['CANDIDATES'] -ne $traceEvidence['COLLAPSED'] -or
+            $shadowEvidence['NATIVE_FINAL_CORRECT'] -ne $scoreEvidence['ACCEPTED_WITHIN_0_20_BPM']) {
+          throw 'Shadow source cardinality/final BPM diverges from original host'
+        }
+        Write-Host ("SMART_TEMPO_B_SHADOW_{0}_{1}=PASS" -f $Architecture,$label)
+      }
+      if ($RequireLowPulseCoverage) {
+        # The real CUE -> title-format -> default genre mapper must choose
+        # the native low-pulse selector, never a synthetic C++ route override.
+        foreach ($key in @('SELECTOR_LOW_BESTBY_EPISODES',
+                           'SELECTOR_COMPARE_LOW_WINS',
+                           'SELECTOR_COMPARE_LOW_LOSSES')) {
+          if (-not $traceEvidence.ContainsKey($key)) {
+            throw "Missing native low-pulse evidence: $key"
+          }
+        }
+        $episodes=$traceEvidence['SELECTOR_LOW_BESTBY_EPISODES']
+        $wins=$traceEvidence['SELECTOR_COMPARE_LOW_WINS']
+        $losses=$traceEvidence['SELECTOR_COMPARE_LOW_LOSSES']
+        if ($episodes -lt 1 -or $wins -lt 1 -or ($wins+$losses) -lt 1) {
+          throw "Real CUE genre route did not exercise low selector: episodes=$episodes wins=$wins losses=$losses"
+        }
+        Write-Host ("SMART_TEMPO_NATIVE_LOW_PULSE_{0}_EPISODES={1}" -f $Architecture,$episodes)
+        Write-Host ("SMART_TEMPO_NATIVE_LOW_PULSE_{0}_COMPARISONS={1}" -f $Architecture,($wins+$losses))
+        Write-Host ("SMART_TEMPO_NATIVE_LOW_PULSE_{0}=PASS" -f $Architecture)
+      } else {
+        # Historical accuracy cohort remains fixed at exactly four WAVs.
+        [void]$script:pilotEvidence.Add([pscustomobject]@{
+          case=$label.Substring(10);score=$scoreEvidence;trace=$traceEvidence;
+          shadow=$shadowEvidence;media_no_write=$true
+        })
+        Write-Host ("SMART_TEMPO_NATIVE_B_PILOT_TRACE_{0}_{1}=PASS" -f $Architecture,$label)
+      }
+      Write-Host 'SMART_TEMPO_PRIMARY_VETO_INDIVIDUAL_REASONS=UNMEASURED'
+    }
+    Write-Host ("DIAGNOSTIC_MENU_{0}_{1}=PASS" -f $Architecture,$label)
+    Write-Host ("DIAGNOSTIC_ROWS_{0}_{1}={2}" -f $Architecture,$label,$rows)
+    Write-Host ("MEDIA_WRITE_SAFETY_{0}_{1}=PASS" -f $Architecture,$label)
+  } finally {
+    if ($null -ne $hostProcess -and -not $hostProcess.HasExited) {
+      Stop-Process -Id $hostProcess.Id -Force -ErrorAction SilentlyContinue
+      [void]$hostProcess.WaitForExit(5000)
+    }
+    foreach ($file in $files) { if ((Stamp $file) -cne $baseline[$file]) { throw 'Fixture changed after exit' } }
+  }
+}
+$root=Join-Path $env:RUNNER_TEMP ('smart-tempo-'+$Architecture+'-'+[guid]::NewGuid().ToString('N'))
+try {
+  New-Item -ItemType Directory $root -Force | Out-Null
+  $installer=Join-Path $root 'official.exe'
+  Invoke-WebRequest -Uri $spec[0] -OutFile $installer
+  if ((Get-FileHash $installer -Algorithm SHA256).Hash -ine $spec[1]) { throw 'Official host hash mismatch' }
+  $wav=Join-Path $root 'rhythm.wav'
+  $cue=Join-Path $root 'rhythm.cue'
+  [byte[]]$audio=[byte[]]::new(16000*40*2)
+  for ($beat=0; $beat -lt 80; $beat++) {
+    for ($j=0; $j -lt 160; $j++) {
+      $p=2*($beat*8000+$j)
+      $audio[$p]=[byte]0
+      $audio[$p+1]=[byte](($j%2)*90)
+    }
+  }
+  $file=[IO.File]::Open($wav,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
+  $writer=[IO.BinaryWriter]::new($file)
+  try {
+    $writer.Write([Text.Encoding]::ASCII.GetBytes('RIFF'))
+    $writer.Write([int](36+$audio.Length))
+    $writer.Write([Text.Encoding]::ASCII.GetBytes('WAVEfmt '))
+    $writer.Write([int]16)
+    $writer.Write([UInt16]1)
+    $writer.Write([UInt16]1)
+    $writer.Write([int]16000)
+    $writer.Write([int]32000)
+    $writer.Write([UInt16]2)
+    $writer.Write([UInt16]16)
+    $writer.Write([Text.Encoding]::ASCII.GetBytes('data'))
+    $writer.Write([int]$audio.Length)
+    $writer.Write($audio)
+  } finally { $writer.Dispose();$file.Dispose() }
+  [IO.File]::WriteAllLines($cue,@('FILE "rhythm.wav" WAVE','  TRACK 01 AUDIO','    INDEX 01 00:00:00','  TRACK 02 AUDIO','    INDEX 01 00:20:00'),[Text.Encoding]::ASCII)
+  Run-Case $installer $root $wav @($wav) 1 'WAV'
+  Run-Case $installer $root $cue @($wav,$cue) 2 'CUE'
+  # Fixed, small Phase-B causal-coverage pilot, NOT the frozen Phase-C
+  # campaign. One fresh original foobar process per synthetic WAV/architecture.
+  $pilotCases=@('pulse_60','pulse_128','pulse_120_sparse','silence')
+  foreach ($caseId in $pilotCases) {
+    $syntheticRoot=Join-Path (Join-Path $root ('pilot-'+$caseId)) 'synthetic-oracle'
+    python ./tools/generate_synthetic_bpm_reference.py --output $syntheticRoot --case $caseId
+    if ($LASTEXITCODE -ne 0) { throw "Synthetic B-pilot WAV creation failed: $caseId" }
+    $reference=Join-Path $syntheticRoot 'reference.json'
+    $cases=@((Get-Content -LiteralPath $reference -Raw | ConvertFrom-Json).cases)
+    if ($cases.Count -ne 1 -or $cases[0].id -cne $caseId) {
+      throw "Unexpected B-pilot oracle identity: $caseId"
+    }
+    $wavFile=Join-Path $syntheticRoot ($caseId+'.wav')
+    Run-Case $installer $root $wavFile @($wavFile,$reference) 1 ('SYNTHETIC_'+$caseId)
+    if ($caseId -ceq 'pulse_60') {
+      # Standard external CUE metadata, using the unchanged default mapper.
+      $lowCue=Join-Path $syntheticRoot 'pulse_60_chill.cue'
+      if (Test-Path -LiteralPath $lowCue) { throw 'Stale synthetic route CUE' }
+      [IO.File]::WriteAllLines($lowCue,@(
+        'REM GENRE "Chill"',
+        'FILE "pulse_60.wav" WAVE',
+        '  TRACK 01 AUDIO',
+        '    INDEX 01 00:00:00'
+      ),[Text.Encoding]::ASCII)
+      Run-Case $installer $root $lowCue @($wavFile,$lowCue,$reference) 1 `
+        'SYNTHETIC_pulse_60_chill' -RequireLowPulseCoverage
+    }
+  }
+  # CI-only bounded numeric report; consumed again by cross-architecture gate.
+  $pilotReport=Join-Path $env:RUNNER_TEMP ("smart-tempo-b-pilot-"+$Architecture+".json")
+  if (Test-Path -LiteralPath $pilotReport) { throw 'Stale pilot report' }
+  $sourceSha=((& git rev-parse HEAD) | Out-String).Trim().ToLowerInvariant()
+  $payload=[ordered]@{
+    schema='smart_tempo_b_pilot_cohort_v1'
+    architecture=$Architecture
+    source_sha=$sourceSha
+    cases=@($script:pilotEvidence.ToArray())
+  }
+  [IO.File]::WriteAllText($pilotReport,($payload | ConvertTo-Json -Depth 8 -Compress),
+                          [Text.UTF8Encoding]::new($false))
+  python ./tools/audit_smart_tempo_b_pilot_cohort.py --expected-source-sha $sourceSha --report $pilotReport --single-architecture
+  if ($LASTEXITCODE -ne 0) { throw 'Original-host B-pilot cohort integrity failed' }
+  Write-Host ("SMART_TEMPO_DIAGNOSTIC_RUNTIME_{0}=PASS" -f $Architecture)
+} finally { if (Test-Path $root) { Remove-Item $root -Recurse -Force -ErrorAction SilentlyContinue } }
+)
+          })
+          if ($positive.Count -ne 1) {
+            throw ('Native rhythmic manual-export path not exercised: '+$key)
+          }
+        }
+      }
       $traceOutput | ForEach-Object { Write-Host $_ }
       # Mutation battery runs on the *actual* native-host trace, not only
       # on a fabricated unit-test event list. It must reject corrupted

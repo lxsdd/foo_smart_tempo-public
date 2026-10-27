@@ -1082,3 +1082,10 @@ explicit missing evidence, never complete manual coverage. Supplemental-only
 origins are not proof of Primary eligibility. No production DSP, selector,
 Policy, writer or user-media behavior changes. This block does not close
 first-decisive-veto and unindexed Policy gaps; Phase C remains gated.
+
+The fixed CI-only allowlisted synthetic host invokes the unchanged productive
+manual-merge implementation even when ordinary UI capture was not requested.
+The Win32/x64 host gate must observe requested capture and at least one
+source and one merged output for each rhythmic pilot. Silence may correctly
+have zero candidates. This does not enable diagnostic capture in production
+builds or on nonallowlisted media.

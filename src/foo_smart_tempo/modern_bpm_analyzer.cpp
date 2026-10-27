@@ -3024,7 +3024,17 @@ double ModernBpmAnalyzer::analyze(metadb_handle_ptr track, threaded_process_stat
                 "Hodgkinson/MIR final writer invariant rejected an "
                 "unwitnessed BPM";
           }
-          if (m_diag.suppress_write || captureMeasuredCandidates) {
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+          // CI-only, exact allowlisted disposable WAV/CUE fixture: exercise
+          // the REAL native manual merge even when the UI did not request it.
+          // No production build or user media ever enters this branch.
+          const bool ciCaptureManual =
+              !smart_tempo::ci_pipeline_trace::permitted_fixture().empty();
+#else
+          constexpr bool ciCaptureManual = false;
+#endif
+          if (m_diag.suppress_write || captureMeasuredCandidates ||
+              ciCaptureManual) {
             const auto manualCandidates =
                 prepare_mir_manual_review_candidates(
                     std::span<const MirPolicyMeasuredCandidate>(
@@ -3090,7 +3100,8 @@ double ModernBpmAnalyzer::analyze(metadb_handle_ptr track, threaded_process_stat
                 std::span<const IBpmAnalyzer::MeasuredBpmCandidate>(
                     m_diag.measured_bpm_candidates.data(),
                     m_diag.measured_bpm_candidates.size()),
-                m_diag.suppress_write || captureMeasuredCandidates,
+                m_diag.suppress_write || captureMeasuredCandidates ||
+                    ciCaptureManual,
                 ciResource, ciSupply,
                 materialRiskLocalExactProbe.candidate
                     ? &materialRiskLocalExactProbe : nullptr,

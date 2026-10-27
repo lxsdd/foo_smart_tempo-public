@@ -86,6 +86,20 @@ class ManualExportTests(unittest.TestCase):
             reason_code="manual_not_requested"))
         mutate("missing_state", lambda r: r.pop(3))
 
+    def test_original_host_forces_only_allowlisted_ci_manual_capture(self):
+        root = Path(__file__).resolve().parents[1]
+        source = (root / "src" / "foo_smart_tempo" /
+                  "modern_bpm_analyzer.cpp").read_text(encoding="utf-8")
+        host = (root / "tests" / "diagnostic_live_host_smoke.ps1").read_text(
+            encoding="utf-8")
+        self.assertIn("#if defined(SMART_TEMPO_CI_ORACLE_PROBE)", source)
+        self.assertIn("const bool ciCaptureManual =", source)
+        self.assertIn("ci_pipeline_trace::permitted_fixture().empty()", source)
+        self.assertIn("constexpr bool ciCaptureManual = false;", source)
+        self.assertIn("m_diag.suppress_write || captureMeasuredCandidates ||", source)
+        self.assertIn("SMART_TEMPO_TRACE_MANUAL_NATIVE_STATE=REQUESTED_VERIFIED", host)
+        self.assertIn("Native rhythmic manual-export path not exercised", host)
+
     def test_explicit_not_requested_and_empty_requested(self):
         self.assertEqual(reconcile([row("manual_state", reason="manual_not_requested")],
                                    required=True)["manual_native_state"], "NOT_REQUESTED")
