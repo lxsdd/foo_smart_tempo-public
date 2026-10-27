@@ -4,6 +4,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 CASES = ("pulse_60", "pulse_128", "pulse_120_sparse", "silence")
+EXTENDED = ("pulse_90", "pulse_120", "pulse_140", "pulse_175", "pulse_128_syncopated", "pulse_120_swing", "pulse_128_half_pulse")
 
 
 class PilotContract(unittest.TestCase):
@@ -14,7 +15,9 @@ class PilotContract(unittest.TestCase):
         header = self.read("tests/ci_fixture_allowlist.h")
         for case in CASES:
             self.assertEqual(header.count(case + ".wav"), 1)
-        self.assertEqual(header.count(".wav"), len(CASES))
+        self.assertEqual(header.count(".wav"), len(CASES) + len(EXTENDED))
+        for case in EXTENDED:
+            self.assertEqual(header.count(case + ".wav"), 1)
         self.assertEqual(header.count("pulse_60_chill.cue"), 1)
         self.assertEqual(header.count(".cue"), 1)
 

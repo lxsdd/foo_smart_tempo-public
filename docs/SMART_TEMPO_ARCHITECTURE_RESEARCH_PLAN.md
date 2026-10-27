@@ -984,3 +984,19 @@ synthetic pull-request merge commit and fails before compilation if its Git
 HEAD differs. Source SHA, original host CI job and negative
 mutation count must be reported together; only the actual completed Windows
 run can establish runtime qualification.
+
+## Extended original-host Phase-B exploratory cohort (2026-10-27)
+
+Seven additional **pre-existing**, deterministic 20-second synthetic rhythm fixtures
+(90/120/140/175 BPM, syncopated 128, swung 120, half-pulse 128) are now
+run under both original foobar architectures, with exact source SHA, native
+pipeline trace, mutation rejection, blocked Update and file-stamp no-write
+checks. An independent, fail-closed cross-architecture scorer conserves accepted,
+wrong and held results separately at ±0.05 and ±0.20 BPM. The prior four-case
+pilot remains frozen, including its CUE low-genre route and independent recall.
+
+This extends **Phase-B observational coverage only**. It does not make first-veto
+causality complete, launch Phase C, grant musical release, or modify the
+productive DSP, selector, Policy, ReviewHold or writer. Reference BPM enters
+only post-host Python scoring; no private audio, tags or result artefacts leave
+CI. Performance measurements remain process-scoped, not evidence of a speedup.

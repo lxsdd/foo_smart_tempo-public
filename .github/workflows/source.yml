@@ -74,6 +74,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Cross-architecture Phase-B pilot contract failed' }
           python -m unittest discover -s tests -p 'test_smart_tempo_b_pilot_cohort.py' -v
           if ($LASTEXITCODE -ne 0) { throw 'Phase-B pilot cohort adversarial tests failed' }
+          python -m unittest discover -s tests -p 'test_smart_tempo_b_extended_pilot.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'Extended Phase-B cohort adversarial regressions failed' }
           python -m unittest discover -s tests -p 'test_smart_tempo_b_candidate_recall.py' -v
           if ($LASTEXITCODE -ne 0) { throw 'Independent source-vs-reference recall contract failed' }
           python -m unittest discover -s tests -p 'test_smart_tempo_b_shadow_rank.py' -v
@@ -256,6 +258,16 @@ jobs:
             --report "$env:RUNNER_TEMP/smart-tempo-b-pilot-Win32.json" `
             --report "$env:RUNNER_TEMP/smart-tempo-b-pilot-x64.json"
           if ($LASTEXITCODE -ne 0) { throw 'Dual-architecture B-pilot evidence incomplete' }
+
+      - name: HARD GATE - joined Win32/x64 seven-rhythm Phase-B native cohort
+        shell: pwsh
+        run: |
+          $sourceSha=((& git rev-parse HEAD) | Out-String).Trim().ToLowerInvariant()
+          python ./tools/audit_smart_tempo_b_extended_pilot.py `
+            --expected-source-sha $sourceSha `
+            --report "$env:RUNNER_TEMP/smart-tempo-b-extended-Win32.json" `
+            --report "$env:RUNNER_TEMP/smart-tempo-b-extended-x64.json"
+          if ($LASTEXITCODE -ne 0) { throw 'Dual-architecture extended Phase-B evidence incomplete' }
 
       - name: Package foobar2000 component
         shell: cmd

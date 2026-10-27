@@ -88,6 +88,7 @@ function Launch([string]$exe,[string[]]$args) {
   return [Diagnostics.Process]::Start($i)
 }
 $script:pilotEvidence=[Collections.Generic.List[object]]::new()
+$script:extendedEvidence=[Collections.Generic.List[object]]::new()
 $script:pilotTraceKeys=@('NATIVE_SOURCE_INVENTORY_VERIFIED','RAW','COLLAPSED','WRITE_GUARD_BLOCKED',
   'PHASE_B_CAUSAL_COMPLETENESS','DECODED_WINDOWS','DECLARED_WINDOWS','WINDOWS_COMPLETE',
   'FINAL_ACCEPT','PROCESS_CPU_SECONDS','PROCESS_PEAK_RSS_BYTES','PRIMARY_VETO_REASON_UNKNOWN',
@@ -243,7 +244,8 @@ function Run-Case([string]$installer,[string]$root,[string]$inputFile,[string[]]
     Start-Sleep -Seconds 2
     if (-not [STUI]::IsWindow($dialog)) { throw 'Secondary no-write guard failed' }
     foreach ($file in $files) { if ((Stamp $file) -cne $baseline[$file]) { throw 'File changed after blocked Update handler' } }
-    if ($label.StartsWith('SYNTHETIC_')) {
+    if ($label.StartsWith('SYNTHETIC_') -or $label.StartsWith('PHASEB_EXT_')) {
+      $isExtended=$label.StartsWith('PHASEB_EXT_')
       # Compiled only in CI probe binaries; the engine values are captured
       # after worker join, not scraped through unreliable headless UIA.
       $observed=$inputFile+'.results.csv'
@@ -296,7 +298,7 @@ function Run-Case([string]$installer,[string]$root,[string]$inputFile,[string[]]
       # Independent post-host recall audit: the predeclared reference BPM is
       # read only by this Python scorer AFTER the native worker has exited.
       # Crucially, neither MIR, Policy nor the host component sees the oracle.
-      if (-not $RequireLowPulseCoverage) {
+      if (-not $RequireLowPulseCoverage -and -not $isExtended) {
         # The recall scorer is deliberately frozen to exactly the original
         # four cases; the additional low-genre CUE probes branch coverage.
         $recallOutput=@(python ./tools/audit_smart_tempo_b_candidate_recall.py --manifest $reference --observed $observed --trace $trace --case $label.Substring(10) 2>&1)
@@ -370,7 +372,7 @@ function Run-Case([string]$installer,[string]$root,[string]$inputFile,[string[]]
         throw 'Source-ID fate conservation or unresolved-veto status contradicted'
       }
       $shadowEvidence=@{}
-      if (-not $RequireLowPulseCoverage) {
+      if (-not $RequireLowPulseCoverage -and -not $isExtended) {
         # Shadow models run ONLY after actual worker completion, using the
         # frozen case oracle solely to SCORE predictions after selection.
         $shadowOutput=@(python ./tools/audit_smart_tempo_b_shadow_rank.py --manifest $reference --observed $observed --trace $trace --case $label.Substring(10) 2>&1)
@@ -418,11 +420,22 @@ function Run-Case([string]$installer,[string]$root,[string]$inputFile,[string[]]
         Write-Host ("SMART_TEMPO_NATIVE_LOW_PULSE_{0}=PASS" -f $Architecture)
       } else {
         # Historical accuracy cohort remains fixed at exactly four WAVs.
-        [void]$script:pilotEvidence.Add([pscustomobject]@{
-          case=$label.Substring(10);score=$scoreEvidence;trace=$traceEvidence;
-          shadow=$shadowEvidence;media_no_write=$true
-        })
-        Write-Host ("SMART_TEMPO_NATIVE_B_PILOT_TRACE_{0}_{1}=PASS" -f $Architecture,$label)
+        if ($isExtended) {
+          # The seven additional fixed generator cases have independent
+          # score+native-trace conservation, without widening the frozen
+          # four-case reference-conditioned recall/shadow model.
+          [void]$script:extendedEvidence.Add([pscustomobject]@{
+            case=$label.Substring(11);score=$scoreEvidence;
+            trace=$traceEvidence;media_no_write=$true
+          })
+          Write-Host ("SMART_TEMPO_NATIVE_B_EXTENDED_TRACE_{0}_{1}=PASS" -f $Architecture,$label)
+        } else {
+          [void]$script:pilotEvidence.Add([pscustomobject]@{
+            case=$label.Substring(10);score=$scoreEvidence;trace=$traceEvidence;
+            shadow=$shadowEvidence;media_no_write=$true
+          })
+          Write-Host ("SMART_TEMPO_NATIVE_B_PILOT_TRACE_{0}_{1}=PASS" -f $Architecture,$label)
+        }
       }
       Write-Host 'SMART_TEMPO_PRIMARY_VETO_INDIVIDUAL_REASONS=UNMEASURED'
     }
@@ -515,5 +528,33 @@ try {
                           [Text.UTF8Encoding]::new($false))
   python ./tools/audit_smart_tempo_b_pilot_cohort.py --expected-source-sha $sourceSha --report $pilotReport --single-architecture
   if ($LASTEXITCODE -ne 0) { throw 'Original-host B-pilot cohort integrity failed' }
+
+  # Phase-B only: seven immutable 20-second source-generator controls.
+  # Not the 239-configuration Phase-C campaign or a musical holdout.
+  $extendedCases=@('pulse_90','pulse_120','pulse_140','pulse_175','pulse_128_syncopated','pulse_120_swing','pulse_128_half_pulse')
+  foreach ($caseId in $extendedCases) {
+    $syntheticRoot=Join-Path (Join-Path $root ('extended-'+$caseId)) 'synthetic-oracle'
+    python ./tools/generate_smart_tempo_ci_b_pilot_legacy.py --output $syntheticRoot --case $caseId
+    if ($LASTEXITCODE -ne 0) { throw "Extended Phase-B WAV generation failed: $caseId" }
+    $reference=Join-Path $syntheticRoot 'reference.json'
+    $cases=@((Get-Content -LiteralPath $reference -Raw | ConvertFrom-Json).cases)
+    if ($cases.Count -ne 1 -or $cases[0].id -cne $caseId -or
+        $null -eq $cases[0].reference_bpm) { throw "Extended frozen oracle mismatch: $caseId" }
+    $wavFile=Join-Path $syntheticRoot ($caseId+'.wav')
+    Run-Case $installer $root $wavFile @($wavFile,$reference) 1 ('PHASEB_EXT_'+$caseId)
+  }
+  $extendedReport=Join-Path $env:RUNNER_TEMP ("smart-tempo-b-extended-"+$Architecture+".json")
+  if (Test-Path -LiteralPath $extendedReport) { throw 'Stale extended evidence report' }
+  $extendedPayload=[ordered]@{
+    schema='smart_tempo_b_extended_pilot_v1'
+    architecture=$Architecture
+    source_sha=$sourceSha
+    cases=@($script:extendedEvidence.ToArray())
+  }
+  [IO.File]::WriteAllText($extendedReport,
+    ($extendedPayload | ConvertTo-Json -Depth 8 -Compress),
+    [Text.UTF8Encoding]::new($false))
+  python ./tools/audit_smart_tempo_b_extended_pilot.py --expected-source-sha $sourceSha --report $extendedReport --single-architecture
+  if ($LASTEXITCODE -ne 0) { throw 'Extended source-indexed host cohort incomplete' }
   Write-Host ("SMART_TEMPO_DIAGNOSTIC_RUNTIME_{0}=PASS" -f $Architecture)
 } finally { if (Test-Path $root) { Remove-Item $root -Recurse -Force -ErrorAction SilentlyContinue } }
