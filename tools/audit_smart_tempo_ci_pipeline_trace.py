@@ -22,6 +22,7 @@ MAX_BYTES, MAX_LINES = 2 * 1024 * 1024, 12300
 FIELDS = frozenset(("schema", "analysis_id", "sequence", "stage", "outcome",
                     "reason_code", "candidate_id", "parent_candidate_ids", "metrics"))
 METRICS = frozenset(("bpm", "score", "support"))
+LOCAL_EXACT_METRICS = METRICS | frozenset(("cluster_bpm", "local_exact_bpm", "local_exact_delta"))
 LOW_POOL_METRICS = METRICS | frozenset(("low_pool_epoch",))
 TIE_METRICS = METRICS | frozenset(("tie_0", "tie_1", "tie_2", "tie_3"))
 TIE5_METRICS = TIE_METRICS | frozenset(("tie_4",))
@@ -218,7 +219,9 @@ def validate(rows: list[dict], *, require_windows: bool = False,
         continuous_tie = (stage == "primary_compare" and
                           item["reason_code"].startswith("low_continuous_compare_"))
         has_native_tie = has_native_tie or continuous_tie
-        expected_metrics = (SEGMENT_METRICS if stage == "mir_segment" else
+        expected_metrics = (LOCAL_EXACT_METRICS if stage == "primary_select" and
+                            "cluster_bpm" in item["metrics"] else
+                            SEGMENT_METRICS if stage == "mir_segment" else
                             WINDOW_METRICS if stage == "decode_window" else
                             RESOURCE_METRICS if stage == "resource_usage" else
                             INVENTORY_METRICS if stage == "source_inventory" else
@@ -775,10 +778,30 @@ def validate(rows: list[dict], *, require_windows: bool = False,
     final = stage_indices["final_output"][0]
     witness = stage_indices["measured_witness"][0]
     guard = stage_indices["write_guard"][0]
+    primary_metrics = primary["metrics"]
+    local_refined = "cluster_bpm" in primary_metrics
+    primary_cluster_bpm = primary_metrics.get("cluster_bpm", primary_metrics["bpm"])
+    if local_refined:
+        # Source-ID of the selected cluster MUST remain identical. The
+        # exact measured-output value may only come from the original
+        # peak-derived local-exact refinement, bounded by native 0.80 BPM.
+        if (primary["outcome"] != "selected" or
+                len(primary["parent_candidate_ids"]) != 1 or
+                not 0 < primary_metrics["bpm"] <= 220 or
+                abs(primary_metrics["cluster_bpm"] -
+                    primary_metrics["local_exact_bpm"]) <= 0.001 and
+                    abs(primary_metrics["local_exact_delta"]) <= 0.001 or
+                abs(primary_metrics["local_exact_bpm"] -
+                    primary_metrics["bpm"]) >= 0.001 or
+                abs(primary_metrics["local_exact_delta"] -
+                    (primary_metrics["bpm"] - primary_cluster_bpm)) >= 0.000001 or
+                not 0.001 <= abs(primary_metrics["local_exact_delta"]) <= 0.80 or
+                primary_metrics["score"] < 0):
+            raise TraceError("native local-exact refinement lacks measured source witness")
     if (primary["outcome"] == "selected" and
-            (not primary["parent_candidate_ids"] or
+            (len(primary["parent_candidate_ids"]) != 1 or
              any(ids[p] != "candidate_transform" or
-                 abs(candidate_bpm[p] - primary["metrics"]["bpm"]) >= .001
+                 abs(candidate_bpm[p] - primary_cluster_bpm) >= .001
                  for p in primary["parent_candidate_ids"]))):
         raise TraceError("selected primary candidate has no matching clustered witness")
     terminal = stage_indices["primary_terminal"]
@@ -878,8 +901,7 @@ def validate(rows: list[dict], *, require_windows: bool = False,
         if not primary["metrics"]["bpm"] and primary["outcome"] == "selected":
             raise TraceError("selector selected without terminal BPM")
         if (primary["parent_candidate_ids"] != [terminal[-1]["candidate_id"]] or
-                abs(terminal[-1]["metrics"]["bpm"] -
-                    primary["metrics"]["bpm"]) >= 0.001):
+                abs(terminal[-1]["metrics"]["bpm"] - primary_cluster_bpm) >= 0.001):
             raise TraceError("primary selected candidate is not exact terminal object")
     expected_primary_reason = {
         "selected": "primary_auto",

@@ -273,6 +273,57 @@ class NativePipelineTraceTests(unittest.TestCase):
                 validate(bad, require_windows=True, require_segments=True)
 
 
+    def test_native_primary_local_exact_measured_refinement_is_source_bound(self):
+        # The real selector picks clustered c1 at 128 BPM, while the actual
+        # audio onset peaks refine its writable value to 128.125 BPM.
+        # No oracle, metadata, fuzzy new candidate, or production write.
+        base = attach_inventory(with_resource(trace()))
+        primary = next(r for r in base if r["stage"] == "primary_select")
+        primary["metrics"].update(bpm=128.125, cluster_bpm=128.,
+                                  local_exact_bpm=128.125, local_exact_delta=.125)
+        self.assertEqual(validate(base)["raw"], 1)
+        changes = (
+            ("wrong_source_cluster", lambda x: x.update(cluster_bpm=129.)),
+            ("invented_refinement", lambda x: x.update(local_exact_bpm=128.25)),
+            ("faked_delta", lambda x: x.update(local_exact_delta=.25)),
+            ("over_production_window", lambda x: x.update(
+                bpm=129.0, local_exact_bpm=129., local_exact_delta=1.0)),
+            ("unmeasured_refinement", lambda x: x.update(
+                bpm=128.125, local_exact_bpm=128.125, local_exact_delta=0.)),
+            ("duplicate_extra", lambda x: x.update(private_path="forbidden")),
+        )
+        for reason, mutate in changes:
+            bad = copy.deepcopy(base)
+            target = next(row for row in bad if row["stage"] == "primary_select")
+            mutate(target["metrics"])
+            with self.subTest(reason=reason), self.assertRaises(TraceError):
+                validate(bad)
+        for reason, mutate in (
+            ("foreign_id", lambda x: x.update(parent_candidate_ids=["c2"])),
+            ("held_refined", lambda x: x.update(outcome="review_hold",
+                                                reason_code="primary_review_hold")),
+            ("missing_refinement", lambda x: x["metrics"].pop("cluster_bpm")),
+            ("bad_cluster_terminal", lambda x: next(row for row in x
+                if row["stage"] == "primary_terminal" and
+                row["reason_code"] == "terminal_final_choice")["metrics"].update(bpm=128.125)),
+        ):
+            bad = copy.deepcopy(base)
+            mutate(next(row for row in bad if row["stage"] == "primary_select")
+                   if reason != "bad_cluster_terminal" else bad)
+            with self.subTest(reason=reason), self.assertRaises(TraceError):
+                validate(bad)
+
+    def test_native_local_exact_source_matches_production_refinement_formula(self):
+        cpp = (ROOT / "src" / "foo_smart_tempo" /
+               "mir_candidate_pipeline.cpp").read_text(encoding="utf-8")
+        native = (ROOT / "tests" / "ci_pipeline_trace.h").read_text(encoding="utf-8")
+        self.assertIn("std::abs(exact.bpm - clusterBpm) <= 0.80", cpp)
+        self.assertIn("shadow.selected_bpm = exact.bpm", cpp)
+        self.assertIn("shadow.selected_local_exact_delta = exact.bpm - clusterBpm", cpp)
+        self.assertIn("std::abs(primary.selected_local_exact_delta) > 0.80", native)
+        self.assertIn("primary_parent.push_back(cluster_ids[item.source_index])", native)
+        self.assertIn('local_exact_delta', native)
+
     def test_native_source_supply_origin_conservation_and_negative_mutations(self):
         positive = attach_inventory(with_resource(trace()))
         self.assertEqual(validate(positive)["raw"], 1)

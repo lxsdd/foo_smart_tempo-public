@@ -584,8 +584,25 @@ inline bool record(
           !std::isfinite(item.bpm) || item.bpm <= 0.0)
         return reject_trace_at(__LINE__);
       if (!primary_parent.empty()) return reject_trace_at(__LINE__);
+      // The executed terminal selects a native cluster object. The actual
+      // MIR peak-based local-exact measurement can subsequently refine its
+      // *writable* BPM by at most 0.80. It is not another candidate or a
+      // permitted arbitrary fuzzy match to a different cluster.
+      const bool refined = std::abs(primary.selected_bpm - item.bpm) >= 0.001;
       if (std::abs(collapsed[item.source_index].bpm - item.bpm) >= 0.001 ||
-          std::abs(primary.selected_bpm - item.bpm) >= 0.001)
+          (refined &&
+           (!primary.auto_candidate || primary.review_hold ||
+            !std::isfinite(primary.selected_cluster_bpm) ||
+            !std::isfinite(primary.selected_local_exact_bpm) ||
+            !std::isfinite(primary.selected_local_exact_delta) ||
+            primary.selected_local_exact_score < 0.0 ||
+            std::abs(primary.selected_cluster_bpm - item.bpm) >= 0.001 ||
+            std::abs(primary.selected_local_exact_bpm -
+                     primary.selected_bpm) >= 0.001 ||
+            std::abs(primary.selected_local_exact_delta -
+                     (primary.selected_bpm - item.bpm)) >= 0.000001 ||
+            std::abs(primary.selected_local_exact_delta) > 0.80)) ||
+          (!refined && std::abs(primary.selected_bpm - item.bpm) >= 0.001))
         return reject_trace_at(__LINE__);
       primary_parent.push_back(cluster_ids[item.source_index]);
     }
@@ -599,6 +616,16 @@ inline bool record(
            primary.auto_candidate ? "primary_auto" : "primary_no_candidate",
            "", primary_parent, primary.selected_bpm,
            primary.selected_local_exact_score, primary.support);
+  if (!primary_parent.empty() &&
+      std::abs(primary.selected_cluster_bpm - primary.selected_bpm) >= 0.001 &&
+      primary.auto_candidate && !primary.review_hold) {
+    // This is a genuinely measured local-exact BPM bound to the already
+    // selected source object, never a metadata/ground-truth BPM.
+    out.lines.insert(out.lines.size() - 3,
+        ",\"cluster_bpm\":" + safe_num(primary.selected_cluster_bpm) +
+        ",\"local_exact_bpm\":" + safe_num(primary.selected_local_exact_bpm) +
+        ",\"local_exact_delta\":" + safe_num(primary.selected_local_exact_delta));
+  }
   // BPM proximity to a FullBoard row is not native chosen-object identity.
   // Report matching BPM multiplicity as a falsifiable *comparison*, not an
   // assertion that Policy selected that candidate pointer.

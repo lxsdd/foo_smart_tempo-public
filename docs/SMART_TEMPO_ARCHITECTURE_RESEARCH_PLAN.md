@@ -1000,3 +1000,17 @@ causality complete, launch Phase C, grant musical release, or modify the
 productive DSP, selector, Policy, ReviewHold or writer. Reference BPM enters
 only post-host Python scoring; no private audio, tags or result artefacts leave
 CI. Performance measurements remain process-scoped, not evidence of a speedup.
+
+## Native clustered candidate to locally measured exact BPM (2026-10-27)
+
+The selector records the **actual clustered source object**, but the production
+peak-based `apply_mir_local_exact_result()` can refine its writable value by
+up to 0.80 BPM. A strict numeric equality check between that recorded cluster
+and the refined Primary output incorrectly rejected the first syncopated
+128-BPM Win32 source trace. The CI-only trace now records explicit
+`cluster_bpm`, `local_exact_bpm`, `local_exact_delta` only when an actual
+auto candidate is refined. The independent validator requires the existing
+terminal source ID, original cluster BPM, matching exact BPM and delta,
+and a strictly bounded 0.80-BPM adjustment. Forged refinements and ReviewHold
+promotions fail closed. This is a provenance fix, not altered productive BPM
+selection, nor musical/Phase-C approval.
