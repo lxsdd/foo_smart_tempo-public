@@ -590,6 +590,32 @@ inline bool record(
     out.push("primary_disposition", "observed", reason, cluster_ids[i],
              {}, collapsed[i].bpm, 0.0, 0.0);
   }
+  // CI-only actual first EXCLUSION for each collapsed source object.
+  // This is intentionally not called a decisive veto: a later fallback,
+  // comparator or terminal selection can still admit the same source.
+  // The one-based selector-event index binds the emitted summary to the
+  // executed native event chronology (including raw-lane events).
+  for (std::size_t i = 0; i < collapsed.size(); ++i) {
+    const mir_pipeline::MirCiSelectorEvent* first = nullptr;
+    std::size_t first_position = 0;
+    for (std::size_t j = 0; j < selectorEvents.size(); ++j) {
+      const auto& event = selectorEvents[j];
+      const bool filter = std::strncmp(event.reason, "terminal_", 9) != 0 &&
+                          std::strstr(event.reason, "_rank_scored") == nullptr &&
+                          std::strstr(event.reason, "_compare_") == nullptr;
+      if (!event.raw && event.source_index == i && filter && !event.included) {
+        first = &event;
+        first_position = j + 1;
+        break;
+      }
+    }
+    out.push("primary_first_exclusion",
+             first != nullptr ? "excluded" : "observed",
+             first != nullptr ? first->reason : "no_native_exclusion_observed",
+             cluster_ids[i], {}, collapsed[i].bpm,
+             first != nullptr ? first->score : 0.0,
+             static_cast<double>(first_position));
+  }
   if (!std::isfinite(primary.selected_local_exact_score) ||
       !std::isfinite(primary.support) ||
       !std::isfinite(policy.candidate_local_exact_score) ||
@@ -758,7 +784,7 @@ inline bool record(
       ",\"mir_continuous_add_calls\":" + std::to_string(supply.continuous_add_calls) +
       ",\"mir_continuous_new_raw\":" + std::to_string(supply.continuous_new_raw));
   if (out.sequence != windows.size() + supply.segments.size() +
-                      board.raw_candidates.size() + 3 * collapsed.size() +
+                      board.raw_candidates.size() + 4 * collapsed.size() +
                       fullboard.size() + selectorEvents.size() +
                       supplemental_id.size() + collapsed.size() + 10 ||
       out.lines.size() > 2 * 1024 * 1024) return false;
