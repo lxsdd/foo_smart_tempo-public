@@ -218,6 +218,14 @@ function Run-Case([string]$installer,[string]$root,[string]$inputFile,[string[]]
       throw 'Original host did not prove native General/Harmonic rail disposition'
     }
     Write-Host ("SMART_TEMPO_NATIVE_RAIL_{0}_{1}=PASS" -f $Architecture,$label)
+    # Native branch-local upper-pool veto, including the no-upper fallback.
+    $upperProof=$inputFile+'.native-low-upper'
+    if (-not (Test-Path -LiteralPath $upperProof -PathType Leaf) -or
+        (Get-Content -LiteralPath $upperProof -Raw) -cne
+        "SMART_TEMPO_CI_NATIVE_LOW_UPPER=PASS`n") {
+      throw 'Original host did not prove low upper branch veto and continuation'
+    }
+    Write-Host ("SMART_TEMPO_NATIVE_LOW_UPPER_{0}_{1}=PASS" -f $Architecture,$label)
     # Additional positive/negative in-process low bestBy sequence, 60->80->71.
     # This is a separate synthetic board, NOT decoded-audio BPM quality.
     $nestedProof=$inputFile+'.native-low-nested'
