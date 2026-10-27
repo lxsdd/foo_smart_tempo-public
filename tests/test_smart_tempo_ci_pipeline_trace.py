@@ -170,6 +170,26 @@ def with_resource(rows):
             rows[i]["metrics"]["score"] = 0.
             rows[i]["metrics"]["support"] = 0.
             break
+    # Native source-only summary of the FIRST actual cluster exclusion.
+    # The zero index means no executed exclusion, not automatic eligibility.
+    executed = [r for r in rows if r["stage"] in (
+        "candidate_filter", "primary_rank", "primary_compare", "primary_terminal")]
+    first_rows = []
+    for cluster in (r for r in rows if r["stage"] == "candidate_transform"):
+        first = next(((i + 1, r) for i, r in enumerate(executed)
+                      if r["stage"] == "candidate_filter" and
+                      r["candidate_id"] == cluster["candidate_id"] and
+                      r["outcome"] == "excluded"), None)
+        summary = event(
+            "primary_first_exclusion", cluster["candidate_id"], [],
+            cluster["metrics"]["bpm"],
+            "excluded" if first else "observed",
+            first[1]["reason_code"] if first else "no_native_exclusion_observed", 0)
+        summary["metrics"]["score"] = first[1]["metrics"]["score"] if first else 0.
+        summary["metrics"]["support"] = first[0] if first else 0.
+        first_rows.append(summary)
+    at = next(i for i, r in enumerate(rows) if r["stage"] == "primary_select")
+    rows[at:at] = first_rows
     rows.insert(-1, resource_event())
     for i, row in enumerate(rows):
         row["sequence"] = i
@@ -214,6 +234,55 @@ def empty_board_native_trace():
 
 
 class NativePipelineTraceTests(unittest.TestCase):
+
+    def test_native_first_exclusion_source_chronology_and_adversarial_mutations(self):
+        rows = with_resource(trace())
+        first = next(r for r in rows if r["stage"] == "primary_first_exclusion")
+        self.assertEqual(first["reason_code"], "no_native_exclusion_observed")
+        self.assertEqual(validate(rows)["primary_first_exclusion_no_observation"], 1)
+        # Insert a real native-style exclusion BEFORE terminal selection.
+        # It is intentionally provisional; final selection can still win.
+        at = next(i for i, r in enumerate(rows)
+                  if r["stage"] == "primary_terminal")
+        rows.insert(at, event("candidate_filter", "c1", [], 128.,
+                              "excluded", "harmonic_out_of_rail", 0))
+        first["reason_code"] = "harmonic_out_of_rail"
+        first["outcome"] = "excluded"
+        first["metrics"]["score"] = .95
+        first["metrics"]["support"] = 1
+        for i, row in enumerate(rows):
+            row["sequence"] = i
+        summary = validate(rows)
+        self.assertEqual(summary["primary_first_exclusion_sources"], 1)
+        self.assertEqual(summary["primary_first_exclusion_native_complete"], 1)
+        for label, mutate in (
+            ("source", lambda r: r.update(candidate_id="c0")),
+            ("reason", lambda r: r.update(reason_code="general_out_of_rail_provisional")),
+            ("index", lambda r: r["metrics"].update(support=2)),
+            ("score", lambda r: r["metrics"].update(score=.96)),
+            ("outcome", lambda r: r.update(outcome="observed")),
+            ("unknown", lambda r: r.update(reason_code="no_native_exclusion_observed")),
+        ):
+            bad = copy.deepcopy(rows)
+            mutate(next(r for r in bad if r["stage"] == "primary_first_exclusion"))
+            with self.subTest(label=label), self.assertRaises(TraceError):
+                validate(bad)
+        for label, bad in (
+            ("missing", [r for r in copy.deepcopy(rows)
+                         if r["stage"] != "primary_first_exclusion"]),
+            ("duplicate", copy.deepcopy(rows) +
+             [copy.deepcopy(next(r for r in rows
+                                 if r["stage"] == "primary_first_exclusion"))]),
+        ):
+            for i, row in enumerate(bad):
+                row["sequence"] = i
+            with self.subTest(label=label), self.assertRaises(TraceError):
+                validate(bad, require_windows=(label == "missing"))
+        # Raw-source exclusions cannot be relabeled as cluster exclusions.
+        raw = copy.deepcopy(rows)
+        next(r for r in raw if r["stage"] == "candidate_filter")["candidate_id"] = "c0"
+        with self.assertRaises(TraceError):
+            validate(raw)
 
     def test_actual_mir_evaluator_first_return_conservation_and_mutations(self):
         # This fixture checks the native evaluator boundary, NOT musical GO.
