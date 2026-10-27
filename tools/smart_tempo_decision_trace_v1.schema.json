@@ -18,7 +18,7 @@
         "decode_window", "resample", "odf", "onset", "tatum_meter",
         "mir_segment", "candidate_create", "candidate_transform",
         "candidate_filter", "primary_eligibility", "policy_filter", "primary_rank", "primary_compare",
-        "primary_terminal", "primary_disposition", "primary_select", "primary_hold", "policy_eligibility", "policy_resolution", "policy_pointer",
+        "primary_terminal", "primary_disposition", "primary_first_exclusion", "primary_select", "primary_hold", "policy_eligibility", "policy_resolution", "policy_pointer",
         "policy_rank", "policy_change", "writer_resolution", "policy_hold_release", "supplemental_candidate",
         "measured_witness", "final_output", "resource_usage", "write_guard",
         "source_inventory"
@@ -53,6 +53,7 @@
     "Raw-to-cluster parentage must be the exact ordered first-match partition, never an approximate many-to-many BPM join",
     "Every policy FullBoard row must have exactly one unique indexed cluster source; missing sources fail closed",
     "Every native Policy rail verdict must reconcile source-index, resolved BPM and FullBoard membership",
+    "Every collapsed candidate's first observed native exclusion must reconcile exact source ID, executed event index, reason and score; absence is not eligibility or a decisive veto",
     "CI-only raw and general-baseline executed comparator ties preserve the four ordered numeric tie fields",
     "CI-only low continuous-center comparator preserves the fifth tie field for source-identity replay",
     "The applied writer resolution must use a fixed native reason enum after the same-run measured-witness invariant; proposed Policy output is not applied writer output",
