@@ -754,6 +754,33 @@ inline bool record(
            selected_policy_pointer, policy.output_bpm,
            static_cast<double>(policyPointer.observed),
            static_cast<double>(policyPointer.in_fullboard));
+  // Final native Policy reason/action AFTER measured invariant and partial-bar
+  // postprocessing. Only fixed reason tokens and numeric flags are emitted.
+  constexpr const char* kPolicyActions[] = {
+      "none", "keep_current", "keep_review_hold", "writer_override",
+      "review_hold_promotion", "family_conflict_review_hold",
+      "broad_route_conflict_review_hold", "invariant_review_hold"};
+  int policyActionCode = -1;
+  if (policy.action == nullptr || policy.reason == nullptr) return false;
+  for (std::size_t i = 0; i < sizeof(kPolicyActions) / sizeof(kPolicyActions[0]); ++i)
+    if (std::strcmp(policy.action, kPolicyActions[i]) == 0)
+      policyActionCode = static_cast<int>(i);
+  const std::size_t policyReasonLength = std::strlen(policy.reason);
+  if (policyActionCode < 0 || policyReasonLength == 0 ||
+      policyReasonLength > 96) return false;
+  for (std::size_t i = 0; i < policyReasonLength; ++i) {
+    const char c = policy.reason[i];
+    if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') ||
+          c == '_')) return false;
+  }
+  out.push("policy_terminal",
+           policy.output_would_write ? "selected" :
+           policy.output_would_review_hold ? "review_hold" : "rejected",
+           policy.reason, "", selected_policy_pointer, policy.output_bpm,
+           static_cast<double>(policy.writer_override_candidate),
+           static_cast<double>(policy.review_hold_promotion_candidate));
+  out.lines.insert(out.lines.size() - 3,
+      ",\"action_code\":" + std::to_string(policyActionCode));
   out.push("policy_change",
            policy.output_would_write ? "selected" :
            policy.output_would_review_hold ? "review_hold" : "rejected",
@@ -849,7 +876,7 @@ inline bool record(
   if (out.sequence != windows.size() + supply.segments.size() +
                       board.raw_candidates.size() + 5 * collapsed.size() +
                       fullboard.size() + selectorEvents.size() +
-                      supplemental_id.size() + collapsed.size() + 12 +
+                      supplemental_id.size() + collapsed.size() + 13 +
                        manual_source_count + manual.size() ||
       out.lines.size() > 2 * 1024 * 1024) return false;
   const std::wstring output = fixture + L".pipeline.jsonl";
