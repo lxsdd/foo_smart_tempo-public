@@ -4,6 +4,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 CASES = ("pulse_60", "pulse_128", "pulse_120_sparse", "silence")
+PROSPECTIVE = ("probe_72_regular", "probe_104_offbeat", "probe_132_swing", "probe_156_half_pulse", "probe_90_polyrhythm", "probe_150_sparse")
 
 
 class PilotContract(unittest.TestCase):
@@ -12,9 +13,9 @@ class PilotContract(unittest.TestCase):
 
     def test_shared_compiled_fixture_whitelist(self):
         header = self.read("tests/ci_fixture_allowlist.h")
-        for case in CASES:
+        for case in CASES + PROSPECTIVE:
             self.assertEqual(header.count(case + ".wav"), 1)
-        self.assertEqual(header.count(".wav"), len(CASES))
+        self.assertEqual(header.count(".wav"), len(CASES) + len(PROSPECTIVE))
         self.assertEqual(header.count("pulse_60_chill.cue"), 1)
         self.assertEqual(header.count(".cue"), 1)
 
@@ -50,7 +51,9 @@ class PilotContract(unittest.TestCase):
         self.assertIn("if ($episodes -lt 1 -or $wins -lt 1", script)
         self.assertIn("SMART_TEMPO_NATIVE_LOW_PULSE_", script)
         self.assertIn("if ($RequireLowPulseCoverage)", script)
-        self.assertIn("} else {\n        # Historical accuracy cohort remains fixed", script)
+        self.assertIn("} else {\n        $caseId=$label.Substring(10)", script)
+        self.assertIn("The original four-case Phase-B pilot is never enlarged", script)
+        self.assertIn("elseif ($caseId -cin $script:prospectiveCases)", script)
         self.assertIn("SELECTOR_LOW_BESTBY_EPISODES", cohort)
         self.assertLess(script.index("Run-Case $installer $root $lowCue"),
                         script.index("$pilotReport=Join-Path"))

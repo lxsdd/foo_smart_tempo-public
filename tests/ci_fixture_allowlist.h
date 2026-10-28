@@ -18,6 +18,13 @@ inline bool permitted(const std::wstring& fixture,
       L"\\synthetic-oracle\\pulse_128.wav",
       L"\\synthetic-oracle\\pulse_120_sparse.wav",
       L"\\synthetic-oracle\\silence.wav",
+      // Prospectively frozen public synthetic generalization cohort; no owner audio.
+      L"\\synthetic-oracle\\probe_72_regular.wav",
+      L"\\synthetic-oracle\\probe_104_offbeat.wav",
+      L"\\synthetic-oracle\\probe_132_swing.wav",
+      L"\\synthetic-oracle\\probe_156_half_pulse.wav",
+      L"\\synthetic-oracle\\probe_90_polyrhythm.wav",
+      L"\\synthetic-oracle\\probe_150_sparse.wav",
       // Only generated temporary CUE: regular foobar metadata routing control.
       L"\\synthetic-oracle\\pulse_60_chill.cue",
   };
