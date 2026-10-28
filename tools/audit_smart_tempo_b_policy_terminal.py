@@ -23,6 +23,15 @@ REASONS = frozenset((
     "measured_current_family_conflict_retention_gate",
     "measured_direct_high_support_alternative_family_conflict_release_gate",
     "measured_dominant_direct_fullboard_release",
+    # These exact source-emitted Policy terminal reasons are independently
+    # distinguished from the action/outcome safety gate below.
+    "dominant_measured_family_conflict_release_gate",
+    "measured_residual_downward_family_recovery_gate",
+    "measured_strict_direct_downward_family_recovery_gate",
+    "measured_winner_half_family_recovery_gate",
+    "measured_independent_high_pulse_retention_gate",
+    "measured_exact_half_family_recovery_gate",
+    "measured_broad_route_cross_view_family_recovery_gate",
     "measured_dominant_segment_family_recovery_gate",
     "measured_downward_family_conflict_release_gate",
     "measured_evidence_dominates_center_conflict_gate",
@@ -125,6 +134,20 @@ def reconcile(rows: list[dict], *, required: bool = False) -> dict:
                 "no_policy_write")
     if policy_reason != expected:
         raise PolicyTerminalError("native action contradicts Policy decision")
+    # Source-emitted recovery/release labels cannot authorize a different
+    # native action; do not weaken unrecognized-reason rejection.
+    override_reasons = frozenset((
+        "dominant_measured_family_conflict_release_gate",
+        "measured_residual_downward_family_recovery_gate",
+        "measured_strict_direct_downward_family_recovery_gate",
+        "measured_winner_half_family_recovery_gate",
+        "measured_exact_half_family_recovery_gate",
+        "measured_broad_route_cross_view_family_recovery_gate",
+    ))
+    if ((reason in override_reasons and code != 3) or
+            (reason == "measured_independent_high_pulse_retention_gate" and
+             code != 1)):
+        raise PolicyTerminalError("native reason/action mismatch")
     if ((code == 3 and m["score"] != 1) or
             (code == 4 and m["support"] != 1) or
             (code not in (3, 4) and (m["score"] or m["support"])) or
