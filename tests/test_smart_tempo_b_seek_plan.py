@@ -44,7 +44,7 @@ class SeekPlanTests(unittest.TestCase):
             "target":lambda m:m[1].__setitem__("seek_target_sec",49.),
             "return":lambda m:m[0].__setitem__("seek_returned",0),
             "invoked":lambda m:m[0].__setitem__("seek_invoked",0),
-            "offset":lambda m:m[2].__setitem__("offset_pct",80.),
+            "offset":lambda m:m[2].__setitem__("offset_pct",75.),
             "request":lambda m:m[0].__setitem__("requested_frames",319900),
             "duration":lambda m:m[1].__setitem__("planned_window_sec",19.),
             "length":lambda m:m[1].__setitem__("known_length_sec",99.),
