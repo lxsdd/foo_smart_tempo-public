@@ -62,6 +62,14 @@ def reconcile(rows: list[dict], *, required: bool = False) -> dict[str, int]:
         cluster_vetos = [r for r in vetoes if r["candidate_id"] == cid]
         all_vetos = raw_vetos + cluster_vetos
         first = min((int(r["metrics"]["support"]) for r in all_vetos), default=0)
+        last = max((int(r["metrics"]["support"]) for r in all_vetos), default=0)
+        raw_positions = [j for j, r in enumerate(selectors, 1)
+                         if r["candidate_id"] in raw_parents]
+        cluster_positions = [j for j, r in enumerate(selectors, 1)
+                             if r["candidate_id"] == cid]
+        positions = raw_positions + cluster_positions
+        first_selector = min(positions, default=0)
+        last_selector = max(positions, default=0)
         source_board_ids = [bid for bid, parents in board_parent_by_id.items()
                             if parents == [cid]]
         if len(source_board_ids) > 1 or board_parents[cid] > 1:
@@ -93,7 +101,12 @@ def reconcile(rows: list[dict], *, required: bool = False) -> dict[str, int]:
                 m["support"] != len(all_vetos) or
                 m["raw_veto_count"] != len(raw_vetos) or
                 m["cluster_veto_count"] != len(cluster_vetos) or
-                m["first_veto_event_index"] != first):
+                m["first_veto_event_index"] != first or
+                m["last_veto_event_index"] != last or
+                m["raw_selector_event_count"] != len(raw_positions) or
+                m["cluster_selector_event_count"] != len(cluster_positions) or
+                m["first_selector_event_index"] != first_selector or
+                m["last_selector_event_index"] != last_selector):
             raise CrossStageFateError("native cross-stage bits/counts/chronology contradict source")
         counted["cross_stage_fate_rows"] += 1
         counted["cross_stage_fate_veto_sources"] += int(bool(all_vetos))
