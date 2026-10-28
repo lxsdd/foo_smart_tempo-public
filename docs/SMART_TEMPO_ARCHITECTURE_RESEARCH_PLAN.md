@@ -1224,3 +1224,20 @@ requires the witness, and native adversarial mutations forge target, offset,
 return flag and window budget. Legacy synthetic traces are not promoted to
 native proof. **Limit:** a returned decoder seek call is not independent
 physical decoder-position readback. Phase C and private music QA remain closed.
+
+### Phase B: actual Policy stage first-return chronology (CI-only)
+
+The original `compute_mir_policy_decision` now records the **executed**
+first-return path through qualification, current-release, hold-resolution and
+default-resolution. The observer is excluded from production builds. A strict
+independent Python automaton accepts only the four possible ordered paths;
+the original Win32/x64 host and adversarial JSONL mutations must confirm the
+same new source SHA. A missing, duplicated, reordered, forged or
+non-contiguous path fails closed. No candidate is made eligible by this
+instrumentation, and neither selection nor tag writing changes.
+
+**Scope boundary:** this is stage-level control-flow provenance, not proof of
+the nested predicates inside each stage, global selector eligibility,
+post-policy partial-bar rewriting, or independent real-music accuracy.
+Phase B and the later frozen host-matrix gate remain open until those
+independent causal and musical checks are completed.
