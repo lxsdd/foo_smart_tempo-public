@@ -34,10 +34,16 @@ def sample():
         r("writer_resolution", parents=["c2"], reason="mir_primary"),
         r("candidate_fate", "c2", reason="cross_stage_observation_not_global_eligibility",
           score=1+2+4+8+16+64+128, raw_veto_count=0,
-          cluster_veto_count=0, first_veto_event_index=0),
+          cluster_veto_count=0, first_veto_event_index=0,
+          last_veto_event_index=0, raw_selector_event_count=0,
+          cluster_selector_event_count=3, first_selector_event_index=2,
+          last_selector_event_index=4),
         r("candidate_fate", "c3", reason="cross_stage_observation_not_global_eligibility",
           bpm=64., score=128+256+512, support=2, raw_veto_count=1,
-          cluster_veto_count=1, first_veto_event_index=2)
+          cluster_veto_count=1, first_veto_event_index=2,
+          last_veto_event_index=4, raw_selector_event_count=0,
+          cluster_selector_event_count=1, first_selector_event_index=1,
+          last_selector_event_index=1)
     ]
 
 class CrossStageFatesTests(unittest.TestCase):
@@ -66,6 +72,11 @@ class CrossStageFatesTests(unittest.TestCase):
             lambda a: a[-1]["metrics"].__setitem__("raw_veto_count", 0),
             lambda a: a[-1]["metrics"].__setitem__("cluster_veto_count", 0),
             lambda a: a[-1]["metrics"].__setitem__("first_veto_event_index", 3),
+            lambda a: a[-1]["metrics"].__setitem__("last_veto_event_index", 3),
+            lambda a: a[-1]["metrics"].__setitem__("raw_selector_event_count", 1),
+            lambda a: a[-1]["metrics"].__setitem__("cluster_selector_event_count", 2),
+            lambda a: a[-1]["metrics"].__setitem__("first_selector_event_index", 2),
+            lambda a: a[-1]["metrics"].__setitem__("last_selector_event_index", 2),
             lambda a: a[-1].__setitem__("candidate_id", "c2"),
             lambda a: a[-1].__setitem__("reason_code", "global_veto"),
             lambda a: a[-1].__setitem__("parent_candidate_ids", ["c1"]),
@@ -84,6 +95,13 @@ class CrossStageFatesTests(unittest.TestCase):
                 change(rows)
                 with self.assertRaises(CrossStageFateError):
                     reconcile(rows, required=True)
+
+    def test_selector_chronology_is_not_merely_a_membership_bit(self):
+        rows = sample()
+        rows.insert(8, r("candidate_filter", "c3", reason="low_threshold_allowed",
+                         outcome="included", bpm=64.))
+        with self.assertRaises(CrossStageFateError):
+            reconcile(rows, required=True)
 
     def test_empty_board_and_optional_legacy(self):
         self.assertEqual(reconcile([], required=True)["cross_stage_fate_rows"], 0)
