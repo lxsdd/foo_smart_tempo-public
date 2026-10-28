@@ -41,6 +41,40 @@ class ProspectiveAblationTests(unittest.TestCase):
         self.assertEqual(len(MODELS), 4)
         self.assertEqual(len(FIELDS), 6)
 
+    def test_paired_counterfactuals_and_research_only_gate(self):
+        result = validate([fixture("Win32"), fixture("x64")], "a" * 40)
+        self.assertTrue(result["cross_arch_case_parity"])
+        self.assertEqual(result["production_admission"], "NO_GO")
+        for arch in ("Win32", "x64"):
+            pair = result["paired"][arch]["AGREEMENT_ONLY"]
+            self.assertEqual(pair["LOSS_CORRECT_020"], 1)
+            self.assertEqual(pair["GAIN_HELD"], 3)
+            self.assertEqual(pair["LOSS_WRONG_AUTO"], 2)
+            self.assertEqual(result["gates"][arch]["AGREEMENT_ONLY"],
+                             "NO_SYNTHETIC_ACCURACY_GAIN")
+            self.assertEqual(result["gates"][arch]["COMBINED"],
+                             "NO_SYNTHETIC_ACCURACY_GAIN")
+
+    def test_regression_gate_and_aggregate_preserving_host_drift(self):
+        reports = [fixture("Win32"), fixture("x64")]
+        for report in reports:
+            row = report["cases"][0]["ablation"]
+            row["COMBINED_CORRECT_005"] = 0
+            row["COMBINED_CORRECT_020"] = 0
+            row["COMBINED_WRONG_AUTO"] = 1
+        result = validate(reports, "a" * 40)
+        for arch in ("Win32", "x64"):
+            self.assertEqual(result["gates"][arch]["COMBINED"],
+                             "SYNTHETIC_RISK_REGRESSION")
+            self.assertEqual(result["paired"][arch]["COMBINED"]["LOSS_CORRECT_020"], 1)
+            self.assertEqual(result["paired"][arch]["COMBINED"]["GAIN_WRONG_AUTO"], 1)
+        drift = [fixture("Win32"), fixture("x64")]
+        # Swap outcomes but not case identities: totals remain identical.
+        a, b = drift[1]["cases"][0], drift[1]["cases"][1]
+        a["ablation"], b["ablation"] = b["ablation"], a["ablation"]
+        with self.assertRaisesRegex(ProspectiveError, "case-level drift"):
+            validate(drift, "a" * 40)
+
     def test_single_architecture_is_explicit_only(self):
         self.assertEqual(len(validate([fixture("Win32")], require_both=False)["architectures"]), 1)
         with self.assertRaises(ProspectiveError):
