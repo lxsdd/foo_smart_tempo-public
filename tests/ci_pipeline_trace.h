@@ -78,6 +78,14 @@ struct WindowObservation {
   std::size_t analysis_frames = 0;
   unsigned source_rate_hz = 0;
   unsigned analysis_rate_hz = 0;
+  // CI-only numeric planned pass and actual seek-call receipt.
+  double known_length_sec = 0.0;
+  double planned_window_sec = 0.0;
+  double offset_pct = 0.0;
+  double seek_target_sec = 0.0;
+  unsigned can_seek = 0;
+  unsigned seek_invoked = 0;
+  unsigned seek_returned = 0;
 };
 
 // The native MIR evaluator's own first-return reason per actually executed
@@ -228,7 +236,14 @@ struct EventWriter {
         ",\"decoded_frames\":" + std::to_string(w.decoded_frames) +
         ",\"analysis_frames\":" + std::to_string(w.analysis_frames) +
         ",\"source_rate_hz\":" + std::to_string(w.source_rate_hz) +
-        ",\"analysis_rate_hz\":" + std::to_string(w.analysis_rate_hz));
+        ",\"analysis_rate_hz\":" + std::to_string(w.analysis_rate_hz) +
+        ",\"known_length_sec\":" + safe_num(w.known_length_sec) +
+        ",\"planned_window_sec\":" + safe_num(w.planned_window_sec) +
+        ",\"offset_pct\":" + safe_num(w.offset_pct) +
+        ",\"seek_target_sec\":" + safe_num(w.seek_target_sec) +
+        ",\"can_seek\":" + std::to_string(w.can_seek) +
+        ",\"seek_invoked\":" + std::to_string(w.seek_invoked) +
+        ",\"seek_returned\":" + std::to_string(w.seek_returned));
   }
 };
 
@@ -317,6 +332,23 @@ inline bool record(
         w.source_rate_hz != firstWindow.source_rate_hz ||
         w.analysis_rate_hz != firstWindow.analysis_rate_hz ||
         w.requested_frames != firstWindow.requested_frames ||
+        !std::isfinite(w.known_length_sec) || w.known_length_sec < 0.0 ||
+        w.known_length_sec > 86400.0 ||
+        !std::isfinite(w.planned_window_sec) || w.planned_window_sec <= 0.0 ||
+        w.planned_window_sec > 600.0 ||
+        !std::isfinite(w.offset_pct) || w.offset_pct < 0.0 ||
+        w.offset_pct > 80.0 ||
+        !std::isfinite(w.seek_target_sec) || w.seek_target_sec < 0.0 ||
+        w.seek_target_sec > 86400.0 ||
+        w.can_seek > 1 || w.seek_invoked > 1 || w.seek_returned > 1 ||
+        w.seek_invoked != w.can_seek || w.seek_returned != w.seek_invoked ||
+        (w.can_seek == 0 && declaredPasses != 1) ||
+        std::abs(w.seek_target_sec -
+                 (w.seek_invoked ? w.start_sec : 0.0)) > 0.000001 ||
+        std::abs(w.planned_window_sec -
+                 firstWindow.planned_window_sec) > 0.000001 ||
+        std::abs(w.known_length_sec -
+                 firstWindow.known_length_sec) > 0.000001 ||
         w.analysis_rate_hz != (std::min)(w.source_rate_hz, 48000u) ||
         w.requested_frames == 0 ||
         w.requested_frames > static_cast<std::size_t>(w.source_rate_hz) * 600 ||

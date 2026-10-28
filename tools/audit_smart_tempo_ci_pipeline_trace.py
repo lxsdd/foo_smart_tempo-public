@@ -13,6 +13,8 @@ from pathlib import Path
 import re
 from audit_smart_tempo_b_decode_geometry import (
     DecodeGeometryError, reconcile as reconcile_decode_geometry)
+from audit_smart_tempo_b_seek_plan import (
+    SeekPlanError, reconcile as reconcile_seek_plan)
 from audit_smart_tempo_b_raw_fates import RawFateError, reconcile_native_raw
 from audit_smart_tempo_b_cluster_rail_fates import RailFateError, reconcile_native_rail
 from audit_smart_tempo_b_policy_terminal import (
@@ -74,6 +76,8 @@ MIR_SEGMENT_REASONS = frozenset((
 WINDOW_METRICS = METRICS | frozenset(("pass_index", "pass_total", "start_sec",
     "requested_frames", "decoded_frames", "analysis_frames",
     "source_rate_hz", "analysis_rate_hz"))
+WINDOW_SEEK_METRICS = frozenset(("known_length_sec", "planned_window_sec",
+    "offset_pct", "seek_target_sec", "can_seek", "seek_invoked", "seek_returned"))
 CREATORS = frozenset(("candidate_create", "candidate_transform",
                       "policy_eligibility", "supplemental_candidate",
                       "manual_source", "manual_export"))
@@ -200,6 +204,7 @@ class TraceError(ValueError):
 
 
 def validate(rows: list[dict], *, require_windows: bool = False,
+             require_seek: bool = False,
              require_segments: bool = False,
              require_native_comparator: bool = False,
              require_policy_filter: bool = False,
@@ -271,7 +276,9 @@ def validate(rows: list[dict], *, require_windows: bool = False,
                           item["reason_code"].startswith("low_continuous_compare_"))
         has_native_tie = has_native_tie or continuous_tie
         expected_metrics = (SEGMENT_METRICS if stage == "mir_segment" else
-                            WINDOW_METRICS if stage == "decode_window" else
+                            (WINDOW_METRICS | WINDOW_SEEK_METRICS
+                             if "seek_returned" in item["metrics"]
+                             else WINDOW_METRICS) if stage == "decode_window" else
                             RESOURCE_METRICS if stage == "resource_usage" else
                             INVENTORY_METRICS if stage == "source_inventory" else
                             TIE5_METRICS if continuous_tie else
@@ -817,6 +824,10 @@ def validate(rows: list[dict], *, require_windows: bool = False,
             rows, required=require_windows)
     except DecodeGeometryError as exc:
         raise TraceError("native decoded-frame geometry: " + str(exc)) from exc
+    try:
+        seek_status = reconcile_seek_plan(rows, required=require_seek)
+    except SeekPlanError as exc:
+        raise TraceError("independent native seek plan: " + str(exc)) from exc
     if inventories and windows and (
             inventories[0]["metrics"]["mir_segments_evaluated"] > len(windows)):
         raise TraceError("MIR evaluated more segments than decoded windows")
@@ -1382,6 +1393,7 @@ def validate(rows: list[dict], *, require_windows: bool = False,
         raise TraceError("native cross-stage source fate: " + str(exc)) from exc
     return {
         **decode_geometry_status,
+        **seek_status,
         **cross_stage_status,
         **writer_status,
         **policy_terminal_status,
@@ -1560,6 +1572,7 @@ def main() -> None:
     parser.add_argument("--require-windows", action="store_true")
     a = parser.parse_args()
     result = validate(load(a.trace), require_windows=a.require_windows,
+                      require_seek=a.require_windows,
                       require_segments=a.require_windows,
                       require_native_comparator=a.require_windows,
                       require_policy_filter=a.require_windows,

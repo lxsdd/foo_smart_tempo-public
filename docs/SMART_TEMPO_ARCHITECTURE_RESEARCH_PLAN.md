@@ -1211,3 +1211,16 @@ independently recomputed pass-offset planning or decoder seek fidelity.
 It does not close global Primary eligibility, nested Policy causal coverage,
 Phase B, Phase C or musical owner acceptance. Production decoding, DSP,
 selector, Policy and writer behavior are unchanged.
+
+
+### Package B – independent native seek-call plan (CI-only)
+
+The original Win32/x64 analyzer now captures numeric-only known length,
+effective window, offset percentage, seek target, seek capability and the
+original seek-call invoked/returned flags. A separate Python oracle
+reconstructs the 20–80% offset interpolation, last-pass epsilon, single-pass
+center, 0.5s end margin and requested source-frame budget. Real host CLI
+requires the witness, and native adversarial mutations forge target, offset,
+return flag and window budget. Legacy synthetic traces are not promoted to
+native proof. **Limit:** a returned decoder seek call is not independent
+physical decoder-position readback. Phase C and private music QA remain closed.

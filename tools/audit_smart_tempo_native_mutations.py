@@ -93,6 +93,19 @@ def mutations(rows: list[dict]) -> list[tuple[str, list[dict]]]:
                     row["metrics"]["pass_index"] == 1,
         lambda a, i: a[i]["metrics"].__setitem__(
             "requested_frames", a[i]["metrics"]["requested_frames"] + 1))
+    seek_row = lambda row: row["stage"] == "decode_window" and (
+        "seek_returned" in row["metrics"])
+    add("seek_target_forged", seek_row,
+        lambda a,i:a[i]["metrics"].__setitem__(
+            "seek_target_sec",a[i]["metrics"]["seek_target_sec"]+1))
+    add("seek_return_forged", seek_row,
+        lambda a,i:a[i]["metrics"].__setitem__("seek_returned",0))
+    add("seek_offset_forged", seek_row,
+        lambda a,i:a[i]["metrics"].__setitem__(
+            "offset_pct",a[i]["metrics"]["offset_pct"]+1))
+    add("seek_duration_forged", seek_row,
+        lambda a,i:a[i]["metrics"].__setitem__(
+            "planned_window_sec",a[i]["metrics"]["planned_window_sec"]+1))
     add("mir_nonfinite", row_stage("mir_segment"),
         lambda a, i: a[i]["metrics"].__setitem__("score", float("nan")),
         required=True)
@@ -382,8 +395,10 @@ def mutations(rows: list[dict]) -> list[tuple[str, list[dict]]]:
 
 
 def audit(rows: list[dict], *, native_comparator: bool,
-          native_policy_rail: bool = False) -> tuple[int, int]:
+          native_policy_rail: bool = False,
+          require_seek: bool = False) -> tuple[int, int]:
     validate(rows, require_windows=True, require_segments=True,
+             require_seek=require_seek,
              require_native_comparator=native_comparator,
              require_policy_filter=native_policy_rail,
              require_writer_resolution=native_policy_rail,
@@ -393,6 +408,7 @@ def audit(rows: list[dict], *, native_comparator: bool,
     for name, altered in mutated:
         try:
             validate(altered, require_windows=True, require_segments=True,
+                     require_seek=require_seek,
                      require_native_comparator=native_comparator,
                      require_policy_filter=native_policy_rail,
              require_writer_resolution=native_policy_rail,
@@ -412,7 +428,7 @@ def main() -> None:
     if not args.require_windows:
         raise TraceError("native adversarial audit requires original-host mode")
     rejected, extra = audit(load(args.trace), native_comparator=True,
-                            native_policy_rail=True)
+                            native_policy_rail=True, require_seek=True)
     print("SMART_TEMPO_NATIVE_MUTATION_GATE=PASS")
     print(f"SMART_TEMPO_NATIVE_MUTATIONS_REJECTED={rejected}")
     print(f"SMART_TEMPO_NATIVE_MUTATIONS_ADDITIONAL={extra}")

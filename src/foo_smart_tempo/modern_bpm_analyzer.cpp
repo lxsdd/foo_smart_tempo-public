@@ -1651,9 +1651,19 @@ double ModernBpmAnalyzer::analyze(metadb_handle_ptr track, threaded_process_stat
         kPassEndSafetyMarginSeconds);
     const double passStartSec = passOffset.startSec;
     const double offset_pct = passOffset.offsetPct;
-
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+    // Actual original seek call receipt, not a decoder-position readback.
+    const bool ciCanSeek = input_file.can_seek();
+    bool ciSeekInvoked = false, ciSeekReturned = false;
+#endif
     if (input_file.can_seek()) {
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+      ciSeekInvoked = true;
+#endif
       input_file.seek(passStartSec, p_abort);
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+      ciSeekReturned = true;
+#endif
     } else if (pass > 0) {
       break; // cannot seek, single pass only
     }
@@ -1883,7 +1893,13 @@ double ModernBpmAnalyzer::analyze(metadb_handle_ptr track, threaded_process_stat
                              static_cast<std::size_t>(effectiveSamplePasses),
                              passStartSec, samplesToReadPerPass, samplesRead,
                              analysisSamplesEmitted, sampleRate,
-                             analysisSampleRate});
+                             analysisSampleRate,
+                             hasKnownTrackLength ? trackLength : 0.0,
+                             effectiveSecondsToRead, offset_pct,
+                             ciSeekInvoked ? passStartSec : 0.0,
+                             static_cast<unsigned>(ciCanSeek),
+                             static_cast<unsigned>(ciSeekInvoked),
+                             static_cast<unsigned>(ciSeekReturned)});
       } catch (...) {
         ciWindowCaptureFailed = true;
         ciWindows.clear();
