@@ -132,6 +132,27 @@ def mutations(rows: list[dict]) -> list[tuple[str, list[dict]]]:
         lambda a, i: a[i]["metrics"].__setitem__("score", 2), required=True)
     add("policy_pointer_flag", row_stage("policy_pointer"),
         lambda a, i: a[i]["metrics"].__setitem__("support", 2), required=True)
+    # Corrupt actual native ordered Policy first-return chronology.
+    if any(row["stage"] == "policy_stage_path" for row in rows):
+        add("policy_path_reason", row_stage("policy_stage_path"),
+            lambda a, i: a[i].__setitem__("reason_code", "unregistered_path"))
+        add("policy_path_metric", row_stage("policy_stage_path"),
+            lambda a, i: a[i]["metrics"].__setitem__("score", 1))
+        add("policy_path_parent", row_stage("policy_stage_path"),
+            lambda a, i: a[i].__setitem__("parent_candidate_ids", ["c999999"]))
+        for label, altered in (
+            ("missing_policy_path", [r for r in copy.deepcopy(rows)
+                                     if r["stage"] != "policy_stage_path"]),
+            ("duplicate_policy_path", None),
+        ):
+            if altered is None:
+                altered = copy.deepcopy(rows)
+                pos = next(i for i, row in enumerate(altered)
+                           if row["stage"] == "policy_stage_path")
+                altered.insert(pos, copy.deepcopy(altered[pos]))
+            for i, row in enumerate(altered):
+                row["sequence"] = i
+            result.append((label, altered))
     # Adversarial corruption of actual native final Policy decision witness.
     if any(row["stage"] == "policy_terminal" for row in rows):
         add("policy_terminal_reason", row_stage("policy_terminal"),
@@ -402,7 +423,8 @@ def audit(rows: list[dict], *, native_comparator: bool,
              require_native_comparator=native_comparator,
              require_policy_filter=native_policy_rail,
              require_writer_resolution=native_policy_rail,
-             require_cross_stage_fate=native_policy_rail)
+             require_cross_stage_fate=native_policy_rail,
+             require_policy_stage_path=native_policy_rail)
     reconcile(rows)
     mutated = mutations(rows)
     for name, altered in mutated:
@@ -412,7 +434,8 @@ def audit(rows: list[dict], *, native_comparator: bool,
                      require_native_comparator=native_comparator,
                      require_policy_filter=native_policy_rail,
              require_writer_resolution=native_policy_rail,
-             require_cross_stage_fate=native_policy_rail)
+                     require_cross_stage_fate=native_policy_rail,
+                     require_policy_stage_path=native_policy_rail)
             reconcile(altered)
         except TraceError:
             continue
