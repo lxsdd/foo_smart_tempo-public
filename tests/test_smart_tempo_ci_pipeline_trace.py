@@ -942,7 +942,8 @@ class NativePipelineTraceTests(unittest.TestCase):
         self.assertIn("raw_cluster_sources", header)
         self.assertIn("raw_cluster_sources[assigned].push_back(raw_index)", header)
         self.assertIn("fullboard_source_seen", header)
-        self.assertIn("if (parents.size() != 1) return false;", header)
+        self.assertIn("fullboard_cluster_index.push_back(cluster_source_index)", header)
+        self.assertIn("if (parents.size() != 1 || cluster_source_index == collapsed.size()) return false;", header)
         self.assertIn("collapse_mir_candidates(", source)
         self.assertIn("#ifndef SMART_TEMPO_CI_ORACLE_PROBE", header)
 
