@@ -20,6 +20,16 @@ thread_local std::vector<MirCandidate> g_ci_primary_pool;
 thread_local bool g_ci_primary_trace_complete = true;
 thread_local std::span<const MirPolicyMeasuredCandidate> g_ci_policy_board;
 thread_local MirCiPolicyPointerSource g_ci_policy_source;
+thread_local std::array<const char*, 4> g_ci_policy_stage_path{};
+thread_local std::size_t g_ci_policy_stage_count = 0;
+thread_local bool g_ci_policy_stage_complete = true;
+inline void ci_policy_stage(const char* token) noexcept {
+  if (g_ci_policy_stage_count >= g_ci_policy_stage_path.size()) {
+    g_ci_policy_stage_complete = false;
+    return;
+  }
+  g_ci_policy_stage_path[g_ci_policy_stage_count++] = token;
+}
 thread_local std::vector<MirCiPolicyRailEvent> g_ci_policy_rail_events;
 thread_local bool g_ci_policy_rail_complete = true;
 inline void ci_policy_rail_event(std::size_t index, double sourceBpm,
@@ -81,6 +91,12 @@ bool mir_ci_primary_selector_trace_complete() noexcept {
 }
 const std::vector<MirCandidate>& mir_ci_primary_selector_pool() noexcept {
   return g_ci_primary_pool;
+}
+std::span<const char* const> mir_ci_policy_stage_path() noexcept {
+  return {g_ci_policy_stage_path.data(), g_ci_policy_stage_count};
+}
+bool mir_ci_policy_stage_path_complete() noexcept {
+  return g_ci_policy_stage_complete;
 }
 MirCiPolicyPointerSource mir_ci_policy_pointer_source() noexcept {
   return g_ci_policy_source;
@@ -5869,13 +5885,23 @@ compute_mir_policy_decision(
 #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
   g_ci_policy_board = candidates;
   g_ci_policy_source = {};
+  g_ci_policy_stage_count = 0;
+  g_ci_policy_stage_complete = true;
 #endif
   // Ordered policy stages. Their sequence is part of the release contract.
   MirPolicyQualificationStage qualification = qualify_mir_policy_board(
       candidates, current, priorCenterBpm, priorSpreadBpm, routeMatched,
       genericRoute, enabled);
   auto& shadow = qualification.decision;
-  if (!qualification.ready) return shadow;
+  if (!qualification.ready) {
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+    ci_policy_stage("qualification_terminal");
+#endif
+    return shadow;
+  }
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+  ci_policy_stage("qualification_ready");
+#endif
   const MirPolicyMeasuredCandidate& measured = *qualification.measured;
   MirPolicyReleaseFeatureCache releaseFeatureCache(
       candidates, priorCenterBpm, priorSpreadBpm);
@@ -5884,15 +5910,30 @@ compute_mir_policy_decision(
           shadow, candidates, releaseFeatureCache, current, primaryFamily,
           partialBarAggregate, measured, priorCenterBpm, priorSpreadBpm,
           routeMatched, genericRoute)) {
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+    ci_policy_stage("current_release_terminal");
+#endif
     return shadow;
   }
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+  ci_policy_stage("current_release_continue");
+#endif
   if (try_apply_mir_policy_hold_resolution_stage(
           shadow, candidates, releaseFeatureCache, current, materialRiskProbe,
           measured, priorCenterBpm, priorSpreadBpm, routeMatched,
           genericRoute)) {
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+    ci_policy_stage("hold_resolution_terminal");
+#endif
     return shadow;
   }
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+  ci_policy_stage("hold_resolution_continue");
+#endif
   apply_mir_policy_default_resolution_stage(shadow, current);
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+  ci_policy_stage("default_resolution_terminal");
+#endif
   return shadow;
 }
 
