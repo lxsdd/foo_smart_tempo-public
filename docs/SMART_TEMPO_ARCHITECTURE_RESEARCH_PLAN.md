@@ -1241,3 +1241,26 @@ the nested predicates inside each stage, global selector eligibility,
 post-policy partial-bar rewriting, or independent real-music accuracy.
 Phase B and the later frozen host-matrix gate remain open until those
 independent causal and musical checks are completed.
+
+### Prospective six-case synthetic Selector/Policy generalization cohort (28 October 2026)
+
+The existing four-model, same-native-board post-host ablation is now evaluated
+against **six newly predeclared, synthetic-only** 20-second cases: 72 regular,
+104 offbeat, 132 swing, 156 half-pulse, 90 with a 3:2 crossbeat and 150
+sparse. The original four-case Phase-B pilot remains separate and unchanged.
+The additional cases are frozen before their first original Win32/x64 host
+evaluation; no BPM labels enter the C++ component or the source-only selectors.
+
+The disposable original foobar hosts capture all four frozen model decisions
+per case. A strict independent Python join validates every case, architecture,
+same-source SHA, no-write flag, and binary per-model accounting before
+reporting denominators at ±0.05/±0.20 BPM, wrong automatic and ReviewHold.
+It reports results, **not** a required accuracy threshold: a bad musical
+result is evidence, not permission to weaken a test. The combined source
+ranker is a counterfactual without full lane eligibility; it must never be
+treated as production-ready merely because its synthetic hit count improves.
+
+This is a bounded **prospective Phase-B research comparison**, not the frozen
+full Phase-C matrix, not a private blind music holdout and not product GO.
+ReviewHold, measured-candidate and writer safety are unchanged. No new
+binary artifacts or real-user media are emitted.

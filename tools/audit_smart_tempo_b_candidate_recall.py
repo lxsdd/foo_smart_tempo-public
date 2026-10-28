@@ -13,11 +13,18 @@ import sys
 from audit_smart_tempo_ci_pipeline_trace import load, validate, TraceError
 from score_synthetic_bpm_reference import load_observed
 
-# Immutable, public, predeclared four-case PHASE-B pilot. Not the Phase-C set.
+# Frozen original four-case Phase-B pilot plus separate prospective six-case
+# synthetic selector generalization set. Neither is private music or Phase C.
 CASES = {
     "pulse_60": (60.0, "regular"),
     "pulse_128": (128.0, "regular"),
     "pulse_120_sparse": (120.0, "sparse"),
+    "probe_72_regular": (72.0, "regular"),
+    "probe_104_offbeat": (104.0, "offbeat"),
+    "probe_132_swing": (132.0, "swing"),
+    "probe_156_half_pulse": (156.0, "half_pulse"),
+    "probe_90_polyrhythm": (90.0, "polyrhythm"),
+    "probe_150_sparse": (150.0, "sparse"),
     "silence": (None, "silence"),
 }
 STAGES = {

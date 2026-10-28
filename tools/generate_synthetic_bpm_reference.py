@@ -27,6 +27,12 @@ CASES = (
     ("pulse_120_swing", 120.0, "swing"),
     ("pulse_128_half_pulse", 128.0, "half_pulse"),
     ("pulse_120_sparse", 120.0, "sparse"),
+    ("probe_72_regular", 72.0, "regular"),
+    ("probe_104_offbeat", 104.0, "offbeat"),
+    ("probe_132_swing", 132.0, "swing"),
+    ("probe_156_half_pulse", 156.0, "half_pulse"),
+    ("probe_90_polyrhythm", 90.0, "polyrhythm"),
+    ("probe_150_sparse", 150.0, "sparse"),
     ("silence", None, "silence"),
 )
 
@@ -54,6 +60,14 @@ def event_times(bpm: float | None, style: str, duration: float) -> list[float]:
             offbeat = t + period * 0.75
             if offbeat < duration - 0.025:
                 times.append(offbeat)
+        if style == "offbeat":
+            offbeat = t + period * 0.5
+            if offbeat < duration - 0.025:
+                times.append(offbeat)
+        if style == "polyrhythm" and beat % 2 == 0:
+            crossbeat = t + period * (2.0 / 3.0)
+            if crossbeat < duration - 0.025:
+                times.append(crossbeat)
         beat += 1
     return sorted(times)
 

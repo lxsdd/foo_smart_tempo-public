@@ -88,6 +88,8 @@ function Launch([string]$exe,[string[]]$args) {
   return [Diagnostics.Process]::Start($i)
 }
 $script:pilotEvidence=[Collections.Generic.List[object]]::new()
+$script:prospectiveCases=@('probe_72_regular','probe_104_offbeat','probe_132_swing','probe_156_half_pulse','probe_90_polyrhythm','probe_150_sparse')
+$script:prospectiveEvidence=[Collections.Generic.List[object]]::new()
 $script:pilotTraceKeys=@('NATIVE_SOURCE_INVENTORY_VERIFIED','RAW','COLLAPSED','WRITE_GUARD_BLOCKED',
   'PHASE_B_CAUSAL_COMPLETENESS','DECODED_WINDOWS','DECLARED_WINDOWS','WINDOWS_COMPLETE',
   'FINAL_ACCEPT','PROCESS_CPU_SECONDS','PROCESS_PEAK_RSS_BYTES','PRIMARY_VETO_REASON_UNKNOWN',
@@ -480,12 +482,22 @@ function Run-Case([string]$installer,[string]$root,[string]$inputFile,[string[]]
         Write-Host ("SMART_TEMPO_NATIVE_LOW_PULSE_{0}_COMPARISONS={1}" -f $Architecture,($wins+$losses))
         Write-Host ("SMART_TEMPO_NATIVE_LOW_PULSE_{0}=PASS" -f $Architecture)
       } else {
-        # Historical accuracy cohort remains fixed at exactly four WAVs.
-        [void]$script:pilotEvidence.Add([pscustomobject]@{
-          case=$label.Substring(10);score=$scoreEvidence;trace=$traceEvidence;
-          shadow=$shadowEvidence;media_no_write=$true
-        })
-        Write-Host ("SMART_TEMPO_NATIVE_B_PILOT_TRACE_{0}_{1}=PASS" -f $Architecture,$label)
+        $caseId=$label.Substring(10)
+        if ($caseId -cin @('pulse_60','pulse_128','pulse_120_sparse','silence')) {
+          # The original four-case Phase-B pilot is never enlarged retrospectively.
+          [void]$script:pilotEvidence.Add([pscustomobject]@{
+            case=$caseId;score=$scoreEvidence;trace=$traceEvidence;
+            shadow=$shadowEvidence;media_no_write=$true
+          })
+          Write-Host ("SMART_TEMPO_NATIVE_B_PILOT_TRACE_{0}_{1}=PASS" -f $Architecture,$label)
+        } elseif ($caseId -cin $script:prospectiveCases) {
+          # Counterfactual models were frozen before this WAV was analyzed.
+          # Only bounded binary counts leave this disposable host case.
+          [void]$script:prospectiveEvidence.Add([pscustomobject]@{
+            case=$caseId;ablation=$ablationSeen;media_no_write=$true
+          })
+          Write-Host ("SMART_TEMPO_PROSPECTIVE_TRACE_{0}_{1}=PASS" -f $Architecture,$label)
+        } else { throw 'Unknown synthetic research cohort' }
       }
       Write-Host 'SMART_TEMPO_PRIMARY_VETO_INDIVIDUAL_REASONS=UNMEASURED'
     }
@@ -564,6 +576,16 @@ try {
         'SYNTHETIC_pulse_60_chill' -RequireLowPulseCoverage
     }
   }
+  # Prospectively frozen six-case synthetic generalization set. Same original
+  # foobar host and candidate boards, no production Selector/Policy mutation.
+  foreach ($caseId in $script:prospectiveCases) {
+    $syntheticRoot=Join-Path (Join-Path $root ('prospective-'+$caseId)) 'synthetic-oracle'
+    python ./tools/generate_synthetic_bpm_reference.py --output $syntheticRoot --case $caseId
+    if ($LASTEXITCODE -ne 0) { throw "Prospective synthetic WAV creation failed: $caseId" }
+    $reference=Join-Path $syntheticRoot 'reference.json'
+    $wavFile=Join-Path $syntheticRoot ($caseId+'.wav')
+    Run-Case $installer $root $wavFile @($wavFile,$reference) 1 ('SYNTHETIC_'+$caseId)
+  }
   # CI-only bounded numeric report; consumed again by cross-architecture gate.
   $pilotReport=Join-Path $env:RUNNER_TEMP ("smart-tempo-b-pilot-"+$Architecture+".json")
   if (Test-Path -LiteralPath $pilotReport) { throw 'Stale pilot report' }
@@ -578,5 +600,17 @@ try {
                           [Text.UTF8Encoding]::new($false))
   python ./tools/audit_smart_tempo_b_pilot_cohort.py --expected-source-sha $sourceSha --report $pilotReport --single-architecture
   if ($LASTEXITCODE -ne 0) { throw 'Original-host B-pilot cohort integrity failed' }
+  $prospectiveReport=Join-Path $env:RUNNER_TEMP ("smart-tempo-b-prospective-"+$Architecture+".json")
+  if (Test-Path -LiteralPath $prospectiveReport) { throw 'Stale prospective report' }
+  $prospectivePayload=[ordered]@{
+    schema='smart_tempo_b_prospective_ablation_v1'
+    architecture=$Architecture
+    source_sha=$sourceSha
+    cases=@($script:prospectiveEvidence.ToArray())
+  }
+  [IO.File]::WriteAllText($prospectiveReport,($prospectivePayload | ConvertTo-Json -Depth 8 -Compress),
+                          [Text.UTF8Encoding]::new($false))
+  python ./tools/audit_smart_tempo_b_prospective_ablations.py --expected-source-sha $sourceSha --report $prospectiveReport --single-architecture
+  if ($LASTEXITCODE -ne 0) { throw 'Original-host prospective Selector/Policy evidence incomplete' }
   Write-Host ("SMART_TEMPO_DIAGNOSTIC_RUNTIME_{0}=PASS" -f $Architecture)
 } finally { if (Test-Path $root) { Remove-Item $root -Recurse -Force -ErrorAction SilentlyContinue } }

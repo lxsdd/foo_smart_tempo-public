@@ -102,6 +102,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Source-ID-blind shadow ranking adversarial contracts failed' }
           python -m unittest discover -s tests -p 'test_smart_tempo_b_decision_ablations.py' -v
           if ($LASTEXITCODE -ne 0) { throw 'Native frozen Selector/Policy ablation positive/negative regressions failed' }
+          python -m unittest discover -s tests -p 'test_smart_tempo_b_prospective_ablations.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'Prospective synthetic selector cohort conservation regressions failed' }
           # Parse the entire original-host harness before downloading SDK/WTL
           # or spending minutes on compilation. This is syntax-only; it does
           # not run foobar, install software, or touch any user files.
@@ -274,6 +276,16 @@ jobs:
             --report "$env:RUNNER_TEMP/smart-tempo-b-pilot-Win32.json" `
             --report "$env:RUNNER_TEMP/smart-tempo-b-pilot-x64.json"
           if ($LASTEXITCODE -ne 0) { throw 'Dual-architecture B-pilot evidence incomplete' }
+
+      - name: HARD GATE - joined Win32/x64 prospective synthetic selector ablations
+        shell: pwsh
+        run: |
+          $sourceSha=((& git rev-parse HEAD) | Out-String).Trim().ToLowerInvariant()
+          python ./tools/audit_smart_tempo_b_prospective_ablations.py `
+            --expected-source-sha $sourceSha `
+            --report "$env:RUNNER_TEMP/smart-tempo-b-prospective-Win32.json" `
+            --report "$env:RUNNER_TEMP/smart-tempo-b-prospective-x64.json"
+          if ($LASTEXITCODE -ne 0) { throw 'Dual-architecture prospective ablation evidence incomplete' }
 
       - name: Package foobar2000 component
         shell: cmd
