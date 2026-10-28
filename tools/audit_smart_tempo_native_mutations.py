@@ -253,6 +253,12 @@ def mutations(rows: list[dict]) -> list[tuple[str, list[dict]]]:
             lambda a, i: a[i]["metrics"].__setitem__(
                 "first_veto_event_index", a[i]["metrics"]["first_veto_event_index"] + 1),
             required=True)
+        for key in ("last_veto_event_index", "raw_selector_event_count",
+                    "cluster_selector_event_count", "first_selector_event_index",
+                    "last_selector_event_index"):
+            add("fate_chronology_" + key, row_stage("candidate_fate"),
+                lambda a, i, field=key: a[i]["metrics"].__setitem__(
+                    field, a[i]["metrics"][field] + 1), required=True)
         add("fate_outcome", row_stage("candidate_fate"),
             lambda a, i: a[i].__setitem__("outcome", "excluded"), required=True)
         add("fate_reason", row_stage("candidate_fate"),
