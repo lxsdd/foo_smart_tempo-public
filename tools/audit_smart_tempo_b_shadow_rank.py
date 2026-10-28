@@ -116,7 +116,11 @@ def shadow_result(rows: list[dict], manifest: dict, observed: list[dict],
             if parents[0] not in by_id:
                 raise RecallError("rhythmic Primary source unindexed")
             chosen = parents[0]
-            if abs(by_id[chosen] - item["metrics"]["bpm"]) >= .001:
+            # Candidate identity follows its original cluster BPM, whereas
+            # primary_select.metrics.bpm may be locally audio-refined.
+            # The full trace validator independently checks both witnesses.
+            source_bpm = item["metrics"].get("cluster_bpm", item["metrics"]["bpm"])
+            if abs(by_id[chosen] - source_bpm) >= .001:
                 raise RecallError("Primary selected-object BPM mismatch")
         elif not parents and item["outcome"] == "no_candidate" and (
                 item["metrics"]["bpm"] == 0):
