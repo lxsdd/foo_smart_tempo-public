@@ -770,6 +770,25 @@ inline bool record(
       ",\"material_hold\":" + std::to_string(static_cast<int>(primary.material_risk_review_hold)) +
       ",\"high_family_hold\":" + std::to_string(static_cast<int>(primary.high_family_conflict_review_hold)) +
       ",\"soft_center_hold\":" + std::to_string(static_cast<int>(primary.soft_center_conflict_review_hold)));
+  // Actual first-return chronology from the original ordered Policy helper.
+  // This records stage entry/exit, not hidden nested predicate eligibility.
+  const auto policyStages = mir_pipeline::mir_ci_policy_stage_path();
+  if (!mir_pipeline::mir_ci_policy_stage_path_complete() ||
+      policyStages.empty() || policyStages.size() > 4) return false;
+  constexpr const char* kPolicyStageTokens[] = {
+      "qualification_terminal", "qualification_ready",
+      "current_release_terminal", "current_release_continue",
+      "hold_resolution_terminal", "hold_resolution_continue",
+      "default_resolution_terminal"};
+  for (const char* token : policyStages) {
+    bool allowed = false;
+    if (!token) return false;
+    for (const char* known : kPolicyStageTokens)
+      allowed |= std::strcmp(token, known) == 0;
+    if (!allowed) return false;
+    out.push("policy_stage_path", "observed", token, "", {},
+             0.0, 0.0, 0.0);
+  }
   // BPM proximity to a FullBoard row is not native chosen-object identity.
   // Report matching BPM multiplicity as a falsifiable *comparison*, not an
   // assertion that Policy selected that candidate pointer.
