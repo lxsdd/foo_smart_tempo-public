@@ -435,20 +435,25 @@ inline bool record(
   // candidates. Each surviving source must occur at most once, even when
   // multiple transformed BPMs are numerically equal.
   std::vector<uint8_t> fullboard_source_seen(collapsed.size(), 0);
+  std::vector<std::size_t> fullboard_cluster_index;
+  fullboard_cluster_index.reserve(fullboard.size());
   for (const auto& candidate : fullboard) {
     if (!finite_bpm(candidate.bpm) || candidate.bpm == 0.0 ||
         !std::isfinite(candidate.local_exact_score) ||
         !std::isfinite(candidate.candidate.support))
       return false;
     std::vector<std::string> parents;
+    std::size_t cluster_source_index = collapsed.size();
     for (std::size_t i = 0; i < collapsed.size(); ++i) {
       if (std::abs(collapsed[i].bpm - candidate.cluster_bpm) < 0.001) {
+        cluster_source_index = i;
         if (fullboard_source_seen[i] != 0) return false;
         fullboard_source_seen[i] = 1;
         parents.push_back(cluster_ids[i]);
       }
     }
-    if (parents.size() != 1) return false;
+    if (parents.size() != 1 || cluster_source_index == collapsed.size()) return false;
+    fullboard_cluster_index.push_back(cluster_source_index);
     const auto id = out.create_id();
     policy_ids.push_back(id);
     out.push("policy_eligibility", "included",
@@ -838,6 +843,58 @@ inline bool record(
                             primary_parent, risk, partial, topK, manual,
                             manual_requested, manual_source_count))
     return false;
+  // Exact cross-stage OBSERVATION, not global eligibility or a writer change.
+  const std::size_t policy_source_index = actualFullBoardObject
+      ? fullboard_cluster_index[policyPointer.index] : collapsed.size();
+  for (std::size_t i = 0; i < collapsed.size(); ++i) {
+    std::size_t raw_vetos = 0, cluster_vetos = 0, first_veto_index = 0;
+    for (std::size_t j = 0; j < selectorEvents.size(); ++j) {
+      const auto& event = selectorEvents[j];
+      if (event.included) continue;
+      const bool raw_veto =
+          std::strcmp(event.reason, "raw_alias_decisive_veto") == 0 ||
+          std::strcmp(event.reason, "raw_support_decisive_veto") == 0;
+      const bool cluster_veto =
+          std::strcmp(event.reason, "low_upper_branch_veto") == 0 ||
+          std::strcmp(event.reason, "low_continuous_branch_veto") == 0 ||
+          std::strcmp(event.reason, "harmonic_rail_decisive_veto") == 0 ||
+          std::strcmp(event.reason, "general_rail_decisive_veto") == 0;
+      const bool matched_raw = event.raw && raw_veto &&
+          std::find(raw_cluster_sources[i].begin(), raw_cluster_sources[i].end(),
+                    event.source_index) != raw_cluster_sources[i].end();
+      const bool matched_cluster = !event.raw && cluster_veto &&
+                                   event.source_index == i;
+      if (!matched_raw && !matched_cluster) continue;
+      if (matched_raw) ++raw_vetos;
+      if (matched_cluster) ++cluster_vetos;
+      if (!first_veto_index) first_veto_index = j + 1;
+    }
+    if (raw_vetos + cluster_vetos > 4096 || first_veto_index > 4096)
+      return false;
+    unsigned flags = 0;
+    if (i == final_source_index) flags |= 1;
+    if (railEvents[i].included) flags |= 2;
+    if (fullboard_source_seen[i]) flags |= 4;
+    if (actualFullBoardObject && i == policy_source_index) flags |= 8;
+    if (applied_primary && applied_writer_source.size() == 1 &&
+        i == final_source_index) flags |= 16;
+    if (applied_policy && actualFullBoardObject &&
+        applied_writer_source.size() == 1 &&
+        i == policy_source_index) flags |= 32;
+    if (primary_observation[i] == 2) flags |= 64;
+    if (primary_observation[i] >= 1) flags |= 128;
+    if (cluster_vetos) flags |= 256;
+    if (raw_vetos) flags |= 512;
+    out.push("candidate_fate", "observed",
+             "cross_stage_observation_not_global_eligibility",
+             cluster_ids[i], {}, collapsed[i].bpm,
+             static_cast<double>(flags),
+             static_cast<double>(raw_vetos + cluster_vetos));
+    out.lines.insert(out.lines.size() - 3,
+        ",\"raw_veto_count\":" + std::to_string(raw_vetos) +
+        ",\"cluster_veto_count\":" + std::to_string(cluster_vetos) +
+        ",\"first_veto_event_index\":" + std::to_string(first_veto_index));
+  }
   out.push("final_output",
            withheld || final_bpm <= 0.0 ? "review_hold" : "selected",
            withheld || final_bpm <= 0.0 ? "final_abstained" : "final_numeric",
@@ -897,7 +954,7 @@ inline bool record(
   if (out.sequence != windows.size() + supply.segments.size() +
                       board.raw_candidates.size() + 5 * collapsed.size() +
                       fullboard.size() + selectorEvents.size() +
-                      supplemental_id.size() + collapsed.size() + vetoLedgerCount + 13 +
+                      supplemental_id.size() + 2 * collapsed.size() + vetoLedgerCount + 13 +
                        manual_source_count + manual.size() ||
       out.lines.size() > 2 * 1024 * 1024) return false;
   const std::wstring output = fixture + L".pipeline.jsonl";

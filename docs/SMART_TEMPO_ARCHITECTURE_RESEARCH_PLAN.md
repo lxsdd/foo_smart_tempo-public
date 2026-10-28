@@ -1155,3 +1155,25 @@ Policy predicate was evaluated for every unselected candidate. Phase B remains
 partial until global eligibility and all nested candidate-veto paths are
 independently proven. It does not authorize the large Phase C matrix, a
 production DSP/Policy/Writer change or private musical acceptance.
+
+
+### Phase B — source-indexed cross-stage fate matrix (CI-only)
+
+Every collapsed native source receives one `candidate_fate` observation after
+Primary, Policy, applied writer and manual-export resolution. Bit flags in
+numeric `metrics.score`: 1 final Primary object, 2 Policy rail included,
+4 FullBoard member, 8 actual FullBoard Policy pointer, 16 applied Primary
+writer source, 32 applied FullBoard Policy writer source, 64 Primary ranked,
+128 Primary observed, 256 cluster branch veto, 512 raw-parent veto.
+`support` is the sum of raw and cluster veto events. Numeric
+`raw_veto_count`, `cluster_veto_count` and one-based
+`first_veto_event_index` (zero when absent) preserve native chronology.
+An independent Python oracle replays source-ID joins, flags and counts;
+original Win32/x64 foobar WAV/CUE host mutation tests reject tampering.
+
+This is observational, **not global ELIGIBILITY**: branch-local vetoes may
+coexist with a later selected source; unvisited sources remain unknown.
+Supplemental-only writer objects remain outside the collapsed-source mask.
+Phase B and the frozen Phase-C campaign remain gated on full global
+eligibility and nested Policy proof. No production DSP, selector, writer,
+media, metadata or private data changes.

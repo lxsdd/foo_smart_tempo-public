@@ -26,6 +26,8 @@ from audit_smart_tempo_b_primary_hold import (
     PrimaryHoldError, reconcile as reconcile_primary_hold)
 from audit_smart_tempo_b_veto_resolution import (
     VetoResolutionError, VETO_REASONS, reconcile_native_veto_resolution)
+from audit_smart_tempo_b_cross_stage_fates import (
+    CrossStageFateError, reconcile as reconcile_cross_stage_fates)
 from audit_smart_tempo_b_veto_ledger import (
     VetoLedgerError, VETO_REASONS as LEDGER_VETO_REASONS,
     RAW_REASONS as LEDGER_RAW_REASONS, reconcile_native_veto_ledger)
@@ -39,6 +41,8 @@ LOW_POOL_METRICS = METRICS | frozenset(("low_pool_epoch",))
 MANUAL_METRICS = METRICS | frozenset((
     "winner_support", "local_exact_score", "evidence_rank", "origin_mask"))
 POLICY_TERMINAL_METRICS = METRICS | frozenset(("action_code",))
+CROSS_STAGE_FATE_METRICS = METRICS | frozenset((
+    "raw_veto_count", "cluster_veto_count", "first_veto_event_index"))
 PRIMARY_HOLD_METRICS = METRICS | frozenset((
     "enabled", "candidate", "auto_candidate", "review_hold", "route_valid",
     "sparse_hold", "material_hold", "high_family_hold", "soft_center_hold"))
@@ -95,6 +99,7 @@ ENUMS = {
     "manual_state": ("observed", None),
     "manual_source": ("observed", None),
     "manual_export": ("observed", "manual_merged_export"),
+    "candidate_fate": ("observed", "cross_stage_observation_not_global_eligibility"),
     "final_output": (None, None),
     "measured_witness": (None, None),
     "resource_usage": ("observed", "process_resource_snapshot"),
@@ -193,7 +198,8 @@ def validate(rows: list[dict], *, require_windows: bool = False,
              require_segments: bool = False,
              require_native_comparator: bool = False,
              require_policy_filter: bool = False,
-             require_writer_resolution: bool = False) -> dict:
+             require_writer_resolution: bool = False,
+             require_cross_stage_fate: bool = False) -> dict:
     # Library callers may test legacy minimal traces. The real host CLI
     # always requires both actual windows and actual native MIR segments.
     if require_segments and not require_windows:
@@ -216,6 +222,7 @@ def validate(rows: list[dict], *, require_windows: bool = False,
         "policy_resolution": 5, "policy_pointer": 6,
         "policy_terminal": 6,
         "policy_change": 7, "writer_resolution": 8,
+        "candidate_fate": 8,
             "manual_state": 8, "manual_source": 8, "manual_export": 8,
         "final_output": 9, "measured_witness": 10, "resource_usage": 11,
         "write_guard": 12, "source_inventory": 13
@@ -266,6 +273,7 @@ def validate(rows: list[dict], *, require_windows: bool = False,
                             TIE_METRICS if has_native_tie else
                             LOW_POOL_METRICS if low_episode else
                             MANUAL_METRICS if stage in ("manual_source", "manual_export")
+                            else CROSS_STAGE_FATE_METRICS if stage == "candidate_fate"
                             else POLICY_TERMINAL_METRICS if stage == "policy_terminal"
                             else PRIMARY_HOLD_METRICS if stage == "primary_hold"
                             else METRICS)
@@ -429,6 +437,16 @@ def validate(rows: list[dict], *, require_windows: bool = False,
                     item["metrics"]["action_code"] != int(item["metrics"]["action_code"]) or
                     not 0 <= item["metrics"]["action_code"] <= 7):
                 raise TraceError("invalid native terminal Policy action/source")
+        elif stage == "candidate_fate":
+            m = item["metrics"]
+            if (candidate_id is None or ids.get(candidate_id) != "candidate_transform"
+                    or parents or abs(bpm - candidate_bpm[candidate_id]) >= .001
+                    or m["score"] != int(m["score"]) or not 0 <= m["score"] <= 1023
+                    or any(m[key] != int(m[key]) or not 0 <= m[key] <= 4096
+                           for key in ("support", "raw_veto_count",
+                                       "cluster_veto_count", "first_veto_event_index"))
+                    or m["support"] != m["raw_veto_count"] + m["cluster_veto_count"]):
+                raise TraceError("malformed native cross-stage candidate fate")
         elif stage == "primary_disposition":
             if (candidate_id is None or ids.get(candidate_id) != "candidate_transform" or
                     parents or item["reason_code"] not in ALLOWED_DISPOSITION_REASONS or
@@ -832,7 +850,7 @@ def validate(rows: list[dict], *, require_windows: bool = False,
         forbidden = ("primary_eligibility", "policy_filter", "policy_eligibility",
                      "supplemental_candidate", "candidate_filter",
                      "primary_rank", "primary_compare", "primary_terminal",
-                     "primary_disposition")
+                     "primary_disposition", "candidate_fate")
         if any(stage_indices[name] for name in forbidden):
             raise TraceError("empty MIR fabricated candidate provenance")
         primary = stage_indices["primary_select"][0]
@@ -1341,7 +1359,13 @@ def validate(rows: list[dict], *, require_windows: bool = False,
             rows, required=require_writer_resolution)
     except WriterResolutionError as exc:
         raise TraceError("applied native writer chain: " + str(exc)) from exc
+    try:
+        cross_stage_status = reconcile_cross_stage_fates(
+            rows, required=require_cross_stage_fate)
+    except CrossStageFateError as exc:
+        raise TraceError("native cross-stage source fate: " + str(exc)) from exc
     return {
+        **cross_stage_status,
         **writer_status,
         **policy_terminal_status,
         **veto_resolution,
@@ -1522,7 +1546,8 @@ def main() -> None:
                       require_segments=a.require_windows,
                       require_native_comparator=a.require_windows,
                       require_policy_filter=a.require_windows,
-                      require_writer_resolution=a.require_windows)
+                      require_writer_resolution=a.require_windows,
+                      require_cross_stage_fate=a.require_windows)
     print("SMART_TEMPO_CI_PIPELINE_TRACE_SCHEMA=PASS")
     for key, value in result.items():
         print(f"SMART_TEMPO_TRACE_{key.upper()}={value}")

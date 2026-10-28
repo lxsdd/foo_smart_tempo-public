@@ -236,6 +236,39 @@ def mutations(rows: list[dict]) -> list[tuple[str, list[dict]]]:
             for i, row in enumerate(altered):
                 row["sequence"] = i
             result.append((label, altered))
+    if any(row["stage"] == "candidate_fate" for row in rows):
+        add("fate_source", row_stage("candidate_fate"),
+            lambda a, i: a[i].__setitem__("candidate_id", "c999999"), required=True)
+        add("fate_mask", row_stage("candidate_fate"),
+            lambda a, i: a[i]["metrics"].__setitem__(
+                "score", int(a[i]["metrics"]["score"]) ^ 2), required=True)
+        add("fate_raw_count", row_stage("candidate_fate"),
+            lambda a, i: a[i]["metrics"].__setitem__(
+                "raw_veto_count", a[i]["metrics"]["raw_veto_count"] + 1), required=True)
+        add("fate_cluster_count", row_stage("candidate_fate"),
+            lambda a, i: a[i]["metrics"].__setitem__(
+                "cluster_veto_count", a[i]["metrics"]["cluster_veto_count"] + 1),
+            required=True)
+        add("fate_first_position", row_stage("candidate_fate"),
+            lambda a, i: a[i]["metrics"].__setitem__(
+                "first_veto_event_index", a[i]["metrics"]["first_veto_event_index"] + 1),
+            required=True)
+        add("fate_outcome", row_stage("candidate_fate"),
+            lambda a, i: a[i].__setitem__("outcome", "excluded"), required=True)
+        add("fate_reason", row_stage("candidate_fate"),
+            lambda a, i: a[i].__setitem__("reason_code", "global_eligibility_veto"),
+            required=True)
+        add("fate_parent", row_stage("candidate_fate"),
+            lambda a, i: a[i].__setitem__("parent_candidate_ids", ["c0"]),
+            required=True)
+        missing = [r for r in copy.deepcopy(rows) if r["stage"] != "candidate_fate"]
+        for i, row in enumerate(missing): row["sequence"] = i
+        result.append(("missing_candidate_fate", missing))
+        duplicated = copy.deepcopy(rows)
+        at = next(i for i, r in enumerate(duplicated) if r["stage"] == "candidate_fate")
+        duplicated.insert(at, copy.deepcopy(duplicated[at]))
+        for i, row in enumerate(duplicated): row["sequence"] = i
+        result.append(("duplicate_candidate_fate", duplicated))
     # Mutate real indexed veto witnesses; on no-veto WAVs forge a bogus one.
     if any(r["stage"] == "primary_veto_ledger" for r in rows):
         add("veto_ledger_source", row_stage("primary_veto_ledger"),
@@ -328,7 +361,8 @@ def audit(rows: list[dict], *, native_comparator: bool,
     validate(rows, require_windows=True, require_segments=True,
              require_native_comparator=native_comparator,
              require_policy_filter=native_policy_rail,
-             require_writer_resolution=native_policy_rail)
+             require_writer_resolution=native_policy_rail,
+             require_cross_stage_fate=native_policy_rail)
     reconcile(rows)
     mutated = mutations(rows)
     for name, altered in mutated:
@@ -336,7 +370,8 @@ def audit(rows: list[dict], *, native_comparator: bool,
             validate(altered, require_windows=True, require_segments=True,
                      require_native_comparator=native_comparator,
                      require_policy_filter=native_policy_rail,
-             require_writer_resolution=native_policy_rail)
+             require_writer_resolution=native_policy_rail,
+             require_cross_stage_fate=native_policy_rail)
             reconcile(altered)
         except TraceError:
             continue
