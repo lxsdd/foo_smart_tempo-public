@@ -943,7 +943,7 @@ class NativePipelineTraceTests(unittest.TestCase):
         self.assertIn("raw_cluster_sources[assigned].push_back(raw_index)", header)
         self.assertIn("fullboard_source_seen", header)
         self.assertIn("fullboard_cluster_index.push_back(cluster_source_index)", header)
-        self.assertIn("if (parents.size() != 1 || cluster_source_index == collapsed.size()) return false;", header)
+        self.assertIn("if (parents.size() != 1 || cluster_source_index == collapsed.size()) return reject(__LINE__);", header)
         self.assertIn("collapse_mir_candidates(", source)
         self.assertIn("#ifndef SMART_TEMPO_CI_ORACLE_PROBE", header)
 
@@ -1548,7 +1548,7 @@ class NativePipelineTraceTests(unittest.TestCase):
         self.assertEqual(source.count("std::get<3>(tie)"), 2)
         self.assertEqual(source.count("tieMetrics, hasTieMetrics"), 1)
         self.assertIn("bool has_tie_metrics = false", header)
-        self.assertIn("if (item.has_tie_metrics != tieExpected) return false", reporter)
+        self.assertIn("if (item.has_tie_metrics != tieExpected) return reject(__LINE__)", reporter)
         for i in range(4):
             self.assertIn('"tie_' + str(i), reporter)
 
@@ -1958,8 +1958,8 @@ class NativePipelineTraceTests(unittest.TestCase):
         self.assertEqual(source.count("g_ci_primary_trace_complete = false;"), 3)
         self.assertEqual(source.count("g_ci_primary_trace_complete = true;"), 2)
         self.assertIn("g_ci_primary_events.clear();\n  g_ci_primary_pool.clear();\n  g_ci_primary_trace_complete = true;", source)
-        self.assertIn("mir_ci_primary_selector_trace_complete() &&", component)
-        self.assertLess(component.index("mir_ci_primary_selector_trace_complete() &&"),
+        self.assertIn("const bool ciSelectorOk = mir_ci_primary_selector_trace_complete();", component)
+        self.assertLess(component.index("const bool ciSelectorOk = mir_ci_primary_selector_trace_complete();"),
                         component.index("smart_tempo::ci_pipeline_trace::record("))
         self.assertIn("#if defined(SMART_TEMPO_CI_ORACLE_PROBE)", source)
 
