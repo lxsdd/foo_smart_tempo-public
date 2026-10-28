@@ -100,6 +100,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Independent source-vs-reference recall contract failed' }
           python -m unittest discover -s tests -p 'test_smart_tempo_b_shadow_rank.py' -v
           if ($LASTEXITCODE -ne 0) { throw 'Source-ID-blind shadow ranking adversarial contracts failed' }
+          python -m unittest discover -s tests -p 'test_smart_tempo_b_decision_ablations.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'Native frozen Selector/Policy ablation positive/negative regressions failed' }
           # Parse the entire original-host harness before downloading SDK/WTL
           # or spending minutes on compilation. This is syntax-only; it does
           # not run foobar, install software, or touch any user files.
