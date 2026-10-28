@@ -100,6 +100,7 @@ ENUMS = {
     "supplemental_candidate": ("observed", None),
     "primary_select": (None, None),
     "primary_hold": (None, None),
+    "policy_stage_path": ("observed", None),
     "policy_resolution": ("observed", None),
     "policy_pointer": ("observed", None),
     "policy_terminal": (None, None),
@@ -203,13 +204,44 @@ class TraceError(ValueError):
     pass
 
 
+def validate_policy_stage_path(rows: list[dict], *, required: bool = False) -> tuple[str, ...]:
+    """Exact native first-return automaton; nested predicates remain unproven."""
+    positions = [i for i, r in enumerate(rows)
+                 if r["stage"] == "policy_stage_path"]
+    if not positions:
+        if required:
+            raise TraceError("native Policy stage path missing")
+        return ()
+    if positions != list(range(positions[0], positions[-1] + 1)):
+        raise TraceError("native Policy stage path not contiguous")
+    path = tuple(rows[i]["reason_code"] for i in positions)
+    allowed = {
+        ("qualification_terminal",),
+        ("qualification_ready", "current_release_terminal"),
+        ("qualification_ready", "current_release_continue",
+         "hold_resolution_terminal"),
+        ("qualification_ready", "current_release_continue",
+         "hold_resolution_continue", "default_resolution_terminal"),
+    }
+    if path not in allowed:
+        raise TraceError("native Policy first-return path impossible")
+    for i in positions:
+        row = rows[i]
+        if (row["outcome"] != "observed" or row["candidate_id"] is not None or
+                row["parent_candidate_ids"] or
+                row["metrics"] != {"bpm": 0.0, "score": 0.0, "support": 0.0}):
+            raise TraceError("native Policy stage path payload invalid")
+    return path
+
+
 def validate(rows: list[dict], *, require_windows: bool = False,
              require_seek: bool = False,
              require_segments: bool = False,
              require_native_comparator: bool = False,
              require_policy_filter: bool = False,
              require_writer_resolution: bool = False,
-             require_cross_stage_fate: bool = False) -> dict:
+             require_cross_stage_fate: bool = False,
+             require_policy_stage_path: bool = False) -> dict:
     # Library callers may test legacy minimal traces. The real host CLI
     # always requires both actual windows and actual native MIR segments.
     if require_segments and not require_windows:
@@ -229,7 +261,7 @@ def validate(rows: list[dict], *, require_windows: bool = False,
         "primary_first_exclusion": 3, "primary_veto_resolution": 3,
         "primary_veto_ledger": 3,
         "primary_select": 4, "primary_hold": 4,
-        "policy_resolution": 5, "policy_pointer": 6,
+        "policy_stage_path": 5, "policy_resolution": 5, "policy_pointer": 6,
         "policy_terminal": 6,
         "policy_change": 7, "writer_resolution": 8,
         "candidate_fate": 8,
@@ -553,6 +585,7 @@ def validate(rows: list[dict], *, require_windows: bool = False,
         if stage == "policy_eligibility" and any(ids[p] != "candidate_transform" for p in parents):
             raise TraceError("policy candidate parent not collapsed")
         stage_indices[stage].append(item)
+    validate_policy_stage_path(rows, required=require_policy_stage_path)
     # Reconcile EVERY cluster's first executed exclusion against the complete
     # selector event stream, including raw events and rank/compare episodes.
     # A provisional exclusion is never silently promoted to a decisive veto.
@@ -1577,7 +1610,8 @@ def main() -> None:
                       require_native_comparator=a.require_windows,
                       require_policy_filter=a.require_windows,
                       require_writer_resolution=a.require_windows,
-                      require_cross_stage_fate=a.require_windows)
+                      require_cross_stage_fate=a.require_windows,
+                      require_policy_stage_path=a.require_windows)
     print("SMART_TEMPO_CI_PIPELINE_TRACE_SCHEMA=PASS")
     for key, value in result.items():
         print(f"SMART_TEMPO_TRACE_{key.upper()}={value}")
