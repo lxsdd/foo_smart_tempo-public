@@ -92,6 +92,48 @@ class NativePolicyTerminalTests(unittest.TestCase):
                 with self.assertRaises(PolicyTerminalError):
                     reconcile(altered, required=True)
 
+    def test_source_emitted_recovery_terminal_reasons(self):
+        # These reviewed labels are literally present in the native Policy
+        # source; this is not a blanket acceptance of arbitrary C++ output.
+        cpp = (Path(__file__).resolve().parents[1] /
+               "src/foo_smart_tempo/mir_candidate_pipeline.cpp").read_text(
+                   encoding="utf-8")
+        recovery = (
+            "dominant_measured_family_conflict_release_gate",
+            "measured_residual_downward_family_recovery_gate",
+            "measured_strict_direct_downward_family_recovery_gate",
+            "measured_winner_half_family_recovery_gate",
+            "measured_exact_half_family_recovery_gate",
+            "measured_broad_route_cross_view_family_recovery_gate",
+        )
+        for reason in recovery:
+            with self.subTest(reason=reason):
+                self.assertIn('"' + reason + '"', cpp)
+                self.assertIn(reason, REASONS)
+                result = reconcile(case(reason=reason), required=True)
+                self.assertEqual(result["native_policy_terminal_action"],
+                                 "writer_override")
+                # A native recovery/release reason must never be accepted
+                # as a silent keep-current or review-hold action.
+                with self.assertRaises(PolicyTerminalError):
+                    reconcile(case(reason=reason, action=1,
+                                   change="keep_primary", override=0),
+                              required=True)
+
+    def test_source_emitted_high_pulse_retention_reason(self):
+        reason = "measured_independent_high_pulse_retention_gate"
+        cpp = (Path(__file__).resolve().parents[1] /
+               "src/foo_smart_tempo/mir_candidate_pipeline.cpp").read_text(
+                   encoding="utf-8")
+        self.assertIn('"' + reason + '"', cpp)
+        self.assertIn(reason, REASONS)
+        retained = case(reason=reason, action=1, change="keep_primary",
+                        override=0)
+        self.assertEqual(reconcile(retained, required=True)[
+            "native_policy_terminal_action"], "keep_current")
+        with self.assertRaises(PolicyTerminalError):
+            reconcile(case(reason=reason), required=True)
+
     def test_static_reason_catalog_covers_native_release_families(self):
         self.assertGreaterEqual(len(REASONS), 55)
         for reason in ("measured_partial_bar_cross_view_bridge_release",
