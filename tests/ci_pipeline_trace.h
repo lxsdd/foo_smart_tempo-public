@@ -647,6 +647,27 @@ inline bool record(
              firstVeto != nullptr ? firstVeto->score : 0.0,
              static_cast<double>(vetoPosition));
   }
+  // Complete event-indexed native veto ledger across all executed branches.
+  // Vetoes are BRANCH-LOCAL; a later rescue can still select this source.
+  std::size_t vetoLedgerCount = 0;
+  for (std::size_t j = 0; j < selectorEvents.size(); ++j) {
+    const auto& event = selectorEvents[j];
+    if (event.included) continue;
+    const bool veto =
+        std::strcmp(event.reason, "raw_alias_decisive_veto") == 0 ||
+        std::strcmp(event.reason, "raw_support_decisive_veto") == 0 ||
+        std::strcmp(event.reason, "low_upper_branch_veto") == 0 ||
+        std::strcmp(event.reason, "low_continuous_branch_veto") == 0 ||
+        std::strcmp(event.reason, "harmonic_rail_decisive_veto") == 0 ||
+        std::strcmp(event.reason, "general_rail_decisive_veto") == 0;
+    if (!veto) continue;
+    const auto& ids = event.raw ? raw_ids : cluster_ids;
+    if (event.source_index >= ids.size()) return false;
+    out.push("primary_veto_ledger", "excluded", event.reason,
+             ids[event.source_index], {}, event.bpm, event.score,
+             static_cast<double>(j + 1));
+    ++vetoLedgerCount;
+  }
   if (!std::isfinite(primary.selected_local_exact_score) ||
       !std::isfinite(primary.support) ||
       !std::isfinite(policy.candidate_local_exact_score) ||
@@ -876,7 +897,7 @@ inline bool record(
   if (out.sequence != windows.size() + supply.segments.size() +
                       board.raw_candidates.size() + 5 * collapsed.size() +
                       fullboard.size() + selectorEvents.size() +
-                      supplemental_id.size() + collapsed.size() + 13 +
+                      supplemental_id.size() + collapsed.size() + vetoLedgerCount + 13 +
                        manual_source_count + manual.size() ||
       out.lines.size() > 2 * 1024 * 1024) return false;
   const std::wstring output = fixture + L".pipeline.jsonl";

@@ -236,6 +236,35 @@ def mutations(rows: list[dict]) -> list[tuple[str, list[dict]]]:
             for i, row in enumerate(altered):
                 row["sequence"] = i
             result.append((label, altered))
+    # Mutate real indexed veto witnesses; on no-veto WAVs forge a bogus one.
+    if any(r["stage"] == "primary_veto_ledger" for r in rows):
+        add("veto_ledger_source", row_stage("primary_veto_ledger"),
+            lambda a, i: a[i].__setitem__("candidate_id", "c999999"), required=True)
+        add("veto_ledger_index", row_stage("primary_veto_ledger"),
+            lambda a, i: a[i]["metrics"].__setitem__(
+                "support", a[i]["metrics"]["support"] + 1), required=True)
+        add("veto_ledger_score", row_stage("primary_veto_ledger"),
+            lambda a, i: a[i]["metrics"].__setitem__(
+                "score", a[i]["metrics"]["score"] + 1), required=True)
+        add("veto_ledger_outcome", row_stage("primary_veto_ledger"),
+            lambda a, i: a[i].__setitem__("outcome", "observed"), required=True)
+        missing = [r for r in copy.deepcopy(rows)
+                   if r["stage"] != "primary_veto_ledger"]
+        for i, row in enumerate(missing): row["sequence"] = i
+        result.append(("missing_veto_ledger", missing))
+    elif any(r["stage"] == "candidate_transform" for r in rows):
+        forged = copy.deepcopy(rows)
+        at = next(i for i, r in enumerate(forged) if r["stage"] == "primary_select")
+        source = next(r for r in forged if r["stage"] == "candidate_transform")
+        fake = copy.deepcopy(source)
+        fake["stage"] = "primary_veto_ledger"
+        fake["outcome"] = "excluded"
+        fake["reason_code"] = "low_upper_branch_veto"
+        fake["parent_candidate_ids"] = []
+        fake["metrics"]["support"] = 1
+        forged.insert(at, fake)
+        for i, row in enumerate(forged): row["sequence"] = i
+        result.append(("forged_veto_ledger", forged))
     add("unknown_raw_origin", row_stage("candidate_create"),
         lambda a, i: a[i].__setitem__("reason_code", "unregistered_raw_source"))
     add("orphan_cluster", row_stage("candidate_transform"),

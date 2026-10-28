@@ -239,6 +239,22 @@ Win32/x64 qualification and independent source audit remain required;
 `pool_only_gate_unresolved` remains explicitly **INCOMPLETE** and package C
 is still blocked. Productive MIR, policy, writer and user media are untouched.
 
+### Package B – complete executed branch-veto event ledger (CI-only)
+
+The native observer records every actually executed raw-alias, raw-support,
+low-upper, low-continuous, harmonic-rail and general-rail veto with the
+original source ID, event position, score and reason. Multiple nested vetoes
+of one cluster are preserved. An independent Python oracle replays all
+executed selector events and rejects omitted, forged, duplicated, reordered
+or re-scored witnesses. Real Win32/x64 native JSONL mutation gates cover
+corrupt nonempty ledgers and forged vetoes on otherwise no-veto traces.
+
+This is BRANCH-LOCAL evidence only: a later rescue may select a vetoed
+cluster; an unvisited candidate is not globally ineligible. Synthetic
+nested-veto tests are not observations on musical holdouts. Global
+eligibility, complete Policy causality and owner music QA remain gated.
+No production DSP, selector, policy, writer or user media is changed.
+
 ## Candidate architecture candidates: all compared under identical evidence
 
 - **A:** unchanged current MIR + primary + policy baseline.

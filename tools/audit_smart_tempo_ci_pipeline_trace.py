@@ -26,6 +26,9 @@ from audit_smart_tempo_b_primary_hold import (
     PrimaryHoldError, reconcile as reconcile_primary_hold)
 from audit_smart_tempo_b_veto_resolution import (
     VetoResolutionError, VETO_REASONS, reconcile_native_veto_resolution)
+from audit_smart_tempo_b_veto_ledger import (
+    VetoLedgerError, VETO_REASONS as LEDGER_VETO_REASONS,
+    RAW_REASONS as LEDGER_RAW_REASONS, reconcile_native_veto_ledger)
 
 SCHEMA = "smart_tempo_source_decision_trace_v1"
 MAX_BYTES, MAX_LINES = 2 * 1024 * 1024, 16500
@@ -79,6 +82,7 @@ ENUMS = {
     "primary_disposition": ("observed", None),
     "primary_first_exclusion": (None, None),
     "primary_veto_resolution": (None, None),
+    "primary_veto_ledger": ("excluded", None),
     "policy_eligibility": ("included", None),
     "supplemental_candidate": ("observed", None),
     "primary_select": (None, None),
@@ -207,6 +211,7 @@ def validate(rows: list[dict], *, require_windows: bool = False,
         "candidate_filter": 3, "primary_rank": 3, "primary_compare": 3,
         "primary_terminal": 3, "primary_disposition": 3,
         "primary_first_exclusion": 3, "primary_veto_resolution": 3,
+        "primary_veto_ledger": 3,
         "primary_select": 4, "primary_hold": 4,
         "policy_resolution": 5, "policy_pointer": 6,
         "policy_terminal": 6,
@@ -444,6 +449,16 @@ def validate(rows: list[dict], *, require_windows: bool = False,
                                      position == 0 or
                                      item["reason_code"] not in ALLOWED_FILTER_REASONS))):
                 raise TraceError("malformed native first-exclusion source witness")
+        elif stage == "primary_veto_ledger":
+            position = item["metrics"]["support"]
+            raw_veto = item["reason_code"] in LEDGER_RAW_REASONS
+            if (item["reason_code"] not in LEDGER_VETO_REASONS or
+                    candidate_id is None or ids.get(candidate_id) !=
+                    ("candidate_create" if raw_veto else "candidate_transform") or
+                    parents or abs(bpm - candidate_bpm[candidate_id]) >= .001 or
+                    item["outcome"] != "excluded" or
+                    position != int(position) or not 1 <= position <= 4096):
+                raise TraceError("malformed native full veto-event ledger")
         elif stage == "primary_veto_resolution":
             position = item["metrics"]["support"]
             is_veto = item["reason_code"] in VETO_REASONS
@@ -544,6 +559,10 @@ def validate(rows: list[dict], *, require_windows: bool = False,
     except VetoResolutionError as exc:
         raise TraceError("native branch-veto resolution: " + str(exc)) from exc
     # Independent source-ID and time-ordered proof. The first provisional
+    try:
+        veto_ledger = reconcile_native_veto_ledger(rows, required=require_windows)
+    except VetoLedgerError as exc:
+        raise TraceError("native full veto-event ledger: " + str(exc)) from exc
     # exclusion is not a veto until the productive fallback has resolved.
     raw_gates = [r for r in stage_indices["candidate_filter"]
                  if ids[r["candidate_id"]] == "candidate_create"]
@@ -1326,6 +1345,7 @@ def validate(rows: list[dict], *, require_windows: bool = False,
         **writer_status,
         **policy_terminal_status,
         **veto_resolution,
+        **veto_ledger,
         **manual_status,
         **primary_hold_status,
         **raw_fates,

@@ -235,6 +235,19 @@ def with_resource(rows):
         summary["metrics"]["support"] = veto[0] if veto else 0.
         veto_rows.append(summary)
     rows[at:at] = veto_rows
+    from audit_smart_tempo_b_veto_ledger import VETO_REASONS, SELECTOR_STAGES
+    native = [r for r in rows if r["stage"] in SELECTOR_STAGES]
+    ledger = []
+    for index, source in enumerate(native):
+        if source["stage"] != "candidate_filter" or source["reason_code"] not in VETO_REASONS:
+            continue
+        entry = event("primary_veto_ledger", source["candidate_id"], [],
+                      source["metrics"]["bpm"], "excluded", source["reason_code"], 0)
+        entry["metrics"]["score"] = source["metrics"]["score"]
+        entry["metrics"]["support"] = index + 1
+        ledger.append(entry)
+    at = next(i for i, r in enumerate(rows) if r["stage"] == "primary_select")
+    rows[at:at] = ledger
     primary_at = next(i for i, row in enumerate(rows)
                       if row["stage"] == "primary_select")
     rows.insert(primary_at + 1, native_primary_hold(rows[primary_at]))
