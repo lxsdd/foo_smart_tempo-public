@@ -848,8 +848,20 @@ inline bool record(
       ? fullboard_cluster_index[policyPointer.index] : collapsed.size();
   for (std::size_t i = 0; i < collapsed.size(); ++i) {
     std::size_t raw_vetos = 0, cluster_vetos = 0, first_veto_index = 0;
+    std::size_t raw_selector_events = 0, cluster_selector_events = 0;
+    std::size_t first_selector_index = 0, last_selector_index = 0;
+    std::size_t last_veto_index = 0;
     for (std::size_t j = 0; j < selectorEvents.size(); ++j) {
       const auto& event = selectorEvents[j];
+      const bool source_raw = event.raw &&
+          std::find(raw_cluster_sources[i].begin(), raw_cluster_sources[i].end(),
+                    event.source_index) != raw_cluster_sources[i].end();
+      const bool source_cluster = !event.raw && event.source_index == i;
+      if (!source_raw && !source_cluster) continue;
+      if (source_raw) ++raw_selector_events;
+      if (source_cluster) ++cluster_selector_events;
+      if (!first_selector_index) first_selector_index = j + 1;
+      last_selector_index = j + 1;
       if (event.included) continue;
       const bool raw_veto =
           std::strcmp(event.reason, "raw_alias_decisive_veto") == 0 ||
@@ -859,17 +871,17 @@ inline bool record(
           std::strcmp(event.reason, "low_continuous_branch_veto") == 0 ||
           std::strcmp(event.reason, "harmonic_rail_decisive_veto") == 0 ||
           std::strcmp(event.reason, "general_rail_decisive_veto") == 0;
-      const bool matched_raw = event.raw && raw_veto &&
-          std::find(raw_cluster_sources[i].begin(), raw_cluster_sources[i].end(),
-                    event.source_index) != raw_cluster_sources[i].end();
-      const bool matched_cluster = !event.raw && cluster_veto &&
-                                   event.source_index == i;
+      const bool matched_raw = source_raw && raw_veto;
+      const bool matched_cluster = source_cluster && cluster_veto;
       if (!matched_raw && !matched_cluster) continue;
       if (matched_raw) ++raw_vetos;
       if (matched_cluster) ++cluster_vetos;
       if (!first_veto_index) first_veto_index = j + 1;
+      last_veto_index = j + 1;
     }
-    if (raw_vetos + cluster_vetos > 4096 || first_veto_index > 4096)
+    if (raw_vetos + cluster_vetos > 4096 || first_veto_index > 4096 ||
+        raw_selector_events + cluster_selector_events > 4096 ||
+        last_selector_index > 4096 || last_veto_index > 4096)
       return false;
     unsigned flags = 0;
     if (i == final_source_index) flags |= 1;
@@ -893,7 +905,12 @@ inline bool record(
     out.lines.insert(out.lines.size() - 3,
         ",\"raw_veto_count\":" + std::to_string(raw_vetos) +
         ",\"cluster_veto_count\":" + std::to_string(cluster_vetos) +
-        ",\"first_veto_event_index\":" + std::to_string(first_veto_index));
+        ",\"first_veto_event_index\":" + std::to_string(first_veto_index) +
+        ",\"last_veto_event_index\":" + std::to_string(last_veto_index) +
+        ",\"raw_selector_event_count\":" + std::to_string(raw_selector_events) +
+        ",\"cluster_selector_event_count\":" + std::to_string(cluster_selector_events) +
+        ",\"first_selector_event_index\":" + std::to_string(first_selector_index) +
+        ",\"last_selector_event_index\":" + std::to_string(last_selector_index));
   }
   out.push("final_output",
            withheld || final_bpm <= 0.0 ? "review_hold" : "selected",
