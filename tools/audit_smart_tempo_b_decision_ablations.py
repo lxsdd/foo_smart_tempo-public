@@ -44,7 +44,10 @@ def freeze(rows):
         if len(parents) != 1 or parents[0] not in candidates:
             raise AblationError("selected Primary without measured source")
         chosen = parents[0]
-        if abs(candidates[chosen] - primary["metrics"]["bpm"]) >= .001:
+        # Keep the original indexed cluster identity separate from the
+        # locally refined Primary output BPM; the trace gate checks both.
+        source_bpm = primary["metrics"].get("cluster_bpm", primary["metrics"]["bpm"])
+        if abs(candidates[chosen] - source_bpm) >= .001:
             raise AblationError("Primary BPM-source mismatch")
     fbpm = final["metrics"]["bpm"]
     if final["outcome"] not in ("selected", "review_hold") or (
