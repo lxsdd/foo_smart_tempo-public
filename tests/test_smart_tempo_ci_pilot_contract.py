@@ -90,6 +90,21 @@ class PilotContract(unittest.TestCase):
         self.assertIn("RUNNER_TEMP", source)
         self.assertEqual(script.count('SMART_TEMPO_NATIVE_CONTINUOUS_{0}_{1}=PASS'), 1)
 
+    def test_fail_closed_native_trace_rejection_is_numeric_ci_only(self):
+        header = self.read("tests/ci_pipeline_trace.h")
+        engine = self.read("src/foo_smart_tempo/modern_bpm_analyzer.cpp")
+        script = self.read("tests/diagnostic_live_host_smoke.ps1")
+        self.assertIn('SMART_TEMPO_CI_TRACE_REJECT_LINE=', header)
+        self.assertIn('fixture + L".pipeline.reject"', header)
+        self.assertIn('CREATE_NEW, FILE_ATTRIBUTE_NORMAL', header)
+        self.assertIn('return reject(__LINE__);', header)
+        self.assertIn('if (!traced && !ciWindowsOk)', engine)
+        self.assertIn('if (!traced && ciWindowsOk && !ciSelectorOk)', engine)
+        self.assertIn("$reject=$inputFile+'.pipeline.reject'", script)
+        self.assertIn("Malformed native trace rejection witness", script)
+        self.assertIn("Native CI-only trace rejected:", script)
+        self.assertNotIn("Get-Content -LiteralPath $reject", script)
+
     def test_original_host_script_not_truncated_or_repeated(self):
         script = self.read("tests/diagnostic_live_host_smoke.ps1")
         self.assertEqual(script.count("function Run-Case("), 1)

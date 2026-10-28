@@ -285,6 +285,14 @@ function Run-Case([string]$installer,[string]$root,[string]$inputFile,[string[]]
         throw 'Safety negative control auto-accepted an unmeasured BPM'
       }
       if (-not (Test-Path -LiteralPath $trace -PathType Leaf)) {
+        $reject=$inputFile+'.pipeline.reject'
+        if (Test-Path -LiteralPath $reject -PathType Leaf) {
+          $marker=[IO.File]::ReadAllText($reject,[Text.Encoding]::ASCII)
+          if ($marker -cnotmatch '^SMART_TEMPO_CI_TRACE_REJECT_LINE=[0-9]+\r?\n$') {
+            throw 'Malformed native trace rejection witness'
+          }
+          throw ("Native CI-only trace rejected: "+$marker.Trim())
+        }
         throw "Missing native B-pilot lineage for $label"
       }
       $traceOutput=@(python ./tools/audit_smart_tempo_ci_pipeline_trace.py --trace $trace --require-windows 2>&1)

@@ -249,6 +249,24 @@ struct EventWriter {
 
 #include "ci_manual_export_trace.h"
 
+// CI-only failure witness: a bounded numeric source-line code, never media,
+// paths, BPM values or raw diagnostic text. CREATE_NEW prevents stale masking.
+inline bool trace_reject(const std::wstring& fixture, unsigned line) {
+  if (fixture.empty()) return false;
+  const std::wstring output = fixture + L".pipeline.reject";
+  HANDLE h = CreateFileW(output.c_str(), GENERIC_WRITE, 0, nullptr,
+                         CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
+  if (h != INVALID_HANDLE_VALUE) {
+    const std::string marker = "SMART_TEMPO_CI_TRACE_REJECT_LINE=" +
+                               std::to_string(line) + "\n";
+    DWORD wrote = 0;
+    (void)WriteFile(h, marker.data(), static_cast<DWORD>(marker.size()),
+                    &wrote, nullptr);
+    CloseHandle(h);
+  }
+  return false;
+}
+
 inline bool record(
     const mir_pipeline::MirCandidateBoard& board,
     const std::vector<WindowObservation>& windows,
@@ -269,6 +287,7 @@ inline bool record(
     std::span<const smart_tempo::HodgkinsonPartialBarTopKExactCandidate> topK) {
   const std::wstring fixture = permitted_fixture();
   const auto run_id = ci_run_id();
+  const auto reject = [&](unsigned line) { return trace_reject(fixture, line); };
   if (fixture.empty() || run_id.empty() || !resource.valid ||
       !std::isfinite(resource.wall_seconds) || resource.wall_seconds <= 0.0 ||
       resource.wall_seconds > 7200.0 ||
@@ -279,14 +298,14 @@ inline bool record(
       resource.process_peak_rss_after < resource.process_working_set_after ||
       !finite_bpm(final_bpm) || final_bpm > 220.0 ||
       (!withheld && final_bpm > 0.0 && !same_run_measured_witness))
-    return false;
+    return reject(__LINE__);
   if (windows.empty() || windows.size() > 128 ||
       board.raw_candidates.size() > 4096 || collapsed.size() > 4096 ||
       selectorEvents.size() > 4096 || fullboard.size() > 4096 ||
       !mir_pipeline::mir_ci_policy_rail_trace_complete() ||
       mir_pipeline::mir_ci_policy_rail_events().size() != collapsed.size() ||
       collapsed.size() != primary.candidate_count)
-    return false;
+    return reject(__LINE__);
   if (supply.segments_evaluated > windows.size() ||
       supply.segments.size() != supply.segments_evaluated ||
       supply.segment_results > supply.segments_evaluated ||
@@ -299,10 +318,10 @@ inline bool record(
           board.raw_candidates.size() ||
       (supply.family_rank_rows == 0 &&
        (supply.alias_add_calls || supply.continuous_add_calls)))
-    return false;
+    return reject(__LINE__);
   // The final diagnostic reason is read only AFTER the production writer
   // invariant. Never serialize arbitrary diagnostics or metadata.
-  if (!applied_writer_reason) return false;
+  if (!applied_writer_reason) return reject(__LINE__);
   constexpr const char* allowed_writer_reasons[] = {
       "mir_primary", "mir_review_hold", "mir_no_candidate",
       "mir_writer_override", "mir_review_hold_release",
@@ -310,7 +329,7 @@ inline bool record(
   bool writer_reason_known = false;
   for (const auto* known : allowed_writer_reasons)
     writer_reason_known |= std::strcmp(applied_writer_reason, known) == 0;
-  if (!writer_reason_known) return false;
+  if (!writer_reason_known) return reject(__LINE__);
   EventWriter out(run_id);
   std::vector<std::string> raw_ids, cluster_ids, policy_ids;
   raw_ids.reserve(board.raw_candidates.size());
@@ -362,7 +381,7 @@ inline bool record(
         static_cast<double>(w.analysis_frames) / w.analysis_rate_hz >
             static_cast<double>(w.decoded_frames) / w.source_rate_hz + 0.10 ||
         (i > 0 && w.start_sec < windows[i - 1].start_sec))
-      return false;
+      return reject(__LINE__);
     out.push_window(w);
   }
   std::size_t segmentTopK = 0, segmentResults = 0;
@@ -384,7 +403,7 @@ inline bool record(
                   s.aggregated != (s.bpm > 0.0 || s.score > 0.0))) ||
         (std::strcmp(s.reason, "insufficient_onsets") == 0 &&
          s.odf_peak_count >= 3))
-      return false;
+      return reject(__LINE__);
     previousSegment = s.segment_index;
     segmentTopK += s.top_k_count;
     segmentResults += s.aggregated ? 1 : 0;
@@ -398,11 +417,11 @@ inline bool record(
         ",\"aggregated\":" + std::to_string(s.aggregated ? 1 : 0));
   }
   if (segmentTopK != supply.topk_rows_seen ||
-      segmentResults != supply.segment_results) return false;
+      segmentResults != supply.segment_results) return reject(__LINE__);
   for (const auto& raw : board.raw_candidates) {
     if (!finite_bpm(raw.bpm) || raw.bpm == 0.0 ||
         !std::isfinite(raw.score_sum) || !std::isfinite(raw.synthetic_support))
-      return false;
+      return reject(__LINE__);
     const auto id = out.create_id();
     raw_ids.push_back(id);
     const char* source = nullptr;
@@ -414,7 +433,7 @@ inline bool record(
       case 5: source = "raw_topk_continuous"; break;
       case 6: source = "raw_pulse_alias_continuous"; break;
       case 7: source = "raw_all_sources"; break;
-      default: return false;
+      default: return reject(__LINE__);
     }
     out.push("candidate_create", "observed", source, id, {},
              raw.bpm, raw.score_sum, raw.synthetic_support);
@@ -434,7 +453,7 @@ inline bool record(
         break;
       }
     }
-    if (assigned == collapsed.size()) return false;
+    if (assigned == collapsed.size()) return reject(__LINE__);
     raw_cluster_sources[assigned].push_back(raw_index);
   }
   for (std::size_t cluster_index = 0; cluster_index < collapsed.size();
@@ -443,11 +462,11 @@ inline bool record(
     if (!finite_bpm(cluster.bpm) || cluster.bpm == 0.0 ||
         !std::isfinite(cluster.score_sum) || !std::isfinite(cluster.support) ||
         !std::isfinite(cluster.best_combined_score))
-      return false;
+      return reject(__LINE__);
     const auto& sources = raw_cluster_sources[cluster_index];
     if (sources.empty() || sources.size() > 128 ||
         board.raw_candidates[sources.front()].bpm != cluster.bpm)
-      return false;
+      return reject(__LINE__);
     std::vector<std::string> parents;
     parents.reserve(sources.size());
     for (const auto raw_index : sources)
@@ -468,7 +487,7 @@ inline bool record(
         !finite_bpm(gate.source_bpm) || !finite_bpm(gate.resolved_bpm) ||
         std::abs(gate.source_bpm - collapsed[i].bpm) >= 0.001 ||
         gate.included != (gate.resolved_bpm >= 40.0 && gate.resolved_bpm <= 220.0))
-      return false;
+      return reject(__LINE__);
     out.push("policy_filter", gate.included ? "included" : "excluded",
              gate.included ? "policy_rail_allowed" : "policy_rail_decisive_veto",
              cluster_ids[i], {}, gate.source_bpm, gate.resolved_bpm, 0.0);
@@ -483,18 +502,18 @@ inline bool record(
     if (!finite_bpm(candidate.bpm) || candidate.bpm == 0.0 ||
         !std::isfinite(candidate.local_exact_score) ||
         !std::isfinite(candidate.candidate.support))
-      return false;
+      return reject(__LINE__);
     std::vector<std::string> parents;
     std::size_t cluster_source_index = collapsed.size();
     for (std::size_t i = 0; i < collapsed.size(); ++i) {
       if (std::abs(collapsed[i].bpm - candidate.cluster_bpm) < 0.001) {
         cluster_source_index = i;
-        if (fullboard_source_seen[i] != 0) return false;
+        if (fullboard_source_seen[i] != 0) return reject(__LINE__);
         fullboard_source_seen[i] = 1;
         parents.push_back(cluster_ids[i]);
       }
     }
-    if (parents.size() != 1 || cluster_source_index == collapsed.size()) return false;
+    if (parents.size() != 1 || cluster_source_index == collapsed.size()) return reject(__LINE__);
     fullboard_cluster_index.push_back(cluster_source_index);
     const auto id = out.create_id();
     policy_ids.push_back(id);
@@ -508,7 +527,7 @@ inline bool record(
   double supplemental_bpm = 0.0;
   if (policyPointer.kind != mir_pipeline::MirCiSupplementalKind::none) {
     if (!policyPointer.observed || policyPointer.in_fullboard ||
-        policyPointer.object == nullptr) return false;
+        policyPointer.object == nullptr) return reject(__LINE__);
     const char* source = nullptr;
     double score = 0.0, support = 0.0;
     if (policyPointer.kind == mir_pipeline::MirCiSupplementalKind::material_risk &&
@@ -537,23 +556,23 @@ inline bool record(
         supplemental_bpm <= 0.0 || !std::isfinite(score) ||
         !std::isfinite(support) ||
         std::abs(supplemental_bpm - policyPointer.bpm) > 0.001)
-      return false;
+      return reject(__LINE__);
     supplemental_id.push_back(out.create_id());
     out.push("supplemental_candidate", "observed", source,
              supplemental_id.front(), {}, supplemental_bpm, score, support);
-  } else if (policyPointer.object != nullptr) return false;
+  } else if (policyPointer.object != nullptr) return reject(__LINE__);
   // Executed selector checks, not a fabricated ranking over the merged
   // manual-review pool. Provisional exclusions may be rescued by fallback.
   for (const auto& item : selectorEvents) {
     if (!finite_bpm(item.bpm) || item.bpm <= 0.0 ||
-        !std::isfinite(item.score)) return false;
+        !std::isfinite(item.score)) return reject(__LINE__);
     const std::size_t count = item.raw ? board.raw_candidates.size() : collapsed.size();
     const auto& ids = item.raw ? raw_ids : cluster_ids;
-    if (item.source_index >= count) return false;
+    if (item.source_index >= count) return reject(__LINE__);
     const double actualBpm = item.raw
         ? board.raw_candidates[item.source_index].bpm
         : collapsed[item.source_index].bpm;
-    if (std::abs(actualBpm - item.bpm) >= 0.001) return false;
+    if (std::abs(actualBpm - item.bpm) >= 0.001) return reject(__LINE__);
     // Source index is preserved from the ACTUAL executed selector vector:
     // same-BPM alias rows no longer collapse onto the first matching raw ID.
     const bool ranking = std::strcmp(item.reason, "raw_rank_scored") == 0 ||
@@ -583,7 +602,7 @@ inline bool record(
         (lowEpisodeExpected && (item.low_pool_epoch == 0 ||
                                 item.low_pool_epoch > 128)) ||
         (!lowEpisodeExpected && item.low_pool_epoch != 0))
-      return false;
+      return reject(__LINE__);
     if (lowEpisodeExpected)
       out.lines.insert(out.lines.size() - 3,
           ",\"low_pool_epoch\":" + std::to_string(item.low_pool_epoch));
@@ -592,7 +611,7 @@ inline bool record(
                      sizeof("low_continuous_compare_") - 1) == 0;
     if (item.has_tie_metric_4 != continuousTieExpected ||
         (!continuousTieExpected && item.tie_metric_4 != 0.0))
-      return false;
+      return reject(__LINE__);
     const bool tieExpected = comparison &&
         (std::strncmp(item.reason, "raw_compare_", 12) == 0 ||
          std::strncmp(item.reason, "general_baseline_compare_", 25) == 0 ||
@@ -601,17 +620,17 @@ inline bool record(
          std::strncmp(item.reason, "harmonic_direct_compare_",
                       sizeof("harmonic_direct_compare_") - 1) == 0 ||
          continuousTieExpected);
-    if (item.has_tie_metrics != tieExpected) return false;
+    if (item.has_tie_metrics != tieExpected) return reject(__LINE__);
     if (tieExpected) {
       for (const double value : item.tie_metrics)
-        if (!std::isfinite(value)) return false;
+        if (!std::isfinite(value)) return reject(__LINE__);
       out.lines.insert(out.lines.size() - 3,
           ",\"tie_0\":" + safe_num(item.tie_metrics[0]) +
           ",\"tie_1\":" + safe_num(item.tie_metrics[1]) +
           ",\"tie_2\":" + safe_num(item.tie_metrics[2]) +
           ",\"tie_3\":" + safe_num(item.tie_metrics[3]));
       if (continuousTieExpected) {
-        if (!std::isfinite(item.tie_metric_4)) return false;
+        if (!std::isfinite(item.tie_metric_4)) return reject(__LINE__);
         out.lines.insert(out.lines.size() - 3,
             ",\"tie_4\":" + safe_num(item.tie_metric_4));
       }
@@ -624,7 +643,7 @@ inline bool record(
   for (const auto& item : selectorEvents) {
     if (item.raw || item.source_index >= collapsed.size()) continue;
     if (std::strcmp(item.reason, "terminal_final_choice") == 0) {
-      if (final_source_index != collapsed.size()) return false;
+      if (final_source_index != collapsed.size()) return reject(__LINE__);
       final_source_index = item.source_index;
     } else if (std::strstr(item.reason, "_rank_scored") != nullptr) {
       primary_observation[item.source_index] = 2;
@@ -679,7 +698,7 @@ inline bool record(
       if (std::strcmp(event.reason, "harmonic_rail_decisive_veto") != 0 &&
           std::strcmp(event.reason, "general_rail_decisive_veto") != 0)
         continue;
-      if (firstVeto != nullptr) return false;
+      if (firstVeto != nullptr) return reject(__LINE__);
       firstVeto = &event;
       vetoPosition = j + 1;
     }
@@ -709,7 +728,7 @@ inline bool record(
         std::strcmp(event.reason, "general_rail_decisive_veto") == 0;
     if (!veto) continue;
     const auto& ids = event.raw ? raw_ids : cluster_ids;
-    if (event.source_index >= ids.size()) return false;
+    if (event.source_index >= ids.size()) return reject(__LINE__);
     out.push("primary_veto_ledger", "excluded", event.reason,
              ids[event.source_index], {}, event.bpm, event.score,
              static_cast<double>(j + 1));
@@ -719,23 +738,23 @@ inline bool record(
       !std::isfinite(primary.support) ||
       !std::isfinite(policy.candidate_local_exact_score) ||
       !std::isfinite(policy.candidate_support))
-    return false;
+    return reject(__LINE__);
   // Exact executed final-selector event, not a set of numerically equal BPMs.
   std::vector<std::string> primary_parent;
   for (const auto& item : selectorEvents) {
     if (std::strcmp(item.reason, "terminal_final_choice") == 0) {
       if (item.raw || item.source_index >= cluster_ids.size() ||
           !std::isfinite(item.bpm) || item.bpm <= 0.0)
-        return false;
-      if (!primary_parent.empty()) return false;
+        return reject(__LINE__);
+      if (!primary_parent.empty()) return reject(__LINE__);
       if (std::abs(collapsed[item.source_index].bpm - item.bpm) >= 0.001 ||
           std::abs(primary.selected_bpm - item.bpm) >= 0.001)
-        return false;
+        return reject(__LINE__);
       primary_parent.push_back(cluster_ids[item.source_index]);
     }
   }
   if (primary.selected_bpm > 0.0 && primary_parent.size() != 1)
-    return false;
+    return reject(__LINE__);
   out.push("primary_select",
            primary.review_hold ? "review_hold" :
            primary.auto_candidate ? "selected" : "no_candidate",
@@ -754,7 +773,7 @@ inline bool record(
   bool primary_reason_known = false;
   for (const auto* known : allowed_primary_reasons)
     primary_reason_known |= std::strcmp(primary.reason, known) == 0;
-  if (!primary_reason_known) return false;
+  if (!primary_reason_known) return reject(__LINE__);
   out.push("primary_hold",
            primary.review_hold ? "review_hold" :
            primary.auto_candidate ? "selected" : "no_candidate",
@@ -774,7 +793,7 @@ inline bool record(
   // This records stage entry/exit, not hidden nested predicate eligibility.
   const auto policyStages = mir_pipeline::mir_ci_policy_stage_path();
   if (!mir_pipeline::mir_ci_policy_stage_path_complete() ||
-      policyStages.empty() || policyStages.size() > 4) return false;
+      policyStages.empty() || policyStages.size() > 4) return reject(__LINE__);
   constexpr const char* kPolicyStageTokens[] = {
       "qualification_terminal", "qualification_ready",
       "current_release_terminal", "current_release_continue",
@@ -782,10 +801,10 @@ inline bool record(
       "default_resolution_terminal"};
   for (const char* token : policyStages) {
     bool allowed = false;
-    if (!token) return false;
+    if (!token) return reject(__LINE__);
     for (const char* known : kPolicyStageTokens)
       allowed |= std::strcmp(token, known) == 0;
-    if (!allowed) return false;
+    if (!allowed) return reject(__LINE__);
     out.push("policy_stage_path", "observed", token, "", {},
              0.0, 0.0, 0.0);
   }
@@ -803,7 +822,7 @@ inline bool record(
       exact_policy_matches.size() == 1 ? "policy_one_same_bpm" :
       exact_policy_matches.empty() ? "policy_no_fullboard_match" :
                                      "policy_multiple_same_bpm";
-  if (exact_policy_matches.size() > 128) return false;
+  if (exact_policy_matches.size() > 128) return reject(__LINE__);
   out.push("policy_resolution", "observed", policySource, "",
            exact_policy_matches.size() == 1 ? exact_policy_matches :
                                              std::vector<std::string>{},
@@ -848,17 +867,17 @@ inline bool record(
       "review_hold_promotion", "family_conflict_review_hold",
       "broad_route_conflict_review_hold", "invariant_review_hold"};
   int policyActionCode = -1;
-  if (policy.action == nullptr || policy.reason == nullptr) return false;
+  if (policy.action == nullptr || policy.reason == nullptr) return reject(__LINE__);
   for (std::size_t i = 0; i < sizeof(kPolicyActions) / sizeof(kPolicyActions[0]); ++i)
     if (std::strcmp(policy.action, kPolicyActions[i]) == 0)
       policyActionCode = static_cast<int>(i);
   const std::size_t policyReasonLength = std::strlen(policy.reason);
   if (policyActionCode < 0 || policyReasonLength == 0 ||
-      policyReasonLength > 96) return false;
+      policyReasonLength > 96) return reject(__LINE__);
   for (std::size_t i = 0; i < policyReasonLength; ++i) {
     const char c = policy.reason[i];
     if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') ||
-          c == '_')) return false;
+          c == '_')) return reject(__LINE__);
   }
   out.push("policy_terminal",
            policy.output_would_write ? "selected" :
@@ -903,7 +922,7 @@ inline bool record(
   if (!record_manual_export(out, fullboard, policy_ids, primary,
                             primary_parent, risk, partial, topK, manual,
                             manual_requested, manual_source_count))
-    return false;
+    return reject(__LINE__);
   // Exact cross-stage OBSERVATION, not global eligibility or a writer change.
   const std::size_t policy_source_index = actualFullBoardObject
       ? fullboard_cluster_index[policyPointer.index] : collapsed.size();
@@ -943,7 +962,7 @@ inline bool record(
     if (raw_vetos + cluster_vetos > 4096 || first_veto_index > 4096 ||
         raw_selector_events + cluster_selector_events > 4096 ||
         last_selector_index > 4096 || last_veto_index > 4096)
-      return false;
+      return reject(__LINE__);
     unsigned flags = 0;
     if (i == final_source_index) flags |= 1;
     if (railEvents[i].included) flags |= 2;
@@ -996,7 +1015,7 @@ inline bool record(
         std::abs(supplemental_bpm - final_bpm) <= 0.001 &&
         supplemental_id.size() == 1)
       witness_ids.push_back(supplemental_id.front());
-    if (witness_ids.size() > 128) return false;
+    if (witness_ids.size() > 128) return reject(__LINE__);
   }
   out.push("measured_witness",
            same_run_measured_witness && !withheld && final_bpm > 0.0
@@ -1034,18 +1053,18 @@ inline bool record(
                       fullboard.size() + selectorEvents.size() +
                       supplemental_id.size() + 2 * collapsed.size() + vetoLedgerCount + 13 +
                        manual_source_count + manual.size() + policyStages.size() ||
-      out.lines.size() > 2 * 1024 * 1024) return false;
+      out.lines.size() > 2 * 1024 * 1024) return reject(__LINE__);
   const std::wstring output = fixture + L".pipeline.jsonl";
   HANDLE h = CreateFileW(output.c_str(), GENERIC_WRITE, 0, nullptr,
                          CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
-  if (h == INVALID_HANDLE_VALUE) return false;
+  if (h == INVALID_HANDLE_VALUE) return reject(__LINE__);
   DWORD wrote = 0;
   const BOOL ok = WriteFile(h, out.lines.data(),
                             static_cast<DWORD>(out.lines.size()), &wrote, nullptr);
   CloseHandle(h);
   if (!ok || wrote != out.lines.size()) {
     DeleteFileW(output.c_str());
-    return false;
+    return reject(__LINE__);
   }
   return true;
 }

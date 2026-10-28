@@ -3102,8 +3102,9 @@ double ModernBpmAnalyzer::analyze(metadb_handle_ptr track, threaded_process_stat
             const auto ciResource =
                 smart_tempo::ci_pipeline_trace::end_process_resource_observation(
                     ciResourceStarted);
-            const bool traced = !ciWindowCaptureFailed &&
-                mir_ci_primary_selector_trace_complete() &&
+            const bool ciWindowsOk = !ciWindowCaptureFailed;
+            const bool ciSelectorOk = mir_ci_primary_selector_trace_complete();
+            const bool traced = ciWindowsOk && ciSelectorOk &&
                 smart_tempo::ci_pipeline_trace::record(
                 mirMeasuredCandidateBoard, ciWindows, primaryPool,
                 mirPolicyMeasuredCandidates,
@@ -3125,6 +3126,12 @@ double ModernBpmAnalyzer::analyze(metadb_handle_ptr track, threaded_process_stat
                     ? &partialBarAggregateShadow : nullptr,
                 std::span<const smart_tempo::HodgkinsonPartialBarTopKExactCandidate>(
                     topKExactRows.data(), topKExactRows.size()));
+            if (!traced && !ciWindowsOk)
+              (void)smart_tempo::ci_pipeline_trace::trace_reject(
+                  smart_tempo::ci_pipeline_trace::permitted_fixture(), 0);
+            if (!traced && ciWindowsOk && !ciSelectorOk)
+              (void)smart_tempo::ci_pipeline_trace::trace_reject(
+                  smart_tempo::ci_pipeline_trace::permitted_fixture(), 1);
             FB2K_console_formatter()
                 << (traced ? "SMART_TEMPO_CI_PIPELINE_TRACE=PASS"
                            : "SMART_TEMPO_CI_PIPELINE_TRACE=FAIL");
