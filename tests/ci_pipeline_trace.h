@@ -1033,7 +1033,7 @@ inline bool record(
                       board.raw_candidates.size() + 5 * collapsed.size() +
                       fullboard.size() + selectorEvents.size() +
                       supplemental_id.size() + 2 * collapsed.size() + vetoLedgerCount + 13 +
-                       manual_source_count + manual.size() ||
+                       manual_source_count + manual.size() + policyStages.size() ||
       out.lines.size() > 2 * 1024 * 1024) return false;
   const std::wstring output = fixture + L".pipeline.jsonl";
   HANDLE h = CreateFileW(output.c_str(), GENERIC_WRITE, 0, nullptr,
