@@ -1177,3 +1177,8 @@ Supplemental-only writer objects remain outside the collapsed-source mask.
 Phase B and the frozen Phase-C campaign remain gated on full global
 eligibility and nested Policy proof. No production DSP, selector, writer,
 media, metadata or private data changes.
+
+
+### Phase B — native selector chronology conservation (2026-10-28)
+
+The CI-only cross-stage source-fate record now conserves the **entire executed selector-event chronology** for each collapsed candidate, not merely presence/rank bits: raw-parent and direct-cluster event counts, first/last selector-event positions, and first/last branch-local veto positions. The native C++ observer derives these from the executed selector event vector and exact raw-to-cluster source indices. A separate Python replay independently reconstructs the counts and positions from the ordered JSONL events and the native veto ledger. Adversarial Python and original Win32/x64 foobar host mutations alter each new field and must fail closed. The observation is deliberately **not** a global candidate-eligibility certificate: a source can be unvisited, provisionally excluded, vetoed in one branch and rescued by another. No production algorithm, Policy or writer output is modified. Phase C remains gated on genuinely complete eligibility and nested Policy causal proof.
