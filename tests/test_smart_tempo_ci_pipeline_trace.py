@@ -2404,5 +2404,61 @@ class RawDecisiveVetoTests(unittest.TestCase):
         self.assertIn("if (!supported.empty())", src)
 
 
+
+class NativePolicyFirstReturnPathTests(unittest.TestCase):
+    """Public fabricated paths, not real-music evidence."""
+
+    def path_trace(self, reasons):
+        rows = copy.deepcopy(trace())
+        pos = next(i for i, row in enumerate(rows)
+                   if row["stage"] == "policy_resolution")
+        entries = []
+        for reason in reasons:
+            item = event("policy_stage_path", None, [], 0.0,
+                         "observed", reason, 0)
+            item["metrics"] = {"bpm": 0.0, "score": 0.0, "support": 0.0}
+            entries.append(item)
+        rows[pos:pos] = entries
+        for i, row in enumerate(rows):
+            row["sequence"] = i
+        return rows
+
+    def test_all_native_first_return_paths(self):
+        for reasons in (
+            ("qualification_terminal",),
+            ("qualification_ready", "current_release_terminal"),
+            ("qualification_ready", "current_release_continue",
+             "hold_resolution_terminal"),
+            ("qualification_ready", "current_release_continue",
+             "hold_resolution_continue", "default_resolution_terminal"),
+        ):
+            with self.subTest(reasons=reasons):
+                validate(self.path_trace(reasons), require_policy_stage_path=True)
+
+    def test_missing_and_forged_native_path_fail_closed(self):
+        with self.assertRaisesRegex(TraceError, "stage path missing"):
+            validate(trace(), require_policy_stage_path=True)
+        base = self.path_trace(("qualification_ready",
+                                "current_release_continue",
+                                "hold_resolution_terminal"))
+        changes = (
+            lambda a: a[5].__setitem__("reason_code", "qualification_terminal"),
+            lambda a: a[6].__setitem__("reason_code", "current_release_terminal"),
+            lambda a: a[7]["metrics"].__setitem__("support", 1.0),
+            lambda a: a[7].__setitem__("candidate_id", "c1"),
+            lambda a: a[6].__setitem__("outcome", "selected"),
+            lambda a: a.insert(7, copy.deepcopy(a[7])),
+            lambda a: a.pop(7),
+        )
+        for change in changes:
+            altered = copy.deepcopy(base)
+            change(altered)
+            for i, row in enumerate(altered):
+                row["sequence"] = i
+            with self.subTest(change=change):
+                with self.assertRaises(TraceError):
+                    validate(altered, require_policy_stage_path=True)
+
+
 if __name__ == "__main__":
     unittest.main()
