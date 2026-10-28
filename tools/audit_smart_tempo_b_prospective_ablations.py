@@ -16,6 +16,9 @@ CASES = (
 MODELS = ("NATIVE_FINAL", "PRIMARY_ONLY", "COMBINED", "AGREEMENT_ONLY")
 FIELDS = ("ACCEPTED", "HELD", "CORRECT_005", "CORRECT_020", "WRONG_AUTO", "FALSE_ACCEPT")
 KEYS = {model + "_" + field for model in MODELS for field in FIELDS}
+PAIR_FIELDS = tuple(side + "_" + field for field in
+                    ("CORRECT_005", "CORRECT_020", "WRONG_AUTO", "HELD")
+                    for side in ("GAIN", "LOSS"))
 
 
 class ProspectiveError(ValueError):
@@ -27,7 +30,8 @@ def validate(reports, expected_source_sha=None, require_both=True):
         raise ProspectiveError("missing host architecture")
     if expected_source_sha is not None and not re.fullmatch(r"[a-f0-9]{40}", expected_source_sha):
         raise ProspectiveError("invalid expected source SHA")
-    seen, shas, totals = set(), set(), {}
+    seen, shas, totals, paired, gates = set(), set(), {}, {}, {}
+    reference_cases = None
     for report in reports:
         if type(report) is not dict or set(report) != {"schema", "architecture", "source_sha", "cases"}:
             raise ProspectiveError("unknown report fields")
@@ -66,10 +70,41 @@ def validate(reports, expected_source_sha=None, require_both=True):
                     raise ProspectiveError("contradictory decision/accuracy count")
                 for field, value in values.items():
                     aggregate[model][field] += value
+        # A matching aggregate can hide opposite per-case errors. Demand
+        # exact paired host outcomes, not merely matching column totals.
+        if reference_cases is None:
+            reference_cases = cases
+        elif cases != reference_cases:
+            raise ProspectiveError("cross-architecture case-level drift")
         totals[arch] = aggregate
+        paired[arch], gates[arch] = {}, {}
+        native = aggregate["NATIVE_FINAL"]
+        for model in MODELS[1:]:
+            delta = {field: 0 for field in PAIR_FIELDS}
+            for case in cases:
+                values = case["ablation"]
+                for field in ("CORRECT_005", "CORRECT_020", "WRONG_AUTO", "HELD"):
+                    before = values["NATIVE_FINAL_" + field]
+                    after = values[model + "_" + field]
+                    delta["GAIN_" + field] += int(before == 0 and after == 1)
+                    delta["LOSS_" + field] += int(before == 1 and after == 0)
+            paired[arch][model] = delta
+            alt = aggregate[model]
+            if alt["WRONG_AUTO"] > native["WRONG_AUTO"] and alt["CORRECT_020"] <= native["CORRECT_020"]:
+                gate = "SYNTHETIC_RISK_REGRESSION"
+            elif alt["ACCEPTED"] == 0:
+                gate = "ZERO_AUTO_COVERAGE"
+            elif alt["CORRECT_020"] <= native["CORRECT_020"]:
+                gate = "NO_SYNTHETIC_ACCURACY_GAIN"
+            else:
+                gate = "REQUIRES_INDEPENDENT_MUSIC_QA"
+            gates[arch][model] = gate
     if len(shas) != 1:
         raise ProspectiveError("mixed product source SHAs")
-    return {"source_sha": next(iter(shas)), "architectures": totals, "n_per_architecture": len(CASES)}
+    return {"source_sha": next(iter(shas)), "architectures": totals,
+            "n_per_architecture": len(CASES), "paired": paired,
+            "gates": gates, "cross_arch_case_parity": len(seen) == 2,
+            "production_admission": "NO_GO"}
 
 
 def unique_object(pairs):
@@ -101,6 +136,10 @@ def main():
     print("SMART_TEMPO_PROSPECTIVE_ABLATIONS_VERIFIED=1")
     print("SMART_TEMPO_PROSPECTIVE_SYNTHETIC_ONLY=1")
     print("SMART_TEMPO_PROSPECTIVE_N_PER_ARCH=" + str(result["n_per_architecture"]))
+    print("SMART_TEMPO_PROSPECTIVE_CROSS_ARCH_CASE_PARITY=" +
+          str(int(result["cross_arch_case_parity"])))
+    print("SMART_TEMPO_PROSPECTIVE_PRODUCTION_ADMISSION=" +
+          result["production_admission"])
     for arch in ("Win32", "x64"):
         if arch not in result["architectures"]:
             continue
@@ -108,6 +147,12 @@ def main():
             for field in FIELDS:
                 print("SMART_TEMPO_PROSPECTIVE_" + arch.upper() + "_" + model + "_" + field +
                       "=" + str(result["architectures"][arch][model][field]))
+        for model in MODELS[1:]:
+            print("SMART_TEMPO_PROSPECTIVE_" + arch.upper() + "_" + model +
+                  "_GATE=" + result["gates"][arch][model])
+            for field in PAIR_FIELDS:
+                print("SMART_TEMPO_PROSPECTIVE_" + arch.upper() + "_" + model +
+                      "_PAIRED_" + field + "=" + str(result["paired"][arch][model][field]))
 
 
 if __name__ == "__main__":
