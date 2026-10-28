@@ -13,6 +13,8 @@ from pathlib import Path
 import re
 from audit_smart_tempo_b_raw_fates import RawFateError, reconcile_native_raw
 from audit_smart_tempo_b_cluster_rail_fates import RailFateError, reconcile_native_rail
+from audit_smart_tempo_b_policy_terminal import (
+    PolicyTerminalError, reconcile as reconcile_policy_terminal)
 from audit_smart_tempo_b_writer_resolution import (
     WriterResolutionError, reconcile as reconcile_writer_resolution)
 from audit_smart_tempo_b_low_upper_fates import LowUpperFateError, reconcile_native_low_upper
@@ -33,6 +35,7 @@ METRICS = frozenset(("bpm", "score", "support"))
 LOW_POOL_METRICS = METRICS | frozenset(("low_pool_epoch",))
 MANUAL_METRICS = METRICS | frozenset((
     "winner_support", "local_exact_score", "evidence_rank", "origin_mask"))
+POLICY_TERMINAL_METRICS = METRICS | frozenset(("action_code",))
 PRIMARY_HOLD_METRICS = METRICS | frozenset((
     "enabled", "candidate", "auto_candidate", "review_hold", "route_valid",
     "sparse_hold", "material_hold", "high_family_hold", "soft_center_hold"))
@@ -82,6 +85,7 @@ ENUMS = {
     "primary_hold": (None, None),
     "policy_resolution": ("observed", None),
     "policy_pointer": ("observed", None),
+    "policy_terminal": (None, None),
     "policy_change": (None, None),
     "writer_resolution": (None, None),
     "manual_state": ("observed", None),
@@ -205,6 +209,7 @@ def validate(rows: list[dict], *, require_windows: bool = False,
         "primary_first_exclusion": 3, "primary_veto_resolution": 3,
         "primary_select": 4, "primary_hold": 4,
         "policy_resolution": 5, "policy_pointer": 6,
+        "policy_terminal": 6,
         "policy_change": 7, "writer_resolution": 8,
             "manual_state": 8, "manual_source": 8, "manual_export": 8,
         "final_output": 9, "measured_witness": 10, "resource_usage": 11,
@@ -256,6 +261,7 @@ def validate(rows: list[dict], *, require_windows: bool = False,
                             TIE_METRICS if has_native_tie else
                             LOW_POOL_METRICS if low_episode else
                             MANUAL_METRICS if stage in ("manual_source", "manual_export")
+                            else POLICY_TERMINAL_METRICS if stage == "policy_terminal"
                             else PRIMARY_HOLD_METRICS if stage == "primary_hold"
                             else METRICS)
         if type(item["metrics"]) is not dict or set(item["metrics"]) != expected_metrics:
@@ -269,6 +275,7 @@ def validate(rows: list[dict], *, require_windows: bool = False,
             raise TraceError("invalid native low-pulse pool epoch")
         bpm = item["metrics"]["bpm"]
         if bpm < 0 or bpm > (220 if stage in ("final_output", "policy_change",
+                                                 "policy_terminal",
                                                  "writer_resolution") else 2000):
             raise TraceError("out-of-rail BPM")
         candidate_id = item["candidate_id"]
@@ -408,6 +415,15 @@ def validate(rows: list[dict], *, require_windows: bool = False,
                     ((fullboard_pointer or supplemental_pointer) and
                      abs(candidate_bpm[parents[0]] - bpm) > 0.001)):
                 raise TraceError("policy pointer identity not verified")
+        elif stage == "policy_terminal":
+            if (candidate_id is not None or len(parents) > 1 or
+                    any(ids[p] not in ("policy_eligibility", "supplemental_candidate")
+                        for p in parents) or
+                    item["metrics"]["score"] not in (0, 1) or
+                    item["metrics"]["support"] not in (0, 1) or
+                    item["metrics"]["action_code"] != int(item["metrics"]["action_code"]) or
+                    not 0 <= item["metrics"]["action_code"] <= 7):
+                raise TraceError("invalid native terminal Policy action/source")
         elif stage == "primary_disposition":
             if (candidate_id is None or ids.get(candidate_id) != "candidate_transform" or
                     parents or item["reason_code"] not in ALLOWED_DISPOSITION_REASONS or
@@ -661,6 +677,11 @@ def validate(rows: list[dict], *, require_windows: bool = False,
                    "measured_witness", "write_guard"):
         if len(stage_indices[single]) != 1:
             raise TraceError("missing or repeated terminal stage " + single)
+    try:
+        policy_terminal_status = reconcile_policy_terminal(
+            rows, required=require_writer_resolution)
+    except PolicyTerminalError as exc:
+        raise TraceError("native final Policy reason/action: " + str(exc)) from exc
     # Actual C++ board counts must agree with the parsed source rows.
     inventories = stage_indices["source_inventory"]
     if len(inventories) > 1 or (require_windows and len(inventories) != 1):
@@ -842,6 +863,7 @@ def validate(rows: list[dict], *, require_windows: bool = False,
             raise TraceError("applied native writer chain: " + str(exc)) from exc
         return {
             **writer_status,
+            **policy_terminal_status,
             **manual_status,
             **primary_hold_status,
             "rows": len(rows), "raw": 0, "collapsed": 0,
@@ -1302,6 +1324,7 @@ def validate(rows: list[dict], *, require_windows: bool = False,
         raise TraceError("applied native writer chain: " + str(exc)) from exc
     return {
         **writer_status,
+        **policy_terminal_status,
         **veto_resolution,
         **manual_status,
         **primary_hold_status,
