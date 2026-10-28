@@ -53,6 +53,7 @@
         "policy_resolution",
         "policy_pointer",
         "policy_rank",
+        "policy_terminal",
         "policy_change",
         "writer_resolution",
         "manual_state",
