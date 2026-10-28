@@ -307,6 +307,46 @@ def empty_board_native_trace():
 
 class NativePipelineTraceTests(unittest.TestCase):
 
+    def test_native_primary_cluster_to_local_exact_source_lineage(self):
+        # Real selector terminal selects the cluster object; the production
+        # local-exact refinement can change only its measured BPM value.
+        rows = with_resource(trace())
+        primary = next(r for r in rows if r["stage"] == "primary_select")
+        hold = next(r for r in rows if r["stage"] == "primary_hold")
+        primary["metrics"].update(
+            bpm=128.125, cluster_bpm=128., local_exact_bpm=128.125,
+            local_exact_delta=0.125)
+        hold["metrics"]["bpm"] = 128.125
+        validate(rows)
+        for kind in ("missing_witness", "wrong_cluster", "wrong_delta",
+                     "outside_refinement", "wrong_exact"):
+            with self.subTest(kind=kind):
+                bad = copy.deepcopy(rows)
+                m = next(r for r in bad if r["stage"] == "primary_select")["metrics"]
+                if kind == "missing_witness":
+                    for key in ("cluster_bpm", "local_exact_bpm", "local_exact_delta"):
+                        del m[key]
+                elif kind == "wrong_cluster":
+                    m["cluster_bpm"] = 129.
+                elif kind == "wrong_delta":
+                    m["local_exact_delta"] = .2
+                elif kind == "outside_refinement":
+                    m.update(bpm=129.1, local_exact_bpm=129.1,
+                             local_exact_delta=1.1)
+                else:
+                    m["bpm"] = 128.2
+                with self.assertRaises(TraceError):
+                    validate(bad)
+        native = (ROOT / "tests" / "ci_pipeline_trace.h").read_text(encoding="utf-8")
+        source = (ROOT / "src" / "foo_smart_tempo" /
+                  "mir_candidate_pipeline.cpp").read_text(encoding="utf-8")
+        oracle = (ROOT / "tools" /
+                  "audit_smart_tempo_ci_pipeline_trace.py").read_text(encoding="utf-8")
+        self.assertIn("primary.selected_cluster_bpm", native)
+        self.assertIn("primary.selected_local_exact_delta", native)
+        self.assertIn("PRIMARY_SELECT_METRICS", oracle)
+        self.assertIn("std::abs(exact.bpm - clusterBpm) <= 0.80", source)
+
     def test_native_first_exclusion_source_chronology_and_adversarial_mutations(self):
         rows = with_resource(trace())
         first = next(r for r in rows if r["stage"] == "primary_first_exclusion")

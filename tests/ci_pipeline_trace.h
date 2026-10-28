@@ -747,8 +747,21 @@ inline bool record(
           !std::isfinite(item.bpm) || item.bpm <= 0.0)
         return reject(__LINE__);
       if (!primary_parent.empty()) return reject(__LINE__);
-      if (std::abs(collapsed[item.source_index].bpm - item.bpm) >= 0.001 ||
-          std::abs(primary.selected_bpm - item.bpm) >= 0.001)
+      // Native terminal event identifies the selected CLUSTER object.
+      // The production local-exact step may subsequently refine its BPM
+      // by <=0.80 without changing that source identity.
+      const double clusterBpm = collapsed[item.source_index].bpm;
+      const bool sameCluster = std::abs(clusterBpm - item.bpm) < 0.001 &&
+          std::abs(primary.selected_cluster_bpm - clusterBpm) < 0.001;
+      const bool unchanged = std::abs(primary.selected_bpm - clusterBpm) < 0.001;
+      const bool exactRefinement =
+          std::isfinite(primary.selected_local_exact_bpm) &&
+          std::isfinite(primary.selected_local_exact_delta) &&
+          std::abs(primary.selected_local_exact_delta) <= 0.80 &&
+          std::abs(primary.selected_local_exact_bpm - clusterBpm -
+                   primary.selected_local_exact_delta) < 0.001 &&
+          std::abs(primary.selected_bpm - primary.selected_local_exact_bpm) < 0.001;
+      if (!sameCluster || !(unchanged || exactRefinement))
         return reject(__LINE__);
       primary_parent.push_back(cluster_ids[item.source_index]);
     }
@@ -762,6 +775,12 @@ inline bool record(
            primary.auto_candidate ? "primary_auto" : "primary_no_candidate",
            "", primary_parent, primary.selected_bpm,
            primary.selected_local_exact_score, primary.support);
+  // The terminal's cluster BPM and the post-selector locally measured BPM
+  // are separate, source-linked native values; never infer one from oracle.
+  out.lines.insert(out.lines.size() - 3,
+      ",\"cluster_bpm\":" + safe_num(primary.selected_cluster_bpm) +
+      ",\"local_exact_bpm\":" + safe_num(primary.selected_local_exact_bpm) +
+      ",\"local_exact_delta\":" + safe_num(primary.selected_local_exact_delta));
   // Native Primary hold causes: actual flags and prioritized original reason.
   // This is CI-only observation, not a Policy or manual-review inference.
   constexpr const char* allowed_primary_reasons[] = {

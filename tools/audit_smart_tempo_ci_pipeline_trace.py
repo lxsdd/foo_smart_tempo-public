@@ -41,6 +41,8 @@ MAX_BYTES, MAX_LINES = 2 * 1024 * 1024, 16500
 FIELDS = frozenset(("schema", "analysis_id", "sequence", "stage", "outcome",
                     "reason_code", "candidate_id", "parent_candidate_ids", "metrics"))
 METRICS = frozenset(("bpm", "score", "support"))
+PRIMARY_SELECT_METRICS = METRICS | frozenset((
+    "cluster_bpm", "local_exact_bpm", "local_exact_delta"))
 LOW_POOL_METRICS = METRICS | frozenset(("low_pool_epoch",))
 MANUAL_METRICS = METRICS | frozenset((
     "winner_support", "local_exact_score", "evidence_rank", "origin_mask"))
@@ -320,6 +322,10 @@ def validate(rows: list[dict], *, require_windows: bool = False,
                             else CROSS_STAGE_FATE_METRICS if stage == "candidate_fate"
                             else POLICY_TERMINAL_METRICS if stage == "policy_terminal"
                             else PRIMARY_HOLD_METRICS if stage == "primary_hold"
+                            else PRIMARY_SELECT_METRICS if (
+                                stage == "primary_select" and
+                                isinstance(item["metrics"], dict) and
+                                "cluster_bpm" in item["metrics"])
                             else METRICS)
         if type(item["metrics"]) is not dict or set(item["metrics"]) != expected_metrics:
             raise TraceError("non-numeric-only telemetry")
@@ -1237,9 +1243,24 @@ def validate(rows: list[dict], *, require_windows: bool = False,
             raise TraceError("selector terminal missing clustered candidate ID")
         if not primary["metrics"]["bpm"] and primary["outcome"] == "selected":
             raise TraceError("selector selected without terminal BPM")
-        if (primary["parent_candidate_ids"] != [terminal[-1]["candidate_id"]] or
-                abs(terminal[-1]["metrics"]["bpm"] -
-                    primary["metrics"]["bpm"]) >= 0.001):
+        if primary["parent_candidate_ids"] != [terminal[-1]["candidate_id"]]:
+            raise TraceError("primary selected source is not native terminal object")
+        terminal_bpm = terminal[-1]["metrics"]["bpm"]
+        pm = primary["metrics"]
+        if "cluster_bpm" in pm:
+            cluster, exact, delta = (pm["cluster_bpm"],
+                                     pm["local_exact_bpm"],
+                                     pm["local_exact_delta"])
+            if (abs(cluster - terminal_bpm) >= 0.001 or
+                    not 0 <= exact <= 2000 or
+                    abs(delta - (exact - cluster)) >= 0.001 or
+                    abs(delta) > 1.0):
+                raise TraceError("native primary cluster/local-exact lineage drift")
+            if (abs(pm["bpm"] - cluster) >= 0.001 and
+                    not (exact > 0 and abs(delta) <= 0.80 and
+                         abs(pm["bpm"] - exact) < 0.001)):
+                raise TraceError("unwitnessed local-exact primary refinement")
+        elif abs(terminal_bpm - pm["bpm"]) >= 0.001:
             raise TraceError("primary selected candidate is not exact terminal object")
     expected_primary_reason = {
         "selected": "primary_auto",

@@ -1264,3 +1264,22 @@ This is a bounded **prospective Phase-B research comparison**, not the frozen
 full Phase-C matrix, not a private blind music holdout and not product GO.
 ReviewHold, measured-candidate and writer safety are unchanged. No new
 binary artifacts or real-user media are emitted.
+
+### Native terminal cluster vs. local-exact BPM (CI-only provenance)
+
+The original selector emits `terminal_final_choice` for the **selected
+cluster object**, before `finalize_mir_selector_shadow` may refine the
+writable BPM from the *same measured audio* by at most 0.80 BPM. The
+cluster identity and the refined numeric value are intentionally different
+concepts. A trace that requires exact equality of those two BPM values
+rejects legitimate measured refinements.
+
+The synthetic-only observer therefore records the terminal's stable
+candidate parent plus separate `cluster_bpm`, `local_exact_bpm` and
+`local_exact_delta` fields on `primary_select`. The independent Python
+oracle checks the original terminal source ID, the exact delta equation,
+and the same production 0.80 BPM refinement bound; missing or forged
+refinement evidence fails closed. Existing legacy minimal unit fixtures
+remain exact-equality-only. This does **not** alter the production selector,
+local-exact DSP, ReviewHold, Policy or writer, and does not establish
+musical accuracy on independent music.
