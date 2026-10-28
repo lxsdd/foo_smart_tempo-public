@@ -42,7 +42,10 @@ MANUAL_METRICS = METRICS | frozenset((
     "winner_support", "local_exact_score", "evidence_rank", "origin_mask"))
 POLICY_TERMINAL_METRICS = METRICS | frozenset(("action_code",))
 CROSS_STAGE_FATE_METRICS = METRICS | frozenset((
-    "raw_veto_count", "cluster_veto_count", "first_veto_event_index"))
+    "raw_veto_count", "cluster_veto_count", "first_veto_event_index",
+    "last_veto_event_index", "raw_selector_event_count",
+    "cluster_selector_event_count", "first_selector_event_index",
+    "last_selector_event_index"))
 PRIMARY_HOLD_METRICS = METRICS | frozenset((
     "enabled", "candidate", "auto_candidate", "review_hold", "route_valid",
     "sparse_hold", "material_hold", "high_family_hold", "soft_center_hold"))
@@ -444,7 +447,10 @@ def validate(rows: list[dict], *, require_windows: bool = False,
                     or m["score"] != int(m["score"]) or not 0 <= m["score"] <= 1023
                     or any(m[key] != int(m[key]) or not 0 <= m[key] <= 4096
                            for key in ("support", "raw_veto_count",
-                                       "cluster_veto_count", "first_veto_event_index"))
+                                       "cluster_veto_count", "first_veto_event_index",
+                                       "last_veto_event_index", "raw_selector_event_count",
+                                       "cluster_selector_event_count", "first_selector_event_index",
+                                       "last_selector_event_index"))
                     or m["support"] != m["raw_veto_count"] + m["cluster_veto_count"]):
                 raise TraceError("malformed native cross-stage candidate fate")
         elif stage == "primary_disposition":
