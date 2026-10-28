@@ -1073,10 +1073,14 @@ def validate(rows: list[dict], *, require_windows: bool = False,
     final = stage_indices["final_output"][0]
     witness = stage_indices["measured_witness"][0]
     guard = stage_indices["write_guard"][0]
+    # Source identity belongs to the original terminal CLUSTER, not to
+    # its later audio-measured local-exact BPM refinement.
+    primary_cluster_bpm = primary["metrics"].get(
+        "cluster_bpm", primary["metrics"]["bpm"])
     if (primary["outcome"] == "selected" and
             (not primary["parent_candidate_ids"] or
              any(ids[p] != "candidate_transform" or
-                 abs(candidate_bpm[p] - primary["metrics"]["bpm"]) >= .001
+                 abs(candidate_bpm[p] - primary_cluster_bpm) >= .001
                  for p in primary["parent_candidate_ids"]))):
         raise TraceError("selected primary candidate has no matching clustered witness")
     terminal = stage_indices["primary_terminal"]
