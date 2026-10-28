@@ -100,6 +100,42 @@ def mutations(rows: list[dict]) -> list[tuple[str, list[dict]]]:
         lambda a, i: a[i]["metrics"].__setitem__("score", 2), required=True)
     add("policy_pointer_flag", row_stage("policy_pointer"),
         lambda a, i: a[i]["metrics"].__setitem__("support", 2), required=True)
+    # Adversarial corruption of actual native final Policy decision witness.
+    if any(row["stage"] == "policy_terminal" for row in rows):
+        add("policy_terminal_reason", row_stage("policy_terminal"),
+            lambda a, i: a[i].__setitem__("reason_code", "unregistered_policy"),
+            required=True)
+        add("policy_terminal_action", row_stage("policy_terminal"),
+            lambda a, i: a[i]["metrics"].__setitem__("action_code", 99),
+            required=True)
+        add("policy_terminal_bpm", row_stage("policy_terminal"),
+            lambda a, i: a[i]["metrics"].__setitem__(
+                "bpm", a[i]["metrics"]["bpm"] + 1), required=True)
+        add("policy_terminal_flags", row_stage("policy_terminal"),
+            lambda a, i: a[i]["metrics"].__setitem__(
+                "score", 1 - a[i]["metrics"]["score"]), required=True)
+        add("policy_terminal_outcome", row_stage("policy_terminal"),
+            lambda a, i: a[i].__setitem__(
+                "outcome", "review_hold" if a[i]["outcome"] == "selected"
+                else "selected"), required=True)
+        add("policy_terminal_parent", row_stage("policy_terminal"),
+            lambda a, i: a[i].__setitem__(
+                "parent_candidate_ids", [] if a[i]["parent_candidate_ids"]
+                else ["c999999"]), required=True)
+        for label, altered in (
+            ("missing_policy_terminal",
+             [r for r in copy.deepcopy(rows)
+              if r["stage"] != "policy_terminal"]),
+            ("duplicate_policy_terminal", None),
+        ):
+            if altered is None:
+                altered = copy.deepcopy(rows)
+                pos = next(i for i, row in enumerate(altered)
+                           if row["stage"] == "policy_terminal")
+                altered.insert(pos, copy.deepcopy(altered[pos]))
+            for i, row in enumerate(altered):
+                row["sequence"] = i
+            result.append((label, altered))
     if any(row["stage"] == "writer_resolution" for row in rows):
         add("writer_reason_spoof", row_stage("writer_resolution"),
             lambda a, i: a[i].__setitem__("reason_code", "mir_unregistered"),
