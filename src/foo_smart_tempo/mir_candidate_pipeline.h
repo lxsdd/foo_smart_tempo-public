@@ -263,6 +263,11 @@ struct MirPolicyMeasuredCandidate {
 };
 
 #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+// Native Policy first-return path, recorded only in the disposable CI observer.
+// Tokens describe which ordered production stage returned; not the nested
+// predicate reason or a global candidate eligibility proof.
+[[nodiscard]] std::span<const char* const> mir_ci_policy_stage_path() noexcept;
+[[nodiscard]] bool mir_ci_policy_stage_path_complete() noexcept;
 // Actual CI-only FullBoard rail decision for every collapsed source index.
 struct MirCiPolicyRailEvent {
   std::size_t source_index = 0;
