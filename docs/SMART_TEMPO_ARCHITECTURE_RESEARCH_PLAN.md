@@ -1119,3 +1119,23 @@ must execute at the exact source SHA. This is not global candidate
 ELIGIBILITY; unvisited candidates are not called eligible. Phase B remains
 incomplete until all source/Policy terminal paths are witnessed and
 independently audited; Phase C and musical release remain NO_GO.
+
+
+### Phase B — native final Policy reason/action witness (CI-only)
+
+The disposable original foobar Win32/x64 host trace records the actual final
+MirPolicyDecision reason and action after partial-bar postprocessing and
+measured-candidate invariant checks, with bounded numeric action code,
+selected native pointer lineage, output BPM, override and hold-release flags.
+The independent Python Policy-terminal oracle checks a frozen reason catalog,
+action-to-final-outcome coherence, pointer/parent identity, exact BPM and
+flag agreement with the separate Policy comparison and applied decision.
+Positive/negative tests and mutations of actual native JSONL include
+missing/duplicated terminal rows, forged reasons/actions, BPMs, parents and
+outcomes. No track metadata, private audio or ground truth is serialized.
+
+This is terminal reason/action provenance, not proof that every nested
+Policy predicate was evaluated for every unselected candidate. Phase B remains
+partial until global eligibility and all nested candidate-veto paths are
+independently proven. It does not authorize the large Phase C matrix, a
+production DSP/Policy/Writer change or private musical acceptance.
