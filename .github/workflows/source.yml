@@ -86,6 +86,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Independent cross-stage source-fate matrix failed' }
           python -m unittest discover -s tests -p 'test_smart_tempo_b_candidate_fates.py' -v
           if ($LASTEXITCODE -ne 0) { throw 'Independent candidate-fate chronology regressions failed' }
+          python -m unittest discover -s tests -p 'test_smart_tempo_b_decode_geometry.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'Independent native decode geometry conservation failed' }
           python -m unittest discover -s tests -p 'test_smart_tempo_native_mutations.py' -v
           if ($LASTEXITCODE -ne 0) { throw 'Native-host trace mutation-gate regressions failed' }
           python -m unittest discover -s tests -p 'test_smart_tempo_ci_pilot_contract.py' -v

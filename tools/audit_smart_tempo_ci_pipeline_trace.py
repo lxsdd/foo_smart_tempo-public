@@ -11,6 +11,8 @@ import json
 import math
 from pathlib import Path
 import re
+from audit_smart_tempo_b_decode_geometry import (
+    DecodeGeometryError, reconcile as reconcile_decode_geometry)
 from audit_smart_tempo_b_raw_fates import RawFateError, reconcile_native_raw
 from audit_smart_tempo_b_cluster_rail_fates import RailFateError, reconcile_native_rail
 from audit_smart_tempo_b_policy_terminal import (
@@ -810,6 +812,11 @@ def validate(rows: list[dict], *, require_windows: bool = False,
         total_requested += m["requested_frames"] / source_rate
     if require_windows and (not windows or len(windows) != declared_passes):
         raise TraceError("native window capture absent or incomplete")
+    try:
+        decode_geometry_status = reconcile_decode_geometry(
+            rows, required=require_windows)
+    except DecodeGeometryError as exc:
+        raise TraceError("native decoded-frame geometry: " + str(exc)) from exc
     if inventories and windows and (
             inventories[0]["metrics"]["mir_segments_evaluated"] > len(windows)):
         raise TraceError("MIR evaluated more segments than decoded windows")
@@ -835,6 +842,9 @@ def validate(rows: list[dict], *, require_windows: bool = False,
     for start, stop in intervals:
         covered += max(0.0, stop - max(start, end))
         end = max(end, stop)
+    if windows and abs(decode_geometry_status[
+            "decode_geometry_coverage_seconds"] - covered) > 0.0000011:
+        raise TraceError("independent decoded interval union drift")
     raw = stage_indices["candidate_create"]
     collapsed = stage_indices["candidate_transform"]
     primary_pool = stage_indices["primary_eligibility"]
@@ -1371,6 +1381,7 @@ def validate(rows: list[dict], *, require_windows: bool = False,
     except CrossStageFateError as exc:
         raise TraceError("native cross-stage source fate: " + str(exc)) from exc
     return {
+        **decode_geometry_status,
         **cross_stage_status,
         **writer_status,
         **policy_terminal_status,

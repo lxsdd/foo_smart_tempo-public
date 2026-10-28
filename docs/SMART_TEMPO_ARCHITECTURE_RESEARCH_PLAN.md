@@ -1182,3 +1182,32 @@ media, metadata or private data changes.
 ### Phase B — native selector chronology conservation (2026-10-28)
 
 The CI-only cross-stage source-fate record now conserves the **entire executed selector-event chronology** for each collapsed candidate, not merely presence/rank bits: raw-parent and direct-cluster event counts, first/last selector-event positions, and first/last branch-local veto positions. The native C++ observer derives these from the executed selector event vector and exact raw-to-cluster source indices. A separate Python replay independently reconstructs the counts and positions from the ordered JSONL events and the native veto ledger. Adversarial Python and original Win32/x64 foobar host mutations alter each new field and must fail closed. The observation is deliberately **not** a global candidate-eligibility certificate: a source can be unvisited, provisionally excluded, vetoed in one branch and rescued by another. No production algorithm, Policy or writer output is modified. Phase C remains gated on genuinely complete eligibility and nested Policy causal proof.
+
+
+### Package B – native decoded-frame conservation across passes (CI-only)
+
+The original Win32/x64 foobar CI probe now checks the *actual* per-pass
+source frames, analysis frames, source/analysis sample rates and requested
+frame budget against a separate Python replay
+(\`tools/audit_smart_tempo_b_decode_geometry.py\`). All passes must retain
+one source format, the analyzer's 48 kHz analysis cap and one fixed requested
+window budget. Without resampling, the actual consumed analysis-frame count
+must equal the source-frame count; with resampling, output duration may differ
+by at most 0.25 s to allow bounded filter/flush latency. This tolerance is a
+CI integrity bound, **not** a DSP accuracy or timing performance threshold.
+
+The independent oracle computes actual decoded interval union, overlap,
+truncated passes and source-to-analysis duration difference. Native JSONL
+adversarial mutations attempt silent analysis-frame loss, incorrect analysis
+rate, and second-pass source/request drift; synthetic positive and negative
+unit fixtures additionally cover 96 kHz input, EOF truncation, overlapping
+and disjoint intervals. Original host traces and the preflight gate must
+agree on one source SHA; no audio samples or user data are recorded.
+
+**Remaining gate:** the existing observer records the planned start value
+but not a separately witnessed original pass-scheduler input/seek result.
+Consequently this is real *frame/interval* conservation, not proof of
+independently recomputed pass-offset planning or decoder seek fidelity.
+It does not close global Primary eligibility, nested Policy causal coverage,
+Phase B, Phase C or musical owner acceptance. Production decoding, DSP,
+selector, Policy and writer behavior are unchanged.

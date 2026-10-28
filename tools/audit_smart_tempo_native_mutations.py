@@ -74,6 +74,25 @@ def mutations(rows: list[dict]) -> list[tuple[str, list[dict]]]:
         lambda a, i: a[i]["metrics"].__setitem__(
             "decoded_frames", a[i]["metrics"]["requested_frames"] + 1),
         required=True)
+    # Real decoded-frame loss and cross-pass format drift were previously
+    # possible to hide inside plausible-looking positive frame counters.
+    add("window_analysis_underflow", row_stage("decode_window"),
+        lambda a, i: a[i]["metrics"].__setitem__("analysis_frames", 1),
+        required=True)
+    add("window_analysis_rate_cap", row_stage("decode_window"),
+        lambda a, i: a[i]["metrics"].__setitem__(
+            "analysis_rate_hz", 8000 if a[i]["metrics"]["source_rate_hz"] != 8000 else 16000),
+        required=True)
+    add("window_second_source_rate_drift",
+        lambda row: row["stage"] == "decode_window" and
+                    row["metrics"]["pass_index"] == 1,
+        lambda a, i: a[i]["metrics"].__setitem__(
+            "source_rate_hz", a[i]["metrics"]["source_rate_hz"] + 1))
+    add("window_second_request_drift",
+        lambda row: row["stage"] == "decode_window" and
+                    row["metrics"]["pass_index"] == 1,
+        lambda a, i: a[i]["metrics"].__setitem__(
+            "requested_frames", a[i]["metrics"]["requested_frames"] + 1))
     add("mir_nonfinite", row_stage("mir_segment"),
         lambda a, i: a[i]["metrics"].__setitem__("score", float("nan")),
         required=True)

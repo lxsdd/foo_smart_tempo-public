@@ -304,6 +304,7 @@ inline bool record(
   // Fail closed on missing, reordered or physically impossible decoder extents.
   // Actual decoded frames may be shorter than requested at end-of-file.
   const std::size_t declaredPasses = windows.front().pass_total;
+  const auto& firstWindow = windows.front();
   for (std::size_t i = 0; i < windows.size(); ++i) {
     const auto& w = windows[i];
     if (w.pass_index != i || w.pass_total != declaredPasses ||
@@ -313,10 +314,19 @@ inline bool record(
         w.source_rate_hz < 8000 || w.source_rate_hz > 384000 ||
         w.analysis_rate_hz < 8000 || w.analysis_rate_hz > 48000 ||
         w.analysis_rate_hz > w.source_rate_hz ||
+        w.source_rate_hz != firstWindow.source_rate_hz ||
+        w.analysis_rate_hz != firstWindow.analysis_rate_hz ||
+        w.requested_frames != firstWindow.requested_frames ||
+        w.analysis_rate_hz != (std::min)(w.source_rate_hz, 48000u) ||
         w.requested_frames == 0 ||
         w.requested_frames > static_cast<std::size_t>(w.source_rate_hz) * 600 ||
         w.decoded_frames == 0 || w.decoded_frames > w.requested_frames ||
         w.analysis_frames == 0 ||
+        (w.analysis_rate_hz == w.source_rate_hz &&
+         w.analysis_frames != w.decoded_frames) ||
+        (w.analysis_rate_hz < w.source_rate_hz &&
+         std::abs(static_cast<double>(w.analysis_frames) / w.analysis_rate_hz -
+                  static_cast<double>(w.decoded_frames) / w.source_rate_hz) > 0.25) ||
         static_cast<double>(w.analysis_frames) / w.analysis_rate_hz >
             static_cast<double>(w.decoded_frames) / w.source_rate_hz + 0.10 ||
         (i > 0 && w.start_sec < windows[i - 1].start_sec))
