@@ -1283,3 +1283,26 @@ refinement evidence fails closed. Existing legacy minimal unit fixtures
 remain exact-equality-only. This does **not** alter the production selector,
 local-exact DSP, ReviewHold, Policy or writer, and does not establish
 musical accuracy on independent music.
+
+
+### Paired six-case prospective counterfactual gate (CI-only, no production admission)
+
+The frozen six-case public synthetic Win32/x64 native host cohort is scored
+**per case** against the unchanged native final output. A strict post-host
+validator rejects cross-architecture case-level outcome drift even if aggregate
+counts are identical, and computes paired correct-gained/lost, wrong-auto-added/
+avoided and ReviewHold-added/removed denominators for each frozen selector
+counterfactual. These pairs prevent a misleading aggregate improvement claim
+when one rhythm family improves and another regresses. A research-only gate
+marks alternatives with more wrong automatic results and no accuracy gain as
+SYNTHETIC_RISK_REGRESSION, distinguishes zero-coverage abstention, and
+always reports production_admission=NO_GO. The gate is **not** an algorithm
+selector and never feeds labels into native source, policy or writer.
+
+At source SHA c3fa4d987ff61744e1f216a85720a9f4ccc03fe5, the prior exact-SHA
+original-host CI 40746582516 found per architecture, at both +/-0.05 and
++/-0.20 BPM: native 3/6 correct, 2 wrong auto, 1 held; Primary-only 0/6,
+3 wrong auto, 3 held; Combined 1/6, 5 wrong auto, 0 held; Agreement-only
+0/6, 0 wrong auto, 6 held. These are **seen public synthetic** cases, not
+independent music validation. In particular the earlier three-case Combined
+benefit did not generalize; no productive selector change is authorized.
