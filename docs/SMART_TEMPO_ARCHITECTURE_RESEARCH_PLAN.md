@@ -1306,3 +1306,9 @@ original-host CI 40746582516 found per architecture, at both +/-0.05 and
 0/6, 0 wrong auto, 6 held. These are **seen public synthetic** cases, not
 independent music validation. In particular the earlier three-case Combined
 benefit did not generalize; no productive selector change is authorized.
+
+### Phase B – source-identity versus local-exact BPM scoring correction (research-only)
+
+The original selector stores both indexed collapsed cluster BPM and actually measured locally refined Primary BPM (up to 0.80 BPM under native witness). Post-host PRIMARY_ONLY and AGREEMENT_ONLY must score the actual Primary output, not silently substitute the original cluster center. The independent shadow scorer reports native Primary correctness from measured output while retaining source ID for lineage. CI-only Python witness enforces cluster/exact/delta conservation; negative tests reject forged, partial, nonfinite and over-limit refinements. No production algorithm, DSP, writer or user-data changes.
+
+Previously published synthetic counterfactual counts remain historical. Only new exact-source Win32/x64 host CI can establish revised paired six-case denominators. Real-music holdout and owner approval remain NO_GO.

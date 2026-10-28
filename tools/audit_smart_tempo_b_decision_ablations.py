@@ -18,7 +18,8 @@ class AblationError(ValueError):
 
 def freeze(rows):
     """Decide using numeric same-run candidates; oracle/track identity unavailable."""
-    from audit_smart_tempo_b_shadow_rank import fixed_order
+    from audit_smart_tempo_b_shadow_rank import (
+        fixed_order, checked_native_primary_bpm)
     cluster = [r for r in rows if r["stage"] == "candidate_transform"]
     eligibility = [r for r in rows if r["stage"] == "primary_eligibility"]
     order = fixed_order(cluster, eligibility)["COMBINED"]
@@ -34,6 +35,7 @@ def freeze(rows):
         raise AblationError("unknown Primary outcome")
     if not isinstance(parents, list) or len(parents) > 1:
         raise AblationError("ambiguous Primary source")
+    native_primary_bpm = 0.0
     if outcome == "no_candidate":
         if parents or primary["metrics"]["bpm"] != 0:
             raise AblationError("fabricated no-candidate Primary")
@@ -44,11 +46,8 @@ def freeze(rows):
         if len(parents) != 1 or parents[0] not in candidates:
             raise AblationError("selected Primary without measured source")
         chosen = parents[0]
-        # Keep the original indexed cluster identity separate from the
-        # locally refined Primary output BPM; the trace gate checks both.
-        source_bpm = primary["metrics"].get("cluster_bpm", primary["metrics"]["bpm"])
-        if abs(candidates[chosen] - source_bpm) >= .001:
-            raise AblationError("Primary BPM-source mismatch")
+        # Retain actual native local-exact output; cluster BPM is identity only.
+        native_primary_bpm = checked_native_primary_bpm(candidates[chosen], primary)
     fbpm = final["metrics"]["bpm"]
     if final["outcome"] not in ("selected", "review_hold") or (
         (fbpm == 0) != (final["outcome"] == "review_hold")
@@ -61,9 +60,9 @@ def freeze(rows):
     agreement = native_primary_accepted and chosen is not None and chosen == combined
     return {
         "NATIVE_FINAL": fbpm,
-        "PRIMARY_ONLY": candidates[chosen] if native_primary_accepted else 0.0,
+        "PRIMARY_ONLY": native_primary_bpm if native_primary_accepted else 0.0,
         "COMBINED": candidates[combined] if combined else 0.0,
-        "AGREEMENT_ONLY": candidates[chosen] if agreement else 0.0,
+        "AGREEMENT_ONLY": native_primary_bpm if agreement else 0.0,
     }
 
 

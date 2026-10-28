@@ -61,6 +61,38 @@ class DecisionAblations(unittest.TestCase):
         self.assertEqual(score(z,60.)["COMBINED"]["CORRECT_005"],1)
         self.assertEqual(score(z,84.)["COMBINED"]["CORRECT_005"],0)
 
+    def test_local_exact_refinement_preserves_source_and_scores_actual_primary(self):
+        a = fixture(primary="c0", final=60.4)
+        a[4]["metrics"].update(bpm=60.4, cluster_bpm=60.,
+                                local_exact_bpm=60.4, local_exact_delta=.4)
+        z = freeze(a)
+        self.assertAlmostEqual(z["PRIMARY_ONLY"], 60.4)
+        self.assertAlmostEqual(z["AGREEMENT_ONLY"], 60.4)
+        self.assertEqual(z["COMBINED"], 60.)
+        self.assertEqual(score(z, 60.)["PRIMARY_ONLY"]["WRONG_AUTO"], 1)
+
+    def test_local_exact_refinement_tampering_fails_closed(self):
+        a = fixture(primary="c0", final=60.4)
+        a[4]["metrics"].update(bpm=60.4, cluster_bpm=60.,
+                                local_exact_bpm=60.4, local_exact_delta=.4)
+        for kind in ("missing", "wrong_cluster", "wrong_exact", "wrong_delta",
+                     "over_limit", "nonfinite", "unwitnessed"):
+            altered = copy.deepcopy(a)
+            m = altered[4]["metrics"]
+            if kind == "missing": del m["local_exact_delta"]
+            elif kind == "wrong_cluster": m["cluster_bpm"] = 59.
+            elif kind == "wrong_exact": m["local_exact_bpm"] = 60.5
+            elif kind == "wrong_delta": m["local_exact_delta"] = .2
+            elif kind == "over_limit":
+                m.update(bpm=60.81, local_exact_bpm=60.81, local_exact_delta=.81)
+            elif kind == "nonfinite": m["local_exact_bpm"] = float("nan")
+            else:
+                del m["cluster_bpm"]
+                del m["local_exact_bpm"]
+                del m["local_exact_delta"]
+            with self.subTest(kind=kind), self.assertRaises(ValueError):
+                freeze(altered)
+
     def test_invalid_source_identity_or_bpm_fails_closed(self):
         for field in ("duplicate","foreign","bpm"):
             a=fixture()

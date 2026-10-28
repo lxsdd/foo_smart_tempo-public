@@ -85,6 +85,36 @@ def fixed_rank(cluster_rows: list[dict], eligible_rows: list[dict]) -> dict:
                 cluster_rows, eligible_rows).items()}
 
 
+def checked_native_primary_bpm(cluster_bpm: float, primary: dict) -> float:
+    """Bind selected BPM to indexed cluster and native local-exact witness.
+
+    Validate measured values only. No reference BPM or tuning is read.
+    """
+    m = primary["metrics"]
+    bpm = m["bpm"]
+    if type(bpm) not in (int, float) or not math.isfinite(bpm) or bpm <= 0:
+        raise RecallError("invalid native Primary BPM")
+    witness = ("cluster_bpm", "local_exact_bpm", "local_exact_delta")
+    if any(key in m for key in witness):
+        if not all(key in m for key in witness):
+            raise RecallError("partial Primary refinement witness")
+        cluster, exact, delta = (m[key] for key in witness)
+        if any(type(x) not in (int, float) or not math.isfinite(x)
+               for x in (cluster, exact, delta)):
+            raise RecallError("nonfinite Primary refinement witness")
+        if (abs(cluster - cluster_bpm) >= .001 or
+                not 0 <= exact <= 2000 or
+                abs(delta - (exact - cluster)) >= .001 or abs(delta) > 1.0):
+            raise RecallError("Primary cluster/local-exact lineage mismatch")
+        if (abs(bpm - cluster) >= .001 and
+                not (exact > 0 and abs(delta) <= .80 and
+                     abs(bpm - exact) < .001)):
+            raise RecallError("unwitnessed local-exact Primary refinement")
+    elif abs(bpm - cluster_bpm) >= .001:
+        raise RecallError("Primary selected-object BPM mismatch")
+    return bpm
+
+
 def shadow_result(rows: list[dict], manifest: dict, observed: list[dict],
                   case_id: str) -> dict[str, int]:
     # This independent existing source-to-writer scorer validates the frozen
@@ -101,6 +131,7 @@ def shadow_result(rows: list[dict], manifest: dict, observed: list[dict],
     selected = [row for row in rows if row["stage"] == "primary_select"]
     if len(selected) != 1:
         raise RecallError("Primary selected source missing or duplicate")
+    primary_bpm = 0.0
     item = selected[0]
     parents = item["parent_candidate_ids"]
     if expected is None:
@@ -116,12 +147,8 @@ def shadow_result(rows: list[dict], manifest: dict, observed: list[dict],
             if parents[0] not in by_id:
                 raise RecallError("rhythmic Primary source unindexed")
             chosen = parents[0]
-            # Candidate identity follows its original cluster BPM, whereas
-            # primary_select.metrics.bpm may be locally audio-refined.
-            # The full trace validator independently checks both witnesses.
-            source_bpm = item["metrics"].get("cluster_bpm", item["metrics"]["bpm"])
-            if abs(by_id[chosen] - source_bpm) >= .001:
-                raise RecallError("Primary selected-object BPM mismatch")
+            # Indexed cluster identity is distinct from measured local refinement.
+            primary_bpm = checked_native_primary_bpm(by_id[chosen], item)
         elif not parents and item["outcome"] == "no_candidate" and (
                 item["metrics"]["bpm"] == 0):
             chosen = None
@@ -137,7 +164,9 @@ def shadow_result(rows: list[dict], manifest: dict, observed: list[dict],
         "CANDIDATES": len(by_id),
         "REFERENCE_PRESENT": int(expected is not None and any(
             abs(bpm - expected) <= .20 for bpm in by_id.values())),
-        "NATIVE_PRIMARY_CORRECT": correct(chosen),
+        "NATIVE_PRIMARY_CORRECT": int(
+            chosen is not None and expected is not None and
+            abs(primary_bpm - expected) <= .20),
         "NATIVE_FINAL_CORRECT": recall["FINAL_ACCEPTED_NEAR_020"],
         "NATIVE_PRIMARY_SOURCE_INDEXED": int(chosen is not None),
         "REFERENCE_LOST_AT_PRIMARY": int(

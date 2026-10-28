@@ -74,6 +74,16 @@ class ShadowRankTests(unittest.TestCase):
             [1,1,1,1])
         self.assertEqual(set(report),set(RESULT_KEYS))
 
+    def test_local_exact_refinement_is_scored_as_native_primary_not_cluster(self):
+        rows, manifest, observed = fixture("pulse_60", "c0")
+        rows[-3]["metrics"].update(bpm=60.4, cluster_bpm=60.,
+                                    local_exact_bpm=60.4, local_exact_delta=.4)
+        report = shadow_result(rows, manifest, observed, "pulse_60")
+        self.assertEqual(report["NATIVE_PRIMARY_SOURCE_INDEXED"], 1)
+        self.assertEqual(report["NATIVE_PRIMARY_CORRECT"], 0)
+        self.assertEqual(report["NATIVE_FINAL_CORRECT"], 1)
+        self.assertEqual(report["MODEL_COMBINED_CORRECT"], 1)
+
     def test_correct_primary_not_laundered_as_shadow_improvement(self):
         rows, manifest, observed = fixture("pulse_128", "c0")
         report = shadow_result(rows, manifest, observed, "pulse_128")
