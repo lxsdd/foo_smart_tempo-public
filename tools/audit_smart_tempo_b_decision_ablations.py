@@ -38,6 +38,8 @@ def freeze(rows):
         if parents or primary["metrics"]["bpm"] != 0:
             raise AblationError("fabricated no-candidate Primary")
         chosen = None
+    elif outcome == "review_hold" and not parents and primary["metrics"]["bpm"] == 0:
+        chosen = None
     else:
         if len(parents) != 1 or parents[0] not in candidates:
             raise AblationError("selected Primary without measured source")
