@@ -47,6 +47,20 @@ class RecallTests(unittest.TestCase):
                           found["POLICY_BOARD_NEAR_020"]), (1, 1, 1))
         self.assertEqual(found["FINAL_ACCEPTED_NEAR_020"], 0)
 
+    def test_locally_refined_final_takes_precedence_over_missing_strict_raw(self):
+        # Same measured cluster can be refined within the native 0.80 BPM
+        # bound even when its unrefined value is outside +/-0.20 BPM.
+        rows = pipeline(raw=(128.6,), cluster=(128.6,),
+                        policy_board=(128.6,), primary=128.6,
+                        policy=128.6, final=128.01)
+        got = analyze(rows, reference(),
+                      [{"index": "0", "bpm": "128.01", "held": "0"}],
+                      "pulse_128")
+        self.assertEqual(got["ROOT_CAUSE_STAGE"], "reference_in_selected_output")
+        self.assertEqual(got["RAW_NEAR_020"], 0)
+        self.assertEqual(got["CLUSTER_NEAR_020"], 0)
+        self.assertEqual(got["FINAL_ACCEPTED_NEAR_020"], 1)
+
     def test_stage_partition_and_exact_accept(self):
         cases = (
             (dict(raw=(143.,), cluster=(143.,), policy_board=(143.,)),
