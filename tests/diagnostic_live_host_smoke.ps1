@@ -371,7 +371,7 @@ function Run-Case([string]$installer,[string]$root,[string]$inputFile,[string[]]
         }
         if ($recallSeen.Count -ne 8) { throw 'Incomplete original-host causal recall' }
       }
-      $traceEvidence=@{
+      $traceEvidence=@{}
       foreach ($line in $traceOutput) {
         if ([string]$line -cmatch '^SMART_TEMPO_TRACE_([A-Z0-9_]+)=([A-Za-z0-9_.]+)$' -and
             $Matches[1] -cin $script:pilotTraceKeys) {
