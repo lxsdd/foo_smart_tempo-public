@@ -85,6 +85,7 @@ class ProspectiveAblationTests(unittest.TestCase):
         # Swap outcomes but not case identities: totals remain identical.
         a, b = drift[1]["cases"][0], drift[1]["cases"][1]
         a["ablation"], b["ablation"] = b["ablation"], a["ablation"]
+        a["recall"], b["recall"] = b["recall"], a["recall"]
         with self.assertRaisesRegex(ProspectiveError, "case-level drift"):
             validate(drift, "a" * 40)
 
