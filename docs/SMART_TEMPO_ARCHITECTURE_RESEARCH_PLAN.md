@@ -1400,3 +1400,14 @@ button disabled and blocked. Both host architectures must pass at one exact
 source SHA; no CI artifacts are published. This is a source-branch reachability
 and lineage gate, **not** global Primary ELIGIBILITY, private musical
 accuracy, Phase-C admission or a productive algorithm/writer change.
+
+**First original-host result (red CI 40815099390):** the regular 175 BPM
+WAV with the default Hardcore CUE executed harmonic comparison, not RAW
+(`native_raw_complete_invocations=0`). This is negative branch evidence,
+not a qualified RAW path. The corrected independent coverage-only fixture
+uses four 45-second pulse families at 103/127/154/181 BPM with the same
+unmodified genre route. It has **no single ground-truth BPM** and is never
+included in the frozen four-/six-case accuracy denominators. Its synthetic
+oracle scorer is deliberately skipped; the original source-indexed native
+RAW automaton, winner-to-cluster pointer bridge, mutation gate, no-write
+host and Win32/x64 parity must instead pass at a fresh exact source SHA.

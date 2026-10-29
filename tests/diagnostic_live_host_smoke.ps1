@@ -267,20 +267,22 @@ function Run-Case([string]$installer,[string]$root,[string]$inputFile,[string[]]
       if (-not (Test-Path -LiteralPath $observed -PathType Leaf)) {
         throw 'Real foobar numeric BPM oracle observer is not available'
       }
-      $scoreOutput=@(python ./tools/score_synthetic_bpm_reference.py --manifest $reference --observed $observed 2>&1)
-      if ($LASTEXITCODE -ne 0) { throw ('Real foobar synthetic BPM evaluation failed: '+($scoreOutput -join '; ')) }
-      $scoreOutput | ForEach-Object { Write-Host $_ }
       $scoreEvidence=@{}
-      foreach ($line in $scoreOutput) {
-        if ([string]$line -cmatch '^SYNTHETIC_BPM_([A-Z0-9_]+)=([0-9]+)$' -and
-            $Matches[1] -cin $script:pilotScoreKeys) {
-          $key=$Matches[1]
-          if ($scoreEvidence.ContainsKey($key)) { throw 'Duplicate scorer key' }
-          $scoreEvidence[$key]=[int]$Matches[2]
+      if (-not $RequireRawSelectorCoverage) {
+        $scoreOutput=@(python ./tools/score_synthetic_bpm_reference.py --manifest $reference --observed $observed 2>&1)
+        if ($LASTEXITCODE -ne 0) { throw ('Real foobar synthetic BPM evaluation failed: '+($scoreOutput -join '; ')) }
+        $scoreOutput | ForEach-Object { Write-Host $_ }
+        foreach ($line in $scoreOutput) {
+          if ([string]$line -cmatch '^SYNTHETIC_BPM_([A-Z0-9_]+)=([0-9]+)$' -and
+              $Matches[1] -cin $script:pilotScoreKeys) {
+            $key=$Matches[1]
+            if ($scoreEvidence.ContainsKey($key)) { throw 'Duplicate scorer key' }
+            $scoreEvidence[$key]=[int]$Matches[2]
+          }
         }
-      }
-      if ($scoreEvidence.Count -ne $script:pilotScoreKeys.Count) {
-        throw 'Incomplete native pilot scorer evidence'
+        if ($scoreEvidence.Count -ne $script:pilotScoreKeys.Count) {
+          throw 'Incomplete native pilot scorer evidence'
+        }
       }
       $trace=$inputFile+'.pipeline.jsonl'
       if ($label -eq 'SYNTHETIC_silence' -and
@@ -624,28 +626,22 @@ try {
         'SYNTHETIC_pulse_60_chill' -RequireLowPulseCoverage
     }
   }
-  # Independent real-host selector-coverage case, outside both frozen BPM
-  # scoring cohorts. The default Hardcore route has center 180 BPM; this
-  # uses genuine decoded pulse_175 audio and the original CUE metadata path.
-  $rawRoot=Join-Path (Join-Path $root 'raw-host-pulse_175') 'synthetic-oracle'
-  python ./tools/generate_synthetic_bpm_reference.py --output $rawRoot --case pulse_175
+  # Coverage-only original WAV/CUE route, never a single-BPM accuracy case.
+  # Four independent 45s pulse families challenge alias-family saturation.
+  $rawRoot=Join-Path (Join-Path $root 'raw-host-multitempo') 'synthetic-oracle'
+  python ./tools/generate_synthetic_raw_route.py --output $rawRoot
   if ($LASTEXITCODE -ne 0) { throw 'Raw-host synthetic WAV generation failed' }
-  $rawWav=Join-Path $rawRoot 'pulse_175.wav'
-  $rawReference=Join-Path $rawRoot 'reference.json'
-  $rawCases=@((Get-Content -LiteralPath $rawReference -Raw | ConvertFrom-Json).cases)
-  if ($rawCases.Count -ne 1 -or $rawCases[0].id -cne 'pulse_175') {
-    throw 'Raw-host oracle identity mismatch'
-  }
-  $rawCue=Join-Path $rawRoot 'pulse_175_hardcore.cue'
+  $rawWav=Join-Path $rawRoot 'raw_route_multitempo.wav'
+  $rawCue=Join-Path $rawRoot 'raw_route_multitempo_hardcore.cue'
   if (Test-Path -LiteralPath $rawCue) { throw 'Stale raw-host route CUE' }
   [IO.File]::WriteAllLines($rawCue,@(
     'REM GENRE "Hardcore"',
-    'FILE "pulse_175.wav" WAVE',
+    'FILE "raw_route_multitempo.wav" WAVE',
     '  TRACK 01 AUDIO',
     '    INDEX 01 00:00:00'
   ),[Text.Encoding]::ASCII)
-  Run-Case $installer $root $rawCue @($rawWav,$rawCue,$rawReference) 1 `
-    'SYNTHETIC_pulse_175_hardcore' -RequireRawSelectorCoverage
+  Run-Case $installer $root $rawCue @($rawWav,$rawCue) 1 `
+    'SYNTHETIC_raw_route_multitempo_hardcore' -RequireRawSelectorCoverage
   # Prospectively frozen six-case synthetic generalization set. Same original
   # foobar host and candidate boards, no production Selector/Policy mutation.
   foreach ($caseId in $script:prospectiveCases) {
