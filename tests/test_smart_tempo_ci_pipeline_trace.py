@@ -1995,7 +1995,7 @@ class NativePipelineTraceTests(unittest.TestCase):
                      "modern_bpm_analyzer.cpp").read_text(encoding="utf-8")
         self.assertIn("mir_ci_primary_selector_trace_complete() noexcept", header)
         self.assertIn("g_ci_primary_events.size() >= 4096", source)
-        self.assertEqual(source.count("g_ci_primary_trace_complete = false;"), 3)
+        self.assertEqual(source.count("g_ci_primary_trace_complete = false;"), 4)
         self.assertEqual(source.count("g_ci_primary_trace_complete = true;"), 2)
         self.assertIn("g_ci_primary_events.clear();\n  g_ci_primary_pool.clear();\n  g_ci_primary_trace_complete = true;", source)
         self.assertIn("const bool ciSelectorOk = mir_ci_primary_selector_trace_complete();", component)
