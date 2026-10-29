@@ -268,6 +268,7 @@ struct MirPolicyMeasuredCandidate {
 // predicate reason or a global candidate eligibility proof.
 [[nodiscard]] std::span<const char* const> mir_ci_policy_stage_path() noexcept;
 [[nodiscard]] bool mir_ci_policy_stage_path_complete() noexcept;
+[[nodiscard]] const char* mir_ci_policy_branch_token() noexcept;
 // Actual CI-only FullBoard rail decision for every collapsed source index.
 struct MirCiPolicyRailEvent {
   std::size_t source_index = 0;
