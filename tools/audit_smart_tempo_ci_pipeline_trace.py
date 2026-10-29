@@ -17,6 +17,8 @@ from audit_smart_tempo_b_seek_plan import (
     SeekPlanError, reconcile as reconcile_seek_plan)
 from audit_smart_tempo_b_raw_fates import RawFateError, reconcile_native_raw
 from audit_smart_tempo_b_cluster_rail_fates import RailFateError, reconcile_native_rail
+from audit_smart_tempo_b_policy_branch import (
+    PolicyBranchError, reconcile as reconcile_policy_branch)
 from audit_smart_tempo_b_policy_terminal import (
     PolicyTerminalError, reconcile as reconcile_policy_terminal)
 from audit_smart_tempo_b_writer_resolution import (
@@ -103,6 +105,7 @@ ENUMS = {
     "primary_select": (None, None),
     "primary_hold": (None, None),
     "policy_stage_path": ("observed", None),
+    "policy_branch": ("observed", None),
     "policy_resolution": ("observed", None),
     "policy_pointer": ("observed", None),
     "policy_terminal": (None, None),
@@ -243,7 +246,8 @@ def validate(rows: list[dict], *, require_windows: bool = False,
              require_policy_filter: bool = False,
              require_writer_resolution: bool = False,
              require_cross_stage_fate: bool = False,
-             require_policy_stage_path: bool = False) -> dict:
+             require_policy_stage_path: bool = False,
+             require_policy_branch: bool = False) -> dict:
     # Library callers may test legacy minimal traces. The real host CLI
     # always requires both actual windows and actual native MIR segments.
     if require_segments and not require_windows:
@@ -263,7 +267,7 @@ def validate(rows: list[dict], *, require_windows: bool = False,
         "primary_first_exclusion": 3, "primary_veto_resolution": 3,
         "primary_veto_ledger": 3,
         "primary_select": 4, "primary_hold": 4,
-        "policy_stage_path": 5, "policy_resolution": 5, "policy_pointer": 6,
+        "policy_stage_path": 5, "policy_branch": 5, "policy_resolution": 5, "policy_pointer": 6,
         "policy_terminal": 6,
         "policy_change": 7, "writer_resolution": 8,
         "candidate_fate": 8,
@@ -592,6 +596,11 @@ def validate(rows: list[dict], *, require_windows: bool = False,
             raise TraceError("policy candidate parent not collapsed")
         stage_indices[stage].append(item)
     validate_policy_stage_path(rows, required=require_policy_stage_path)
+    try:
+        policy_branch_status = reconcile_policy_branch(
+            rows, required=require_policy_branch)
+    except PolicyBranchError as exc:
+        raise TraceError("native nested Policy branch: " + str(exc)) from exc
     # Reconcile EVERY cluster's first executed exclusion against the complete
     # selector event stream, including raw events and rank/compare episodes.
     # A provisional exclusion is never silently promoted to a decisive veto.
@@ -967,6 +976,7 @@ def validate(rows: list[dict], *, require_windows: bool = False,
         return {
             **writer_status,
             **policy_terminal_status,
+            **policy_branch_status,
             **manual_status,
             **primary_hold_status,
             "rows": len(rows), "raw": 0, "collapsed": 0,
@@ -1455,6 +1465,7 @@ def validate(rows: list[dict], *, require_windows: bool = False,
         **cross_stage_status,
         **writer_status,
         **policy_terminal_status,
+        **policy_branch_status,
         **veto_resolution,
         **veto_ledger,
         **manual_status,
@@ -1636,7 +1647,8 @@ def main() -> None:
                       require_policy_filter=a.require_windows,
                       require_writer_resolution=a.require_windows,
                       require_cross_stage_fate=a.require_windows,
-                      require_policy_stage_path=a.require_windows)
+                      require_policy_stage_path=a.require_windows,
+                      require_policy_branch=a.require_windows)
     print("SMART_TEMPO_CI_PIPELINE_TRACE_SCHEMA=PASS")
     for key, value in result.items():
         print(f"SMART_TEMPO_TRACE_{key.upper()}={value}")
