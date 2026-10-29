@@ -23,6 +23,10 @@ thread_local MirCiPolicyPointerSource g_ci_policy_source;
 thread_local std::array<const char*, 4> g_ci_policy_stage_path{};
 thread_local std::size_t g_ci_policy_stage_count = 0;
 thread_local bool g_ci_policy_stage_complete = true;
+thread_local const char* g_ci_policy_branch_token = nullptr;
+inline void ci_policy_branch(const char* token) noexcept {
+  g_ci_policy_branch_token = token;
+}
 inline void ci_policy_stage(const char* token) noexcept {
   if (g_ci_policy_stage_count >= g_ci_policy_stage_path.size()) {
     g_ci_policy_stage_complete = false;
@@ -97,6 +101,9 @@ std::span<const char* const> mir_ci_policy_stage_path() noexcept {
 }
 bool mir_ci_policy_stage_path_complete() noexcept {
   return g_ci_policy_stage_complete;
+}
+const char* mir_ci_policy_branch_token() noexcept {
+  return g_ci_policy_branch_token;
 }
 MirCiPolicyPointerSource mir_ci_policy_pointer_source() noexcept {
   return g_ci_policy_source;
@@ -4809,6 +4816,9 @@ void set_mir_policy_candidate_resolution(
     shadow.action = "writer_override";
     shadow.decision_class = "measured_recovery_candidate";
     shadow.reason = "measured_out_of_rail_primary_witness_release";
+    #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+    ci_policy_branch("current_release_01");
+    #endif
     return true;
   }
 
@@ -4828,6 +4838,9 @@ void set_mir_policy_candidate_resolution(
     shadow.action = "writer_override";
     shadow.decision_class = "measured_recovery_candidate";
     shadow.reason = "measured_low_pulse_four_thirds_fullboard_release";
+    #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+    ci_policy_branch("current_release_02");
+    #endif
     return true;
   }
 
@@ -4927,6 +4940,9 @@ void set_mir_policy_candidate_resolution(
     shadow.action = "writer_override";
     shadow.decision_class = "measured_recovery_candidate";
     shadow.reason = "measured_dominant_direct_fullboard_release";
+    #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+    ci_policy_branch("current_release_03");
+    #endif
     return true;
   }
 
@@ -4950,6 +4966,9 @@ void set_mir_policy_candidate_resolution(
     shadow.action = "family_conflict_review_hold";
     shadow.decision_class = "review_hold_candidate";
     shadow.reason = "generic_three_halves_family_conflict";
+    #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+    ci_policy_branch("current_release_04");
+    #endif
     return true;
   }
 
@@ -4981,6 +5000,9 @@ void set_mir_policy_candidate_resolution(
         shadow.action = "writer_override";
         shadow.decision_class = "measured_recovery_candidate";
         shadow.reason = recoveryReason;
+        #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+        ci_policy_branch("current_release_05");
+        #endif
         return true;
       }
       const MirPolicyMeasuredCandidate* centeredHarmonicRelease =
@@ -4997,6 +5019,9 @@ void set_mir_policy_candidate_resolution(
         shadow.decision_class = "measured_recovery_candidate";
         shadow.reason =
             "measured_centered_continuous_harmonic_release";
+        #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+        ci_policy_branch("current_release_06");
+        #endif
         return true;
       }
       if (mir_policy_broad_route_conflict_review_hold(
@@ -5010,6 +5035,9 @@ void set_mir_policy_candidate_resolution(
         shadow.action = "broad_route_conflict_review_hold";
         shadow.decision_class = "review_hold_candidate";
         shadow.reason = "weak_current_strong_remote_family_conflict";
+        #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+        ci_policy_branch("current_release_07");
+        #endif
         return true;
       }
     }
@@ -5474,6 +5502,9 @@ void set_mir_policy_candidate_resolution(
         shadow.family_conflict_review_hold_candidate;
     shadow.output_would_write =
         !shadow.family_conflict_review_hold_candidate;
+    #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+    ci_policy_branch("current_release_08");
+    #endif
     return true;
   }
 
@@ -5523,6 +5554,9 @@ void set_mir_policy_candidate_resolution(
     shadow.action = "review_hold_promotion";
     shadow.decision_class = "review_hold_promotion_candidate";
     shadow.reason = "measured_material_risk_local_exact_release";
+    #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+    ci_policy_branch("hold_resolution_01");
+    #endif
     return true;
   }
 
@@ -5541,6 +5575,9 @@ void set_mir_policy_candidate_resolution(
     shadow.action = "writer_override";
     shadow.decision_class = "measured_recovery_candidate";
     shadow.reason = "measured_material_risk_same_pulse_release";
+    #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+    ci_policy_branch("hold_resolution_02");
+    #endif
     return true;
   }
 
@@ -5570,6 +5607,9 @@ void set_mir_policy_candidate_resolution(
       shadow.action = "writer_override";
       shadow.decision_class = "measured_recovery_candidate";
       shadow.reason = "measured_material_risk_low_pulse_release";
+      #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+      ci_policy_branch("hold_resolution_03");
+      #endif
       return true;
     }
   }
@@ -5597,6 +5637,9 @@ void set_mir_policy_candidate_resolution(
       shadow.action = "writer_override";
       shadow.decision_class = "measured_recovery_candidate";
       shadow.reason = sparseReleaseReason;
+      #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+      ci_policy_branch("hold_resolution_04");
+      #endif
       return true;
     }
   }
@@ -5627,6 +5670,9 @@ void set_mir_policy_candidate_resolution(
         shadow.action = "writer_override";
         shadow.decision_class = "measured_recovery_candidate";
         shadow.reason = recoveryReason;
+        #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+        ci_policy_branch("hold_resolution_05");
+        #endif
         return true;
       }
     }
@@ -5643,6 +5689,9 @@ void set_mir_policy_candidate_resolution(
       shadow.action = "writer_override";
       shadow.decision_class = "measured_recovery_candidate";
       shadow.reason = "measured_sparse_current_direct_release_gate";
+      #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+      ci_policy_branch("hold_resolution_06");
+      #endif
       return true;
     }
     if (mir_policy_protected_near_measured_release(
@@ -5655,6 +5704,9 @@ void set_mir_policy_candidate_resolution(
       shadow.action = "writer_override";
       shadow.decision_class = "measured_recovery_candidate";
       shadow.reason = "measured_protected_near_release_gate";
+      #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+      ci_policy_branch("hold_resolution_07");
+      #endif
       return true;
     }
     if (mir_policy_protected_half_alias_current_release(
@@ -5667,6 +5719,9 @@ void set_mir_policy_candidate_resolution(
       shadow.action = "writer_override";
       shadow.decision_class = "measured_recovery_candidate";
       shadow.reason = "measured_protected_half_alias_current_release_gate";
+      #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+      ci_policy_branch("hold_resolution_08");
+      #endif
       return true;
     }
     if (mir_policy_protected_strong_measured_direct_release(
@@ -5679,6 +5734,9 @@ void set_mir_policy_candidate_resolution(
       shadow.action = "writer_override";
       shadow.decision_class = "measured_recovery_candidate";
       shadow.reason = "measured_protected_strong_direct_release_gate";
+      #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+      ci_policy_branch("hold_resolution_09");
+      #endif
       return true;
     }
   }
@@ -5695,6 +5753,9 @@ void set_mir_policy_candidate_resolution(
     shadow.action = "writer_override";
     shadow.decision_class = "measured_recovery_candidate";
     shadow.reason = "measured_high_family_conflict_fullboard_release";
+    #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+    ci_policy_branch("hold_resolution_10");
+    #endif
     return true;
   }
 
@@ -5711,6 +5772,9 @@ void set_mir_policy_candidate_resolution(
       shadow.action = "writer_override";
       shadow.decision_class = "measured_recovery_candidate";
       shadow.reason = "measured_release_ready_high_family_winner";
+      #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+      ci_policy_branch("hold_resolution_11");
+      #endif
       return true;
     }
   }
@@ -5743,6 +5807,9 @@ void set_mir_policy_candidate_resolution(
     shadow.reason = protectedCurrentExactRelease
                         ? "measured_protected_current_release_gate"
                         : "measured_protected_direct_release_gate";
+    #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+    ci_policy_branch("hold_resolution_12");
+    #endif
     return true;
   }
 
@@ -5757,6 +5824,9 @@ void set_mir_policy_candidate_resolution(
       shadow.action = "writer_override";
       shadow.decision_class = "measured_recovery_candidate";
       shadow.reason = "measured_release_ready_sparse_family";
+      #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+      ci_policy_branch("hold_resolution_13");
+      #endif
       return true;
     }
   }
@@ -5774,6 +5844,9 @@ void set_mir_policy_candidate_resolution(
       shadow.action = "writer_override";
       shadow.decision_class = "measured_recovery_candidate";
       shadow.reason = "measured_release_ready_material_risk_winner";
+      #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+      ci_policy_branch("hold_resolution_14");
+      #endif
       return true;
     }
   }
@@ -5802,6 +5875,9 @@ void set_mir_policy_candidate_resolution(
       shadow.action = "writer_override";
       shadow.decision_class = "measured_recovery_candidate";
       shadow.reason = lowPulseReason;
+      #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+      ci_policy_branch("hold_resolution_15");
+      #endif
       return true;
     }
   }
@@ -5839,6 +5915,9 @@ void set_mir_policy_candidate_resolution(
         shadow.action = "review_hold_promotion";
         shadow.decision_class = "review_hold_promotion_candidate";
         shadow.reason = "frozen_soft_center_review_promotion_gate";
+        #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+        ci_policy_branch("hold_resolution_16");
+        #endif
         return true;
       }
     }
@@ -5848,6 +5927,9 @@ void set_mir_policy_candidate_resolution(
     shadow.action = "keep_review_hold";
     shadow.decision_class = "protected_review_hold";
     shadow.reason = "review_hold_promotion_gate_veto";
+    #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+    ci_policy_branch("hold_resolution_17");
+    #endif
     return true;
   }
 
@@ -5887,6 +5969,7 @@ compute_mir_policy_decision(
   g_ci_policy_source = {};
   g_ci_policy_stage_count = 0;
   g_ci_policy_stage_complete = true;
+  g_ci_policy_branch_token = nullptr;
 #endif
   // Ordered policy stages. Their sequence is part of the release contract.
   MirPolicyQualificationStage qualification = qualify_mir_policy_board(
@@ -5895,6 +5978,7 @@ compute_mir_policy_decision(
   auto& shadow = qualification.decision;
   if (!qualification.ready) {
 #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+    ci_policy_branch(!enabled ? "qualification_disabled" : "qualification_empty");
     ci_policy_stage("qualification_terminal");
 #endif
     return shadow;
@@ -5932,6 +6016,7 @@ compute_mir_policy_decision(
 #endif
   apply_mir_policy_default_resolution_stage(shadow, current);
 #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+  ci_policy_branch("default_resolution");
   ci_policy_stage("default_resolution_terminal");
 #endif
   return shadow;
