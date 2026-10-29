@@ -21,6 +21,29 @@ PAIR_FIELDS = tuple(side + "_" + field for field in
                     for side in ("GAIN", "LOSS"))
 
 
+# Causal categories are joined only after the unchanged native analysis and
+# independent source-ID comparator audit have completed. These are diagnostic
+# outcomes, never an oracle-derived production selector.
+RECALL_NUMERIC = (
+    "RAW_NEAR_020", "CLUSTER_NEAR_020", "POLICY_BOARD_NEAR_020",
+    "PRIMARY_NEAR_020", "POLICY_NEAR_020", "FINAL_ACCEPTED_NEAR_020",
+)
+RECALL_FIELDS = set(RECALL_NUMERIC) | {
+    "ROOT_CAUSE_STAGE", "PRIMARY_COMPARATOR_DIAGNOSIS",
+}
+ROOT_REASONS = (
+    "reference_in_selected_output", "missing_raw_reference",
+    "missing_cluster_reference", "missing_policy_board_reference",
+    "primary_selected_other", "policy_selected_other",
+    "final_selected_other", "reference_present_held",
+)
+COMPARATOR_REASONS = (
+    "reference_primary_selected", "reference_missing_cluster",
+    "reference_not_ranked", "reference_ranked_lost",
+    "reference_won_nonterminal_family",
+)
+
+
 class ProspectiveError(ValueError):
     pass
 
@@ -30,7 +53,7 @@ def validate(reports, expected_source_sha=None, require_both=True):
         raise ProspectiveError("missing host architecture")
     if expected_source_sha is not None and not re.fullmatch(r"[a-f0-9]{40}", expected_source_sha):
         raise ProspectiveError("invalid expected source SHA")
-    seen, shas, totals, paired, gates = set(), set(), {}, {}, {}
+    seen, shas, totals, paired, gates, causal = set(), set(), {}, {}, {}, {}
     reference_cases = None
     for report in reports:
         if type(report) is not dict or set(report) != {"schema", "architecture", "source_sha", "cases"}:
@@ -51,8 +74,10 @@ def validate(reports, expected_source_sha=None, require_both=True):
         if type(cases) is not list or len(cases) != len(CASES):
             raise ProspectiveError("missing prospective cases")
         aggregate = {model: {field: 0 for field in FIELDS} for model in MODELS}
+        root_counts = {reason: 0 for reason in ROOT_REASONS}
+        comparator_counts = {reason: 0 for reason in COMPARATOR_REASONS}
         for i, row in enumerate(cases):
-            if type(row) is not dict or set(row) != {"case", "ablation", "media_no_write"}:
+            if type(row) is not dict or set(row) != {"case", "ablation", "recall", "media_no_write"}:
                 raise ProspectiveError("unknown case fields")
             if row["case"] != CASES[i] or row["media_no_write"] is not True:
                 raise ProspectiveError("case order/identity or no-write drift")
@@ -70,6 +95,31 @@ def validate(reports, expected_source_sha=None, require_both=True):
                     raise ProspectiveError("contradictory decision/accuracy count")
                 for field, value in values.items():
                     aggregate[model][field] += value
+            recall = row["recall"]
+            if type(recall) is not dict or set(recall) != RECALL_FIELDS:
+                raise ProspectiveError("missing or extra causal source evidence")
+            reason = recall["ROOT_CAUSE_STAGE"]
+            comparator = recall["PRIMARY_COMPARATOR_DIAGNOSIS"]
+            if reason not in ROOT_REASONS or comparator not in COMPARATOR_REASONS:
+                raise ProspectiveError("unrecognized causal source diagnosis")
+            if any(type(recall[key]) is not int or recall[key] < 0
+                   for key in RECALL_NUMERIC):
+                raise ProspectiveError("invalid causal source denominator")
+            for key in ("PRIMARY_NEAR_020", "POLICY_NEAR_020",
+                        "FINAL_ACCEPTED_NEAR_020"):
+                if recall[key] > 1:
+                    raise ProspectiveError("nonbinary causal terminal")
+            correct = counts["NATIVE_FINAL_CORRECT_020"]
+            if recall["FINAL_ACCEPTED_NEAR_020"] != correct or (
+                (reason == "reference_in_selected_output") != bool(correct)
+            ):
+                raise ProspectiveError("causal diagnosis disagrees with native final")
+            if ((reason == "missing_raw_reference" and recall["RAW_NEAR_020"]) or
+                (reason == "missing_cluster_reference" and recall["CLUSTER_NEAR_020"]) or
+                (reason == "missing_policy_board_reference" and recall["POLICY_BOARD_NEAR_020"])):
+                raise ProspectiveError("causal stage contradicts measured source presence")
+            root_counts[reason] += 1
+            comparator_counts[comparator] += 1
         # A matching aggregate can hide opposite per-case errors. Demand
         # exact paired host outcomes, not merely matching column totals.
         if reference_cases is None:
@@ -77,6 +127,7 @@ def validate(reports, expected_source_sha=None, require_both=True):
         elif cases != reference_cases:
             raise ProspectiveError("cross-architecture case-level drift")
         totals[arch] = aggregate
+        causal[arch] = {"root": root_counts, "comparator": comparator_counts}
         paired[arch], gates[arch] = {}, {}
         native = aggregate["NATIVE_FINAL"]
         for model in MODELS[1:]:
@@ -103,7 +154,8 @@ def validate(reports, expected_source_sha=None, require_both=True):
         raise ProspectiveError("mixed product source SHAs")
     return {"source_sha": next(iter(shas)), "architectures": totals,
             "n_per_architecture": len(CASES), "paired": paired,
-            "gates": gates, "cross_arch_case_parity": len(seen) == 2,
+            "gates": gates, "causal": causal,
+            "cross_arch_case_parity": len(seen) == 2,
             "production_admission": "NO_GO"}
 
 
@@ -143,6 +195,12 @@ def main():
     for arch in ("Win32", "x64"):
         if arch not in result["architectures"]:
             continue
+        for family, reasons in (("ROOT", ROOT_REASONS),
+                                ("COMPARATOR", COMPARATOR_REASONS)):
+            for reason in reasons:
+                print("SMART_TEMPO_PROSPECTIVE_" + arch.upper() + "_CAUSAL_" +
+                      family + "_" + reason.upper() + "=" +
+                      str(result["causal"][arch][family.lower()][reason]))
         for model in MODELS:
             for field in FIELDS:
                 print("SMART_TEMPO_PROSPECTIVE_" + arch.upper() + "_" + model + "_" + field +
