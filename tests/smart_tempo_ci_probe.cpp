@@ -397,7 +397,7 @@ bool native_raw_fallback_contract(int variant) {
         bool included;
     };
     using E = Expected;
-    const std::array<E, 15> fallbackBoth{{
+    const std::array<E, 17> fallbackBoth{{
         E{"raw_alias_provisional_exclusion", 0, true, false},
         E{"raw_alias_provisional_exclusion", 1, true, false},
         E{"raw_alias_fallback_readmitted", 0, true, true},
@@ -410,22 +410,26 @@ bool native_raw_fallback_contract(int variant) {
         E{"raw_compare_won", 0, true, true},
         E{"raw_rank_scored", 1, true, true},
         E{"raw_compare_won", 1, true, true},
+        E{"raw_terminal_selected", 1, true, true},
+        E{"raw_cluster_resolved", 1, false, true},
         E{"terminal_lane_choice", 1, false, true},
         E{"terminal_residual_choice", 1, false, true},
         E{"terminal_final_choice", 1, false, true},
     }};
-    const std::array<E, 9> directOnly{{
+    const std::array<E, 11> directOnly{{
         E{"raw_alias_provisional_exclusion", 0, true, false},
         E{"raw_alias_allowed", 1, true, true},
         E{"raw_alias_decisive_veto", 0, true, false},
         E{"raw_support_allowed", 1, true, true},
         E{"raw_rank_scored", 1, true, true},
         E{"raw_compare_won", 1, true, true},
+        E{"raw_terminal_selected", 1, true, true},
+        E{"raw_cluster_resolved", 1, false, true},
         E{"terminal_lane_choice", 1, false, true},
         E{"terminal_residual_choice", 1, false, true},
         E{"terminal_final_choice", 1, false, true},
     }};
-    const std::array<E, 12> aliasOnly{{
+    const std::array<E, 14> aliasOnly{{
         E{"raw_alias_provisional_exclusion", 0, true, false},
         E{"raw_alias_provisional_exclusion", 1, true, false},
         E{"raw_alias_fallback_readmitted", 0, true, true},
@@ -435,24 +439,28 @@ bool native_raw_fallback_contract(int variant) {
         E{"raw_support_decisive_veto", 0, true, false},
         E{"raw_rank_scored", 1, true, true},
         E{"raw_compare_won", 1, true, true},
+        E{"raw_terminal_selected", 1, true, true},
+        E{"raw_cluster_resolved", 1, false, true},
         E{"terminal_lane_choice", 1, false, true},
         E{"terminal_residual_choice", 1, false, true},
         E{"terminal_final_choice", 1, false, true},
     }};
     // Three independent sparse floor/source-ID controls, all exercising
     // the unchanged native productive path within isolated foobar CI.
-    const std::array<E, 9> supportAtFloor{{
+    const std::array<E, 11> supportAtFloor{{
         E{"raw_alias_provisional_exclusion", 0, true, false},
         E{"raw_alias_allowed", 1, true, true},
         E{"raw_alias_decisive_veto", 0, true, false},
         E{"raw_support_allowed", 1, true, true},
         E{"raw_rank_scored", 1, true, true},
         E{"raw_compare_won", 1, true, true},
+        E{"raw_terminal_selected", 1, true, true},
+        E{"raw_cluster_resolved", 1, false, true},
         E{"terminal_lane_choice", 1, false, true},
         E{"terminal_residual_choice", 1, false, true},
         E{"terminal_final_choice", 1, false, true},
     }};
-    const std::array<E, 10> supportBelowFloor{{
+    const std::array<E, 12> supportBelowFloor{{
         E{"raw_alias_provisional_exclusion", 0, true, false},
         E{"raw_alias_allowed", 1, true, true},
         E{"raw_alias_decisive_veto", 0, true, false},
@@ -460,11 +468,13 @@ bool native_raw_fallback_contract(int variant) {
         E{"raw_support_fallback_readmitted", 1, true, true},
         E{"raw_rank_scored", 1, true, true},
         E{"raw_compare_won", 1, true, true},
+        E{"raw_terminal_selected", 1, true, true},
+        E{"raw_cluster_resolved", 1, false, true},
         E{"terminal_lane_choice", 1, false, true},
         E{"terminal_residual_choice", 1, false, true},
         E{"terminal_final_choice", 1, false, true},
     }};
-    const std::array<E, 10> supportVetoOnly{{
+    const std::array<E, 12> supportVetoOnly{{
         E{"raw_alias_allowed", 0, true, true},
         E{"raw_alias_allowed", 1, true, true},
         E{"raw_support_provisional_exclusion", 0, true, false},
@@ -472,6 +482,8 @@ bool native_raw_fallback_contract(int variant) {
         E{"raw_support_decisive_veto", 0, true, false},
         E{"raw_rank_scored", 1, true, true},
         E{"raw_compare_won", 1, true, true},
+        E{"raw_terminal_selected", 1, true, true},
+        E{"raw_cluster_resolved", 1, false, true},
         E{"terminal_lane_choice", 1, false, true},
         E{"terminal_residual_choice", 1, false, true},
         E{"terminal_final_choice", 1, false, true},
@@ -675,13 +687,68 @@ bool write_native_rail_marker() {
     return ok;
 }
 
+// The winning raw object is the second equal-BPM alias, while first-match
+// collapse returns the single cluster at index zero. BPM equality alone
+// cannot identify the selected raw object.
+bool native_raw_duplicate_identity_contract() {
+    using namespace smart_tempo;
+    using namespace smart_tempo::mir_pipeline;
+    MirCandidateBoard board{};
+    board.segment_count = 10;
+    for (int i = 0; i < 2; ++i) {
+        MirRawCandidate raw{};
+        raw.bpm = 129.0;
+        raw.alias_bit = static_cast<uint16_t>(
+            i == 0 ? MirAlias::quarter : MirAlias::direct);
+        raw.alias_class = i == 0 ? "quarter" : "direct";
+        raw.synthetic_support = i == 0 ? .01 : .80;
+        raw.synthetic_winner_support = .01;
+        raw.score_sum = i == 0 ? .10 : 3.0;
+        raw.best_combined_score = i == 0 ? .10 : .90;
+        raw.rows = 1;
+        board.raw_candidates.push_back(raw);
+    }
+    MirRoutingContext route{};
+    route.source_genres = "Acapella";
+    route.matched_token = "Acapella";
+    route.route_matched = true;
+    const HodgkinsonTatumProbeResult mir{};
+    const HodgkinsonMaterialRiskEvidence risk{};
+    const auto result = compute_mir_primary_selection(
+        board, mir, risk, &route, 111.0, 157.0, true);
+    if (std::string_view(result.lane) != "sparse_or_acapella" ||
+        result.selected_bpm != 129.0 || result.candidate_count != 1 ||
+        !mir_ci_primary_selector_trace_complete()) return false;
+    const auto events = mir_ci_primary_selector_events();
+    std::size_t rawPos = events.size(), clusterPos = events.size();
+    std::size_t terminalPos = events.size();
+    for (std::size_t i = 0; i < events.size(); ++i) {
+        if (std::strcmp(events[i].reason, "raw_terminal_selected") == 0) {
+            if (rawPos != events.size() || !events[i].raw ||
+                events[i].source_index != 1) return false;
+            rawPos = i;
+        } else if (std::strcmp(events[i].reason, "raw_cluster_resolved") == 0) {
+            if (clusterPos != events.size() || events[i].raw ||
+                events[i].source_index != 0) return false;
+            clusterPos = i;
+        } else if (std::strcmp(events[i].reason, "terminal_lane_choice") == 0) {
+            if (terminalPos != events.size() || events[i].raw ||
+                events[i].source_index != 0) return false;
+            terminalPos = i;
+        }
+    }
+    return rawPos < events.size() && clusterPos == rawPos + 1 &&
+           terminalPos == clusterPos + 1;
+}
+
 bool write_native_raw_fallback_marker() {
     if (!native_raw_fallback_contract(0) ||
         !native_raw_fallback_contract(1) ||
         !native_raw_fallback_contract(2) ||
         !native_raw_fallback_contract(3) ||
         !native_raw_fallback_contract(4) ||
-        !native_raw_fallback_contract(5))
+        !native_raw_fallback_contract(5) ||
+        !native_raw_duplicate_identity_contract())
         return false;
     const std::wstring output = g_ci_fixture + L".native-raw-fallback";
     const HANDLE handle = ::CreateFileW(

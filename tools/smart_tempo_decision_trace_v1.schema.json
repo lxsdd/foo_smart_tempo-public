@@ -123,6 +123,7 @@
     "One candidate may have several origin markers; origin is not eligibility",
     "Every exclusion must name its exact stage and reason",
     "Raw-to-cluster parentage must be the exact ordered first-match partition, never an approximate many-to-many BPM join",
+    "Original native raw winning object and first-match resolved cluster emit adjacent source-indexed events; BPM-only winner inference is insufficient",
     "Every policy FullBoard row must have exactly one unique indexed cluster source; missing sources fail closed",
     "Every native Policy rail verdict must reconcile source-index, resolved BPM and FullBoard membership",
     "Every collapsed candidate's first observed native exclusion must reconcile exact source ID, executed event index, reason and score; absence is not eligibility or a decisive veto",

@@ -2206,6 +2206,22 @@ compute_mir_primary_selection(
   shadow.material_risk_review_hold = materialRisk.review_hold_candidate;
 
   const MirCandidate* selected = nullptr;
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+  // Capture actual raw winning object and productive first-match cluster.
+  const auto ciRecordRawBridge = [&](const MirRawCandidate* raw) noexcept {
+    if (raw == nullptr) return;
+    if (selected == nullptr) {
+      g_ci_primary_trace_complete = false;
+      return;
+    }
+    ci_primary_event(static_cast<std::size_t>(
+                         raw - board.raw_candidates.data()),
+                     raw->bpm, 0.0, true, true, "raw_terminal_selected");
+    ci_primary_event(static_cast<std::size_t>(
+                         selected - candidates.data()),
+                     selected->bpm, 0.0, false, true, "raw_cluster_resolved");
+  };
+#endif
   if (std::strcmp(lane, "low_pulse_context") == 0) {
     shadow.lane_variant = "low_pulse_targeted_rescue_v4";
     selected = select_mir_low_pulse(candidates);
@@ -2231,6 +2247,9 @@ compute_mir_primary_selection(
       selected = rawSelected != nullptr
                      ? find_mir_cluster(candidates, rawSelected->bpm)
                      : nullptr;
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+      ciRecordRawBridge(rawSelected);
+#endif
     } else {
       selected = select_mir_general_144_soft(
           candidates, lane, routeMin, routeMax, shadow.route_center_bpm);
@@ -2242,6 +2261,9 @@ compute_mir_primary_selection(
     selected = rawSelected != nullptr
                    ? find_mir_cluster(candidates, rawSelected->bpm)
                    : nullptr;
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+      ciRecordRawBridge(rawSelected);
+#endif
   }
 #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
   if (selected != nullptr)

@@ -636,6 +636,46 @@ inline bool record(
       }
     }
   }
+  // Exact original raw-winning pointer to first-match collapsed object.
+  const mir_pipeline::MirCiSelectorEvent* rawBridge = nullptr;
+  const mir_pipeline::MirCiSelectorEvent* clusterBridge = nullptr;
+  std::size_t rawBridgePos = 0, clusterBridgePos = 0;
+  for (std::size_t j = 0; j < selectorEvents.size(); ++j) {
+    const auto& event = selectorEvents[j];
+    if (std::strcmp(event.reason, "raw_terminal_selected") == 0) {
+      if (rawBridge != nullptr) return reject(__LINE__);
+      rawBridge = &event;
+      rawBridgePos = j;
+    } else if (std::strcmp(event.reason, "raw_cluster_resolved") == 0) {
+      if (clusterBridge != nullptr) return reject(__LINE__);
+      clusterBridge = &event;
+      clusterBridgePos = j;
+    }
+  }
+  if ((rawBridge == nullptr) != (clusterBridge == nullptr))
+    return reject(__LINE__);
+  if (rawBridge != nullptr) {
+    if (!rawBridge->raw || clusterBridge->raw ||
+        !rawBridge->included || !clusterBridge->included ||
+        rawBridge->score != 0.0 || clusterBridge->score != 0.0 ||
+        rawBridgePos + 1 != clusterBridgePos ||
+        rawBridge->source_index >= board.raw_candidates.size() ||
+        clusterBridge->source_index >= collapsed.size() ||
+        std::abs(rawBridge->bpm - clusterBridge->bpm) >= 0.001)
+      return reject(__LINE__);
+    const auto& parents = raw_cluster_sources[clusterBridge->source_index];
+    if (std::find(parents.begin(), parents.end(), rawBridge->source_index) ==
+        parents.end()) return reject(__LINE__);
+    bool laneTerminalMatches = false;
+    for (std::size_t j = clusterBridgePos + 1; j < selectorEvents.size(); ++j)
+      if (std::strcmp(selectorEvents[j].reason, "terminal_lane_choice") == 0) {
+        if (laneTerminalMatches ||
+            selectorEvents[j].source_index != clusterBridge->source_index)
+          return reject(__LINE__);
+        laneTerminalMatches = true;
+      }
+    if (!laneTerminalMatches) return reject(__LINE__);
+  }
   // Every collapsed candidate receives a purely observational disposition.
   // A temporary filter veto may be reversed later: never label it terminal.
   std::vector<uint8_t> primary_observation(collapsed.size(), 0);

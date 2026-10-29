@@ -1367,3 +1367,18 @@ Policy, writer or media. Phase B remains incomplete and Phase C/owner musical
 acceptance remain NO_GO pending independent complete provenance review and
 unseen music QA. Qualification requires a fresh exact-HEAD original-host
 Win32/x64 CI PASS; a source commit alone is not evidence.
+
+### 29 October 2026 — native raw-winner to collapsed-object bridge
+
+The original high-center and conservative raw selectors now expose two adjacent
+CI-only events: the actual winning raw candidate **pointer/source index** and
+the actual cluster object returned by the productive first-match lookup.
+The source and cluster IDs are independently checked against the ordered
+raw-to-cluster parent partition and first lane terminal. The raw fate automaton
+rejects omitted, duplicated, swapped, wrongly parented, BPM-equal but
+source-wrong, and altered-polarity/score witnesses. The original foobar host
+also exercises six raw alias/support fallback controls and a same-BPM
+two-raw-to-one-cluster control with the second raw object winning. These
+controls are fabricated public candidates, not a new decoded-audio accuracy
+sample. Production selector, Policy, writer and media remain untouched.
+Phase B global candidate eligibility remains unproven; Phase C stays closed.

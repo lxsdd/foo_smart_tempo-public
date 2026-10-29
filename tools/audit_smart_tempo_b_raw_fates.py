@@ -20,7 +20,8 @@ def reconcile_native_raw(rows: list[dict]) -> dict[str, int]:
         raise RawFateError("duplicate raw source IDs")
     native = [row for row in rows if row["stage"] in (
         "candidate_filter", "primary_rank", "primary_compare") and
-        row["reason_code"].startswith("raw_")]
+        row["reason_code"].startswith("raw_") and
+        row["reason_code"] not in ("raw_terminal_selected", "raw_cluster_resolved")]
     result = {
         "native_raw_complete_invocations": 0,
         "native_raw_first_decisive_alias": 0,
@@ -28,6 +29,7 @@ def reconcile_native_raw(rows: list[dict]) -> dict[str, int]:
         "native_raw_alias_fallback_sources": 0,
         "native_raw_support_fallback_sources": 0,
         "native_raw_compared_sources": 0,
+        "native_raw_object_bridge_verified": 0,
     }
     if not native:
         # A different MIR lane may never invoke the raw selector.
@@ -120,16 +122,37 @@ def reconcile_native_raw(rows: list[dict]) -> dict[str, int]:
     if last_winner is None:
         raise RawFateError("nonempty native raw selector lacks winner")
 
-    # The productive selector resolves the raw winning BPM to the *first*
-    # collapsed candidate matching within 0.001. A later residual rescue
-    # can change the final choice, so compare ONLY the lane terminal.
+    # Native pointer-to-pointer bridge, not a BPM-inferred raw winner.
+    bridge = [(i, row) for i, row in enumerate(rows)
+              if row["reason_code"] in
+              ("raw_terminal_selected", "raw_cluster_resolved")]
+    if len(bridge) != 2 or [r["reason_code"] for _, r in bridge] != [
+            "raw_terminal_selected", "raw_cluster_resolved"]:
+        raise RawFateError("native raw-to-cluster pointer bridge missing or duplicated")
+    (raw_pos, raw_winner), (cluster_pos, resolved) = bridge
+    if (cluster_pos != raw_pos + 1 or
+            raw_winner["stage"] != "candidate_filter" or
+            resolved["stage"] != "candidate_filter" or
+            raw_winner["outcome"] != "included" or
+            resolved["outcome"] != "included" or
+            raw_winner["candidate_id"] != last_winner or
+            raw_winner["metrics"]["bpm"] != bpm[last_winner] or
+            any(r["metrics"][key] != 0 for _, r in bridge
+                for key in ("score", "support"))):
+        raise RawFateError("native raw winning pointer or bridge order forged")
     collapsed = [row for row in rows if row["stage"] == "candidate_transform"]
-    matching = [row["candidate_id"] for row in collapsed if
+    matching = [row for row in collapsed if
                 abs(row["metrics"]["bpm"] - bpm[last_winner]) < .001]
-    terminal = [row for row in rows if row["stage"] == "primary_terminal" and
+    if (not matching or resolved["candidate_id"] != matching[0]["candidate_id"]
+            or resolved["metrics"]["bpm"] != matching[0]["metrics"]["bpm"]
+            or last_winner not in matching[0].get("parent_candidate_ids", [])):
+        raise RawFateError("raw winner not a parent of native resolved cluster")
+    terminal = [(i, row) for i, row in enumerate(rows)
+                if row["stage"] == "primary_terminal" and
                 row["reason_code"] == "terminal_lane_choice"]
-    if len(terminal) != 1 or not matching or (
-            terminal[0]["candidate_id"] != matching[0]):
-        raise RawFateError("raw native winning object did not reach lane terminal")
+    if (len(terminal) != 1 or terminal[0][0] <= cluster_pos or
+            terminal[0][1]["candidate_id"] != resolved["candidate_id"]):
+        raise RawFateError("native raw bridge did not reach lane terminal")
+    result["native_raw_object_bridge_verified"] = 1
     result["native_raw_complete_invocations"] = 1
     return result

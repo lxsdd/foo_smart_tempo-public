@@ -132,6 +132,7 @@ ALLOWED_FILTER_REASONS = frozenset((
     "raw_alias_allowed", "raw_alias_provisional_exclusion",
     "raw_alias_decisive_veto", "raw_support_decisive_veto",
     "raw_support_allowed", "raw_support_provisional_exclusion",
+    "raw_terminal_selected", "raw_cluster_resolved",
     "low_upper_gate_allowed", "low_upper_gate_provisional_exclusion",
     "low_upper_branch_veto",
     "low_threshold_allowed", "low_threshold_provisional_exclusion",
@@ -556,7 +557,8 @@ def validate(rows: list[dict], *, require_windows: bool = False,
                           else ALLOWED_TERMINAL_REASONS)
             if item["reason_code"] not in reason_set:
                 raise TraceError("unknown selector-veto/rank reason")
-            expect_raw = item["reason_code"].startswith("raw_")
+            expect_raw = (item["reason_code"].startswith("raw_") and
+                          item["reason_code"] != "raw_cluster_resolved")
             if (candidate_id is None or ids.get(candidate_id) !=
                     ("candidate_create" if expect_raw else "candidate_transform")):
                 raise TraceError("selector event not linked to correct source board")

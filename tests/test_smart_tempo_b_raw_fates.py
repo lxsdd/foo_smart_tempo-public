@@ -9,9 +9,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 from audit_smart_tempo_b_raw_fates import reconcile_native_raw, RawFateError
 
 
-def row(stage, cid, reason, outcome, bpm=128.0):
+def row(stage, cid, reason, outcome, bpm=128.0, parents=()):
     return dict(stage=stage, candidate_id=cid, reason_code=reason,
-                outcome=outcome, metrics=dict(bpm=bpm, score=0.0, support=0.0))
+                outcome=outcome, parent_candidate_ids=list(parents),
+                metrics=dict(bpm=bpm, score=0.0, support=0.0))
 
 
 def sample(scenario):
@@ -54,13 +55,16 @@ def sample(scenario):
     }
     rows = [row("candidate_create","c0","raw_topk","observed"),
             row("candidate_create","c1","raw_topk","observed"),
-            row("candidate_transform","c2","cluster_from_raw","observed")]
+            row("candidate_transform","c2","cluster_from_raw","observed",
+                parents=("c0","c1"))]
     for index, reason, included in cases[scenario]:
         stage = ("primary_rank" if reason == R else
                  "primary_compare" if reason.startswith("raw_compare_") else
                  "candidate_filter")
         rows.append(row(stage, f"c{index}", reason,
                         "included" if included else "excluded"))
+    rows.append(row("candidate_filter", "c1", "raw_terminal_selected", "included"))
+    rows.append(row("candidate_filter", "c2", "raw_cluster_resolved", "included"))
     rows.append(row("primary_terminal", "c2", "terminal_lane_choice", "selected"))
     return rows
 
@@ -79,6 +83,7 @@ class NativeRawFateTests(unittest.TestCase):
             with self.subTest(case=case):
                 result = reconcile_native_raw(sample(case))
                 self.assertEqual(result["native_raw_complete_invocations"], 1)
+                self.assertEqual(result["native_raw_object_bridge_verified"], 1)
                 self.assertEqual(tuple(result[name] for name in (
                     "native_raw_first_decisive_alias",
                     "native_raw_first_decisive_support",
@@ -121,6 +126,41 @@ class NativeRawFateTests(unittest.TestCase):
                             "primary_rank","c0","raw_rank_scored","included"))
                     else:
                         bad[-1]["candidate_id"] = "c0"
+                    with self.assertRaises(RawFateError):
+                        reconcile_native_raw(bad)
+
+    def test_raw_pointer_bridge_adversarial_mutations(self):
+        for scenario in range(6):
+            original = sample(scenario)
+            for mutation in ("missing_raw", "missing_cluster", "duplicate",
+                             "swap", "wrong_raw_id", "wrong_cluster_id",
+                             "wrong_cluster_bpm", "wrong_parent",
+                             "wrong_polarity", "wrong_score"):
+                with self.subTest(scenario=scenario, mutation=mutation):
+                    bad = copy.deepcopy(original)
+                    raw_pos = next(i for i, r in enumerate(bad)
+                                   if r["reason_code"] == "raw_terminal_selected")
+                    cluster_pos = raw_pos + 1
+                    if mutation == "missing_raw":
+                        del bad[raw_pos]
+                    elif mutation == "missing_cluster":
+                        del bad[cluster_pos]
+                    elif mutation == "duplicate":
+                        bad.insert(raw_pos, copy.deepcopy(bad[raw_pos]))
+                    elif mutation == "swap":
+                        bad[raw_pos], bad[cluster_pos] = bad[cluster_pos], bad[raw_pos]
+                    elif mutation == "wrong_raw_id":
+                        bad[raw_pos]["candidate_id"] = "c0"
+                    elif mutation == "wrong_cluster_id":
+                        bad[cluster_pos]["candidate_id"] = "c0"
+                    elif mutation == "wrong_cluster_bpm":
+                        bad[cluster_pos]["metrics"]["bpm"] = 127.0
+                    elif mutation == "wrong_parent":
+                        bad[2]["parent_candidate_ids"] = ["c0"]
+                    elif mutation == "wrong_polarity":
+                        bad[raw_pos]["outcome"] = "excluded"
+                    else:
+                        bad[raw_pos]["metrics"]["score"] = 1.0
                     with self.assertRaises(RawFateError):
                         reconcile_native_raw(bad)
 
