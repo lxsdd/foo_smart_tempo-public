@@ -1312,3 +1312,32 @@ benefit did not generalize; no productive selector change is authorized.
 The original selector stores both indexed collapsed cluster BPM and actually measured locally refined Primary BPM (up to 0.80 BPM under native witness). Post-host PRIMARY_ONLY and AGREEMENT_ONLY must score the actual Primary output, not silently substitute the original cluster center. The independent shadow scorer reports native Primary correctness from measured output while retaining source ID for lineage. CI-only Python witness enforces cluster/exact/delta conservation; negative tests reject forged, partial, nonfinite and over-limit refinements. No production algorithm, DSP, writer or user-data changes.
 
 Previously published synthetic counterfactual counts remain historical. Only new exact-source Win32/x64 host CI can establish revised paired six-case denominators. Real-music holdout and owner approval remain NO_GO.
+
+### 29 October 2026 — prospective same-host causal failure attribution (Phase B)
+
+The existing six-case, original Win32/x64 WAV-host prospective ablation
+now joins the **already measured** post-host candidate-recall diagnosis and
+native source-ID comparator fate to each frozen four-model decision. The
+report contains only predeclared causal reason enums and bounded numeric
+counts: raw/cluster/Policy FullBoard presence within +/-0.20 BPM,
+Primary/Policy/final proximity, first absent stage and observed comparator
+fate. The independent dual-host validator requires exact case-level parity,
+one original-source SHA, final correct-count conservation, no-write status
+and complete causal category denominators; missing, forged, contradictory
+and cross-architecture-drifting diagnoses are rejected. This does **not**
+instrument a new branch or modify production DSP, selector, Policy or writer.
+
+A correctness fix is part of the same causal evaluation: a final BPM
+legitimately refined from the native measured cluster by up to 0.80 BPM
+can be correct even when the *unrefined* raw/cluster values are outside
+the scorer's +/-0.20 BPM reference window. Such a case must be classified
+as a correct final output, with upstream absence recorded independently,
+rather than misreported as a final musical miss. A regression protects
+this distinction. No oracle label enters the host or native selection.
+
+This is a source-of-error **measurement**, not a proposed new ranking
+algorithm, global ELIGIBILITY certificate, Phase-C campaign, or private
+music acceptance. The existing six cases are seen public synthetic data;
+their results must not be used to tune and then claim blind validation.
+A source SHA-specific Windows Win32/x64 CI pass is required before any
+new causal counts may be quoted as qualified evidence.
