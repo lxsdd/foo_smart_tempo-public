@@ -336,9 +336,10 @@ function Run-Case([string]$installer,[string]$root,[string]$inputFile,[string[]]
       # Independent post-host recall audit: the predeclared reference BPM is
       # read only by this Python scorer AFTER the native worker has exited.
       # Crucially, neither MIR, Policy nor the host component sees the oracle.
+      $recallSeen=@{}
       if (-not $RequireLowPulseCoverage) {
-        # The recall scorer is deliberately frozen to exactly the original
-        # four cases; the additional low-genre CUE probes branch coverage.
+        # Oracle attribution is post-host and applies to the original pilot
+        # and prospective six-case board, never to live DSP/Policy selection.
         $recallOutput=@(python ./tools/audit_smart_tempo_b_candidate_recall.py --manifest $reference --observed $observed --trace $trace --case $label.Substring(10) 2>&1)
         if ($LASTEXITCODE -ne 0 -or
             @($recallOutput | Where-Object { $_ -ceq 'SMART_TEMPO_B_RECALL_VERIFIED=1' }).Count -ne 1) {
@@ -355,8 +356,22 @@ function Run-Case([string]$installer,[string]$root,[string]$inputFile,[string[]]
           throw 'Native reference-to-executed-comparator attribution incomplete'
         }
         $recallOutput | ForEach-Object { Write-Host $_ }
+        # Join source-stage diagnosis to the same native case as the frozen
+        # counterfactual decisions. Only fixed enums and bounded counts.
+        foreach ($line in $recallOutput) {
+          if ([string]$line -cmatch '^SMART_TEMPO_B_RECALL_(ROOT_CAUSE_STAGE|PRIMARY_COMPARATOR_DIAGNOSIS|RAW_NEAR_020|CLUSTER_NEAR_020|POLICY_BOARD_NEAR_020|PRIMARY_NEAR_020|POLICY_NEAR_020|FINAL_ACCEPTED_NEAR_020)=([a-z0-9_]+)$') {
+            $key=$Matches[1]; $value=$Matches[2]
+            if ($recallSeen.ContainsKey($key)) { throw 'Duplicate causal recall field' }
+            if ($key -cin @('ROOT_CAUSE_STAGE','PRIMARY_COMPARATOR_DIAGNOSIS')) {
+              $recallSeen[$key]=$value
+            } elseif ($value -cmatch '^[0-9]+$') {
+              $recallSeen[$key]=[int]$value
+            } else { throw 'Malformed causal recall denominator' }
+          }
+        }
+        if ($recallSeen.Count -ne 8) { throw 'Incomplete original-host causal recall' }
       }
-      $traceEvidence=@{}
+      $traceEvidence=@{
       foreach ($line in $traceOutput) {
         if ([string]$line -cmatch '^SMART_TEMPO_TRACE_([A-Z0-9_]+)=([A-Za-z0-9_.]+)$' -and
             $Matches[1] -cin $script:pilotTraceKeys) {
@@ -502,7 +517,7 @@ function Run-Case([string]$installer,[string]$root,[string]$inputFile,[string[]]
           # Counterfactual models were frozen before this WAV was analyzed.
           # Only bounded binary counts leave this disposable host case.
           [void]$script:prospectiveEvidence.Add([pscustomobject]@{
-            case=$caseId;ablation=$ablationSeen;media_no_write=$true
+            case=$caseId;ablation=$ablationSeen;recall=$recallSeen;media_no_write=$true
           })
           Write-Host ("SMART_TEMPO_PROSPECTIVE_TRACE_{0}_{1}=PASS" -f $Architecture,$label)
         } else { throw 'Unknown synthetic research cohort' }
