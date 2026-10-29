@@ -48,7 +48,7 @@ def verify_source_contract(source: str) -> dict:
         counts[name] = len(returns)
     if ('ci_policy_branch(!enabled ? "qualification_disabled" : "qualification_empty")'
             not in source or 'ci_policy_branch("default_resolution")' not in source or
-            'g_ci_policy_branch_token = nullptr;' not in source):
+            source.count("g_ci_policy_branch_token = nullptr;") != 2):
         raise PolicyBranchError("Policy qualification/default/reset witness missing")
     return counts
 
