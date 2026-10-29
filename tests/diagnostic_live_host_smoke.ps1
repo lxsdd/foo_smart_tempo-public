@@ -98,7 +98,10 @@ $script:pilotTraceKeys=@('NATIVE_SOURCE_INVENTORY_VERIFIED','RAW','COLLAPSED','W
   'INDEXED_NATIVE_FINAL_WITNESS','UNINDEXED_SUPPLEMENTAL_FINAL_WITNESS',
   'SUPPLEMENTAL_SELECTED_SOURCES','POLICY_SUPPLEMENTAL_POINTER_IDENTITY_COMPLETE',
   'NEGATIVE_NO_CANDIDATE_TRACE','SELECTOR_LOW_BESTBY_EPISODES',
-  'SELECTOR_COMPARE_LOW_WINS','SELECTOR_COMPARE_LOW_LOSSES')
+  'SELECTOR_COMPARE_LOW_WINS','SELECTOR_COMPARE_LOW_LOSSES',
+  'NATIVE_RAW_COMPLETE_INVOCATIONS','NATIVE_RAW_OBJECT_BRIDGE_VERIFIED',
+  'NATIVE_RAW_COMPARED_SOURCES','SELECTOR_COMPARE_RAW_WINS',
+  'SELECTOR_COMPARE_RAW_LOSSES')
 $script:pilotShadowKeys=@('CANDIDATES','REFERENCE_PRESENT','NATIVE_PRIMARY_CORRECT',
   'NATIVE_FINAL_CORRECT','NATIVE_PRIMARY_SOURCE_INDEXED','REFERENCE_LOST_AT_PRIMARY',
   'MODEL_SCORE_SUM_CORRECT','MODEL_SUPPORT_CORRECT','MODEL_COMBINED_CORRECT',
@@ -113,7 +116,7 @@ $script:pilotScoreKeys=@('EVALUATED','REFERENCE_RHYTHMIC','ACCEPTED_RHYTHMIC',
   'HELD_RHYTHMIC','ACCEPTED_WITHIN_0_05_BPM','ACCEPTED_WITHIN_0_20_BPM',
   'ACCEPTED_OUTSIDE_0_20_BPM','NEGATIVE_TOTAL','NEGATIVE_FALSEACCEPTS',
   'HALF_DOUBLE_ALIAS','CORRECT_ABSTENTION')
-function Run-Case([string]$installer,[string]$root,[string]$inputFile,[string[]]$files,[int]$minimum,[string]$label,[switch]$RequireLowPulseCoverage) {
+function Run-Case([string]$installer,[string]$root,[string]$inputFile,[string[]]$files,[int]$minimum,[string]$label,[switch]$RequireLowPulseCoverage,[switch]$RequireRawSelectorCoverage) {
   $hostDir=Join-Path $root ('host-'+$label)
   $install=Start-Process $installer -ArgumentList @('/S',"/D=$hostDir") -Wait -PassThru
   if ($install.ExitCode -ne 0) { throw 'Official host installer failed' }
@@ -337,7 +340,7 @@ function Run-Case([string]$installer,[string]$root,[string]$inputFile,[string[]]
       # read only by this Python scorer AFTER the native worker has exited.
       # Crucially, neither MIR, Policy nor the host component sees the oracle.
       $recallSeen=@{}
-      if (-not $RequireLowPulseCoverage) {
+      if (-not ($RequireLowPulseCoverage -or $RequireRawSelectorCoverage)) {
         # Oracle attribution is post-host and applies to the original pilot
         # and prospective six-case board, never to live DSP/Policy selection.
         $recallOutput=@(python ./tools/audit_smart_tempo_b_candidate_recall.py --manifest $reference --observed $observed --trace $trace --case $label.Substring(10) 2>&1)
@@ -434,7 +437,7 @@ function Run-Case([string]$installer,[string]$root,[string]$inputFile,[string[]]
         throw 'Source-ID fate conservation or unresolved-veto status contradicted'
       }
       $shadowEvidence=@{}
-      if (-not $RequireLowPulseCoverage) {
+      if (-not ($RequireLowPulseCoverage -or $RequireRawSelectorCoverage)) {
         # Shadow models run ONLY after actual worker completion, using the
         # frozen case oracle solely to SCORE predictions after selection.
         $shadowOutput=@(python ./tools/audit_smart_tempo_b_shadow_rank.py --manifest $reference --observed $observed --trace $trace --case $label.Substring(10) 2>&1)
@@ -504,6 +507,28 @@ function Run-Case([string]$installer,[string]$root,[string]$inputFile,[string[]]
         Write-Host ("SMART_TEMPO_NATIVE_LOW_PULSE_{0}_EPISODES={1}" -f $Architecture,$episodes)
         Write-Host ("SMART_TEMPO_NATIVE_LOW_PULSE_{0}_COMPARISONS={1}" -f $Architecture,($wins+$losses))
         Write-Host ("SMART_TEMPO_NATIVE_LOW_PULSE_{0}=PASS" -f $Architecture)
+      } elseif ($RequireRawSelectorCoverage) {
+        # This must be an ACTUAL decoded-audio selector, not the fabricated
+        # in-process raw-fallback test. The independent trace automaton has
+        # already replayed every raw gate and raw-to-cluster pointer.
+        foreach ($key in @('NATIVE_RAW_COMPLETE_INVOCATIONS',
+                           'NATIVE_RAW_OBJECT_BRIDGE_VERIFIED',
+                           'NATIVE_RAW_COMPARED_SOURCES',
+                           'SELECTOR_COMPARE_RAW_WINS',
+                           'SELECTOR_COMPARE_RAW_LOSSES')) {
+          if (-not $traceEvidence.ContainsKey($key)) {
+            throw "Missing actual WAV-host raw selector evidence: $key"
+          }
+        }
+        $wins=$traceEvidence['SELECTOR_COMPARE_RAW_WINS']
+        $losses=$traceEvidence['SELECTOR_COMPARE_RAW_LOSSES']
+        if ($traceEvidence['NATIVE_RAW_COMPLETE_INVOCATIONS'] -ne 1 -or
+            $traceEvidence['NATIVE_RAW_OBJECT_BRIDGE_VERIFIED'] -ne 1 -or
+            $wins -lt 1 -or
+            $traceEvidence['NATIVE_RAW_COMPARED_SOURCES'] -ne ($wins+$losses)) {
+          throw 'Original WAV/CUE host did not execute a complete raw selector and native object bridge'
+        }
+        Write-Host ("SMART_TEMPO_NATIVE_RAW_WAV_HOST_{0}=PASS" -f $Architecture)
       } else {
         $caseId=$label.Substring(10)
         if ($caseId -cin @('pulse_60','pulse_128','pulse_120_sparse','silence')) {
@@ -599,6 +624,28 @@ try {
         'SYNTHETIC_pulse_60_chill' -RequireLowPulseCoverage
     }
   }
+  # Independent real-host selector-coverage case, outside both frozen BPM
+  # scoring cohorts. The default Hardcore route has center 180 BPM; this
+  # uses genuine decoded pulse_175 audio and the original CUE metadata path.
+  $rawRoot=Join-Path (Join-Path $root 'raw-host-pulse_175') 'synthetic-oracle'
+  python ./tools/generate_synthetic_bpm_reference.py --output $rawRoot --case pulse_175
+  if ($LASTEXITCODE -ne 0) { throw 'Raw-host synthetic WAV generation failed' }
+  $rawWav=Join-Path $rawRoot 'pulse_175.wav'
+  $rawReference=Join-Path $rawRoot 'reference.json'
+  $rawCases=@((Get-Content -LiteralPath $rawReference -Raw | ConvertFrom-Json).cases)
+  if ($rawCases.Count -ne 1 -or $rawCases[0].id -cne 'pulse_175') {
+    throw 'Raw-host oracle identity mismatch'
+  }
+  $rawCue=Join-Path $rawRoot 'pulse_175_hardcore.cue'
+  if (Test-Path -LiteralPath $rawCue) { throw 'Stale raw-host route CUE' }
+  [IO.File]::WriteAllLines($rawCue,@(
+    'REM GENRE "Hardcore"',
+    'FILE "pulse_175.wav" WAVE',
+    '  TRACK 01 AUDIO',
+    '    INDEX 01 00:00:00'
+  ),[Text.Encoding]::ASCII)
+  Run-Case $installer $root $rawCue @($rawWav,$rawCue,$rawReference) 1 `
+    'SYNTHETIC_pulse_175_hardcore' -RequireRawSelectorCoverage
   # Prospectively frozen six-case synthetic generalization set. Same original
   # foobar host and candidate boards, no production Selector/Policy mutation.
   foreach ($caseId in $script:prospectiveCases) {

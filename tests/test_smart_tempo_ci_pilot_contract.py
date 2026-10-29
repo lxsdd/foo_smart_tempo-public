@@ -15,9 +15,11 @@ class PilotContract(unittest.TestCase):
         header = self.read("tests/ci_fixture_allowlist.h")
         for case in CASES + PROSPECTIVE:
             self.assertEqual(header.count(case + ".wav"), 1)
-        self.assertEqual(header.count(".wav"), len(CASES) + len(PROSPECTIVE))
+        self.assertEqual(header.count(".wav"), len(CASES) + len(PROSPECTIVE) + 1)
+        self.assertEqual(header.count("pulse_175.wav"), 1)
         self.assertEqual(header.count("pulse_60_chill.cue"), 1)
-        self.assertEqual(header.count(".cue"), 1)
+        self.assertEqual(header.count(".cue"), 2)
+        self.assertEqual(header.count("pulse_175_hardcore.cue"), 1)
 
         self.assertIn("runner_temp", header)
         self.assertIn("_wcsnicmp", header)
@@ -51,6 +53,7 @@ class PilotContract(unittest.TestCase):
         self.assertIn("if ($episodes -lt 1 -or $wins -lt 1", script)
         self.assertIn("SMART_TEMPO_NATIVE_LOW_PULSE_", script)
         self.assertIn("if ($RequireLowPulseCoverage)", script)
+        self.assertIn("} elseif ($RequireRawSelectorCoverage) {", script)
         self.assertIn("} else {\n        $caseId=$label.Substring(10)", script)
         self.assertIn("The original four-case Phase-B pilot is never enlarged", script)
         self.assertIn("elseif ($caseId -cin $script:prospectiveCases)", script)
@@ -66,6 +69,31 @@ class PilotContract(unittest.TestCase):
         self.assertNotIn("SMART_TEMPO_CI_ROUTE_OVERRIDE", script)
         self.assertEqual(script.count("-RequireLowPulseCoverage"), 1)
         self.assertIn("if ($caseId -ceq 'pulse_60')", script)
+
+    def test_real_wav_hardcore_route_reaches_raw_pointer_bridge(self):
+        script = self.read("tests/diagnostic_live_host_smoke.ps1")
+        guard = self.read("tests/ci_fixture_allowlist.h")
+        config = self.read("src/foo_smart_tempo/preferences.cpp")
+        raw = self.read("tools/audit_smart_tempo_b_raw_fates.py")
+        self.assertIn("Hardcore; Gabber", config)
+        self.assertIn('REM GENRE "Hardcore"', script)
+        self.assertIn('FILE "pulse_175.wav" WAVE', script)
+        self.assertIn("pulse_175_hardcore.cue", guard)
+        self.assertIn("pulse_175.wav", guard)
+        self.assertIn("--case pulse_175", script)
+        self.assertIn("'SYNTHETIC_pulse_175_hardcore' -RequireRawSelectorCoverage", script)
+        self.assertIn("SMART_TEMPO_NATIVE_RAW_WAV_HOST_{0}=PASS", script)
+        self.assertIn("NATIVE_RAW_OBJECT_BRIDGE_VERIFIED", script)
+        self.assertIn("NATIVE_RAW_COMPLETE_INVOCATIONS", script)
+        self.assertIn("NATIVE_RAW_COMPARED_SOURCES", script)
+        self.assertIn("native_raw_object_bridge_verified", raw)
+        self.assertIn("native_raw_complete_invocations", raw)
+        self.assertIn("@($rawWav,$rawCue,$rawReference)", script)
+        self.assertIn("[STUI]::ButtonDisabled($dialog)", script)
+        self.assertIn("MEDIA_WRITE_SAFETY_{0}_{1}=PASS", script)
+        self.assertNotIn("SMART_TEMPO_CI_ROUTE_OVERRIDE", script)
+        self.assertLess(script.index("Run-Case $installer $root $rawCue"),
+                        script.index("$pilotReport=Join-Path"))
 
     def test_native_two_center_direct_selector_proof_is_ci_only_and_real_host(self):
         source = self.read("tests/smart_tempo_ci_probe.cpp")

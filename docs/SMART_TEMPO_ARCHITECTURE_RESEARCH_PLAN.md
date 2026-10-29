@@ -1382,3 +1382,21 @@ two-raw-to-one-cluster control with the second raw object winning. These
 controls are fabricated public candidates, not a new decoded-audio accuracy
 sample. Production selector, Policy, writer and media remain untouched.
 Phase B global candidate eligibility remains unproven; Phase C stays closed.
+
+### 29 October 2026 — original decoded-WAV raw-selector route witness (CI-only)
+
+A separate **coverage-only**, public-generated 175 BPM WAV is opened through
+an external CUE with the existing default `Hardcore` genre route (center
+180 BPM) in the unchanged original foobar Win32 and x64 hosts. This case
+is not appended to the frozen four-case pilot or six-case prospective scoring
+cohorts. It must produce one **actually executed** raw-selector automaton,
+positive raw comparator wins, and the native source-indexed raw winner to
+first-match collapsed-cluster pointer bridge. The independent raw-fate
+oracle, full JSONL validator and adversarial mutation gate run on the
+same decoded-audio trace; absence of the branch is a hard failure, not
+an invented eligibility PASS. The WAV, CUE and reference are disposable,
+strictly allowlisted and byte/mtime protected, with the diagnostic Update
+button disabled and blocked. Both host architectures must pass at one exact
+source SHA; no CI artifacts are published. This is a source-branch reachability
+and lineage gate, **not** global Primary ELIGIBILITY, private musical
+accuracy, Phase-C admission or a productive algorithm/writer change.

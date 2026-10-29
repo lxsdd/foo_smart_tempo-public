@@ -16,6 +16,7 @@ inline bool permitted(const std::wstring& fixture,
   constexpr const wchar_t* suffixes[] = {
       L"\\synthetic-oracle\\pulse_60.wav",
       L"\\synthetic-oracle\\pulse_128.wav",
+      L"\\synthetic-oracle\\pulse_175.wav",
       L"\\synthetic-oracle\\pulse_120_sparse.wav",
       L"\\synthetic-oracle\\silence.wav",
       // Prospectively frozen public synthetic generalization cohort; no owner audio.
@@ -27,6 +28,7 @@ inline bool permitted(const std::wstring& fixture,
       L"\\synthetic-oracle\\probe_150_sparse.wav",
       // Only generated temporary CUE: regular foobar metadata routing control.
       L"\\synthetic-oracle\\pulse_60_chill.cue",
+      L"\\synthetic-oracle\\pulse_175_hardcore.cue",
   };
   for (const wchar_t* suffix : suffixes) {
     const std::size_t n = std::wcslen(suffix);
