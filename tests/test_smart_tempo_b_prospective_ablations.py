@@ -24,7 +24,20 @@ def fixture(arch):
                 "WRONG_AUTO": accepted - correct, "FALSE_ACCEPT": 0,
             }.items():
                 ablation[model + "_" + key] = value
-        rows.append({"case": case, "ablation": ablation, "media_no_write": True})
+        native_correct = int(i % 3 == 0)
+        recall = {
+            "ROOT_CAUSE_STAGE": ("reference_in_selected_output"
+                                 if native_correct else "primary_selected_other"),
+            "PRIMARY_COMPARATOR_DIAGNOSIS": ("reference_primary_selected"
+                                             if native_correct else "reference_ranked_lost"),
+            "RAW_NEAR_020": 1, "CLUSTER_NEAR_020": 1,
+            "POLICY_BOARD_NEAR_020": 1,
+            "PRIMARY_NEAR_020": native_correct,
+            "POLICY_NEAR_020": native_correct,
+            "FINAL_ACCEPTED_NEAR_020": native_correct,
+        }
+        rows.append({"case": case, "ablation": ablation, "recall": recall,
+                     "media_no_write": True})
     return {"schema": "smart_tempo_b_prospective_ablation_v1",
             "architecture": arch, "source_sha": "a" * 40, "cases": rows}
 
@@ -75,6 +88,37 @@ class ProspectiveAblationTests(unittest.TestCase):
         with self.assertRaisesRegex(ProspectiveError, "case-level drift"):
             validate(drift, "a" * 40)
 
+    def test_causal_stage_join_and_adversarial_forgery(self):
+        reports = [fixture("Win32"), fixture("x64")]
+        out = validate(reports, "a" * 40)
+        for arch in ("Win32", "x64"):
+            self.assertEqual(out["causal"][arch]["root"]["reference_in_selected_output"], 2)
+            self.assertEqual(out["causal"][arch]["root"]["primary_selected_other"], 4)
+            self.assertEqual(sum(out["causal"][arch]["comparator"].values()), len(CASES))
+        mutations = (
+            lambda x: x[0]["cases"][0]["recall"].pop("RAW_NEAR_020"),
+            lambda x: x[0]["cases"][0]["recall"].update(PRIVATE_PATH="forbidden"),
+            lambda x: x[0]["cases"][0]["recall"].update(ROOT_CAUSE_STAGE="unknown"),
+            lambda x: x[0]["cases"][0]["recall"].update(PRIMARY_COMPARATOR_DIAGNOSIS="unknown"),
+            lambda x: x[0]["cases"][0]["recall"].update(FINAL_ACCEPTED_NEAR_020=0),
+            lambda x: x[0]["cases"][1]["recall"].update(RAW_NEAR_020=-1),
+            lambda x: x[0]["cases"][1]["recall"].update(PRIMARY_NEAR_020=2),
+            lambda x: x[0]["cases"][1]["recall"].update(ROOT_CAUSE_STAGE="missing_raw_reference"),
+            lambda x: x[0]["cases"][0]["recall"].update(RAW_NEAR_020=2),
+        )
+        for index, mutation in enumerate(mutations):
+            if index == 8:
+                # A source denominator above one is legal: not a mutation.
+                continue
+            bad = copy.deepcopy(reports)
+            mutation(bad)
+            with self.subTest(mutation=index), self.assertRaises(ProspectiveError):
+                validate(bad, "a" * 40)
+        drift = copy.deepcopy(reports)
+        drift[1]["cases"][0]["recall"]["RAW_NEAR_020"] = 2
+        with self.assertRaisesRegex(ProspectiveError, "case-level drift"):
+            validate(drift, "a" * 40)
+
     def test_single_architecture_is_explicit_only(self):
         self.assertEqual(len(validate([fixture("Win32")], require_both=False)["architectures"]), 1)
         with self.assertRaises(ProspectiveError):
@@ -87,6 +131,9 @@ class ProspectiveAblationTests(unittest.TestCase):
                 for key, value in (("ACCEPTED", 1), ("HELD", 0), ("CORRECT_005", 0),
                                    ("CORRECT_020", 0), ("WRONG_AUTO", 1)):
                     case["ablation"][model + "_" + key] = value
+        for case in row["cases"]:
+            case["recall"]["FINAL_ACCEPTED_NEAR_020"] = 0
+            case["recall"]["ROOT_CAUSE_STAGE"] = "primary_selected_other"
         out = validate([row], require_both=False)
         self.assertEqual(out["architectures"]["Win32"]["COMBINED"]["WRONG_AUTO"], len(CASES))
         self.assertEqual(out["architectures"]["Win32"]["COMBINED"]["CORRECT_020"], 0)
@@ -125,6 +172,8 @@ class ProspectiveAblationTests(unittest.TestCase):
         self.assertIn("smart-tempo-b-prospective-x64.json", workflow)
         self.assertIn("test_smart_tempo_b_prospective_ablations.py", workflow)
         self.assertIn("audit_smart_tempo_b_prospective_ablations.py", host)
+        self.assertIn("ROOT_CAUSE_STAGE", host)
+        self.assertIn("PRIMARY_COMPARATOR_DIAGNOSIS", host)
         self.assertNotIn("audit_smart_tempo_b_prospective_ablations",
                          (ROOT / "src/foo_smart_tempo/modern_bpm_analyzer.cpp").read_text(encoding="utf-8"))
 
