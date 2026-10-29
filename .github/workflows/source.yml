@@ -69,6 +69,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Native Primary hold causal source-to-writer oracle failed' }
           python -m unittest discover -s tests -p 'test_smart_tempo_b_writer_resolution.py' -v
           python -m unittest discover -s tests -p 'test_smart_tempo_b_policy_terminal.py' -v
+          python -m unittest discover -s tests -p 'test_smart_tempo_b_policy_branch.py' -v
           if ($LASTEXITCODE -ne 0) { throw 'Applied native writer branch provenance tests failed' }
           python -m unittest discover -s tests -p 'test_smart_tempo_b_general_alt_promotion.py' -v
           if ($LASTEXITCODE -ne 0) { throw 'General-144 native promotion source-ID and ratio regression failed' }
