@@ -1341,3 +1341,29 @@ music acceptance. The existing six cases are seen public synthetic data;
 their results must not be used to tune and then claim blind validation.
 A source SHA-specific Windows Win32/x64 CI pass is required before any
 new causal counts may be quoted as qualified evidence.
+
+### 29 October 2026 — exact nested Policy first-return site witness (Phase B)
+
+The original Policy current-release and hold-resolution helpers contain 8 and
+17 distinct early `return true` sites. The CI-only native observer now assigns
+one fixed, source-order branch token immediately before **every** such return,
+plus explicit disabled/empty qualification and default-resolution tokens
+(28 total). This is not a second Policy evaluator: the original C++ predicates
+and candidate pointers still decide the outcome. A source contract rejects
+unwitnessed or reordered returns, and the original foobar Win32/x64 host
+emits exactly one token after the existing ordered stage path. The independent
+Python oracle rejects impossible stage/token combinations, missing or duplicate
+tokens, forged source identities, nonzero numeric payloads, and native JSONL
+mutations. The CI-only branch token is excluded from production builds and
+contains no BPM oracle, genre, track, path or user media.
+
+**Proof boundary:** this identifies the **executed terminal nested Policy
+branch** without attempting to re-derive its conditions from output BPM.
+Branches not executed by a given audio case are only source-contract-covered,
+not proven reachable on that audio. It does not establish a global
+Primary-candidate ELIGIBILITY property, nor complete supplemental source
+generation, and it does not change production DSP, selection, ReviewHold,
+Policy, writer or media. Phase B remains incomplete and Phase C/owner musical
+acceptance remain NO_GO pending independent complete provenance review and
+unseen music QA. Qualification requires a fresh exact-HEAD original-host
+Win32/x64 CI PASS; a source commit alone is not evidence.
