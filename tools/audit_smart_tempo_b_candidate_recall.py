@@ -128,7 +128,13 @@ def analyze(rows: list[dict], manifest: dict, observed: list[dict],
                            for n in values)
                 for label, values in stages.items()}
         close = lambda bpm: abs(bpm - expected_bpm) <= 0.20
-        if not near["raw"]:
+        # A final audio-measured local-exact refinement can be correct even
+        # when no upstream cluster lies within the strict oracle tolerance.
+        # Final success takes precedence; stage availability is reported
+        # independently through the near-source counters.
+        if accepted and close(final_bpm):
+            reason = "reference_in_selected_output"
+        elif not near["raw"]:
             reason = "missing_raw_reference"
         elif not near["cluster"]:
             reason = "missing_cluster_reference"
