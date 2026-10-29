@@ -827,6 +827,10 @@ inline bool record(
     out.push("policy_stage_path", "observed", token, "", {},
              0.0, 0.0, 0.0);
   }
+  // Exact nested first-return branch, distinct from stage chronology.
+  const char* policyBranch = mir_pipeline::mir_ci_policy_branch_token();
+  if (policyBranch == nullptr) return reject(__LINE__);
+  out.push("policy_branch", "observed", policyBranch, "", {}, 0.0, 0.0, 0.0);
   // BPM proximity to a FullBoard row is not native chosen-object identity.
   // Report matching BPM multiplicity as a falsifiable *comparison*, not an
   // assertion that Policy selected that candidate pointer.
@@ -1071,7 +1075,7 @@ inline bool record(
                       board.raw_candidates.size() + 5 * collapsed.size() +
                       fullboard.size() + selectorEvents.size() +
                       supplemental_id.size() + 2 * collapsed.size() + vetoLedgerCount + 13 +
-                       manual_source_count + manual.size() + policyStages.size() ||
+                       manual_source_count + manual.size() + policyStages.size() + 1 ||
       out.lines.size() > 2 * 1024 * 1024) return reject(__LINE__);
   const std::wstring output = fixture + L".pipeline.jsonl";
   HANDLE h = CreateFileW(output.c_str(), GENERIC_WRITE, 0, nullptr,
