@@ -2,6 +2,7 @@
 
 #include "hodgkinson_full_mir.h"
 #include "hodgkinson_tatum_probe.h"
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <span>
@@ -190,6 +191,9 @@ struct MirRawCandidate {
   double continuous_section_support = 0.0;
   double continuous_score_ratio = 0.0;
   double continuous_section_stability = 0.0;
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+  uint8_t ci_source_mask = 0; // TopK=1, pulse alias=2, continuous=4; CI only
+#endif
 };
 
 struct MirCandidate {
@@ -211,6 +215,38 @@ struct MirCandidate {
   std::size_t rows = 0;
 };
 
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+// Actual per-branch selector membership checks. Only the ephemeral CI probe
+// contains this structure: no production ABI, UI, writer or DSP change.
+struct MirCiSelectorEvent {
+  double bpm = 0.0;
+  double score = 0.0;
+  bool raw = false;
+  bool included = false;
+  const char* reason = "unknown";
+  std::size_t source_index = 0;
+  // CI-only comparator tie tuple; the production selection ABI is unchanged.
+  std::array<double, 4> tie_metrics{};
+  bool has_tie_metrics = false;
+  // One call to low-pulse bestBy is one independent comparator episode.
+  // 0 means not a low-pulse ranking; never serialized in production.
+  std::size_t low_pool_epoch = 0;
+  bool has_low_pool_epoch = false;
+  // Fifth and final lexicographic field for the actual continuous-center
+  // selector comparison. CI-only, no production ABI changes.
+  double tie_metric_4 = 0.0;
+  bool has_tie_metric_4 = false;
+};
+[[nodiscard]] std::span<const MirCiSelectorEvent>
+mir_ci_primary_selector_events() noexcept;
+// Truncation or allocation failure must never pass as complete native evidence.
+[[nodiscard]] bool mir_ci_primary_selector_trace_complete() noexcept;
+// Immutable snapshot of the ACTUAL collapsed vector passed to the selector,
+// not a second collapse after policy/other stages.
+[[nodiscard]] const std::vector<MirCandidate>&
+mir_ci_primary_selector_pool() noexcept;
+#endif
+
 struct MirCandidateBoard {
   std::vector<MirRawCandidate> raw_candidates;
   std::unordered_map<uint64_t, std::size_t> raw_candidate_index;
@@ -225,6 +261,36 @@ struct MirPolicyMeasuredCandidate {
   double base_score = 0.0;
   std::string alias_classes;
 };
+
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+// Native Policy first-return path, recorded only in the disposable CI observer.
+// Tokens describe which ordered production stage returned; not the nested
+// predicate reason or a global candidate eligibility proof.
+[[nodiscard]] std::span<const char* const> mir_ci_policy_stage_path() noexcept;
+[[nodiscard]] bool mir_ci_policy_stage_path_complete() noexcept;
+[[nodiscard]] const char* mir_ci_policy_branch_token() noexcept;
+// Actual CI-only FullBoard rail decision for every collapsed source index.
+struct MirCiPolicyRailEvent {
+  std::size_t source_index = 0;
+  double source_bpm = 0.0;
+  double resolved_bpm = 0.0;
+  bool included = false;
+};
+[[nodiscard]] std::span<const MirCiPolicyRailEvent> mir_ci_policy_rail_events() noexcept;
+[[nodiscard]] bool mir_ci_policy_rail_trace_complete() noexcept;
+// Observes the last ACTUALLY chosen object passed to the Policy candidate
+// selector. A coincident BPM alone is explicitly insufficient evidence.
+enum class MirCiSupplementalKind { none, partial_bar_aggregate, material_risk, partial_bar_topk };
+struct MirCiPolicyPointerSource {
+  bool observed = false;
+  bool in_fullboard = false;
+  std::size_t index = 0;
+  double bpm = 0.0;
+  MirCiSupplementalKind kind = MirCiSupplementalKind::none;
+  const void* object = nullptr;
+};
+[[nodiscard]] MirCiPolicyPointerSource mir_ci_policy_pointer_source() noexcept;
+#endif
 
 struct MirManualReviewCandidate {
   double bpm = 0.0;

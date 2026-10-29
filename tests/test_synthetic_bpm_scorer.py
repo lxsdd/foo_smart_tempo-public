@@ -31,6 +31,39 @@ class ScorerTests(unittest.TestCase):
         self.assertEqual(result["counts"]["abstained"], 1)
         self.assertEqual(result["counts"]["correct_abstention"], 1)
 
+    def test_strict_absolute_bpm_denominators_and_negative_falseaccepts(self):
+        refs = {"cases": [
+            {"id": "a", "style": "regular", "reference_bpm": 128.0},
+            {"id": "b", "style": "regular", "reference_bpm": 60.0},
+            {"id": "c", "style": "sparse", "reference_bpm": 120.0},
+            {"id": "d", "style": "silence", "reference_bpm": None},
+        ]}
+        p = score.evaluate(refs, [
+            {"bpm": "128.04", "held": "0"},
+            {"bpm": "60.19", "held": "0"},
+            {"bpm": "90", "held": "1"},
+            {"bpm": "123", "held": "0"},
+        ])["precision"]
+        self.assertEqual((p["reference_rhythmic"], p["accepted_rhythmic"],
+                          p["held_rhythmic"]), (3, 2, 1))
+        self.assertEqual((p["accepted_within_0_05_bpm"],
+                          p["accepted_within_0_20_bpm"]), (1, 2))
+        self.assertEqual(p["negative_total"], 1)
+        self.assertEqual(p["negative_falseaccepts"], 1)
+
+    def test_held_numeric_is_not_accepted(self):
+        refs = {"cases": [
+            {"id": "a", "style": "regular", "reference_bpm": 120.0},
+            {"id": "b", "style": "silence", "reference_bpm": None},
+        ]}
+        p = score.evaluate(refs, [
+            {"bpm": "120", "held": "1"},
+            {"bpm": "0", "held": "1"},
+        ])["precision"]
+        self.assertEqual(p["accepted_rhythmic"], 0)
+        self.assertEqual(p["accepted_within_0_05_bpm"], 0)
+        self.assertEqual(p["negative_falseaccepts"], 0)
+
     def test_mismatch_and_invalid_bpm_fail_closed(self):
         reference = {"cases": [{"id": "pulse", "style": "regular", "reference_bpm": 120}]}
         with self.assertRaises(ValueError):

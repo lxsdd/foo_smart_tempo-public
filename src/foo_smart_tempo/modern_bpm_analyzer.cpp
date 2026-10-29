@@ -16,6 +16,9 @@
 #include "foo_smart_tempo.h"
 #include "hodgkinson_full_mir.h"
 #include "mir_candidate_pipeline.h"
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+#include "../../tests/ci_pipeline_trace.h"
+#endif
 #include "mir_hold_diagnostics.h"
 #include "hodgkinson_tatum_probe.h"
 #include "preferences.h"
@@ -1484,6 +1487,11 @@ double ModernBpmAnalyzer::analyze(metadb_handle_ptr track, threaded_process_stat
                                    const char* trackIdentifier,
                                    const RoutingLogContext* routingContext,
                                    bool captureMeasuredCandidates) {
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+  // Snapshot once per analysis, with no audio/tags/paths in the resource trace.
+  const auto ciResourceStarted =
+      smart_tempo::ci_pipeline_trace::begin_process_resource_observation();
+#endif
   // Fine-grained per-hop/per-chunk timers are intentionally debug-only; they are
   // measurable overhead in large library scans.
   const bool verboseLogs = verbose_console_logging_enabled();
@@ -1627,6 +1635,11 @@ double ModernBpmAnalyzer::analyze(metadb_handle_ptr track, threaded_process_stat
   std::vector<float> hodgkinsonFullMirPassSamples;
   std::vector<smpl_t> mirOnlyHop;
   status.set_progress_secondary(0, effectiveSamplePasses);
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+  std::vector<smart_tempo::ci_pipeline_trace::WindowObservation> ciWindows;
+  bool ciWindowCaptureFailed = false;
+  smart_tempo::ci_pipeline_trace::MirSourceSupplyObservation ciSupply;
+#endif
 
   for (int pass = 0; pass < effectiveSamplePasses; ++pass) {
     WaitWhilePaused(p_abort);
@@ -1638,9 +1651,19 @@ double ModernBpmAnalyzer::analyze(metadb_handle_ptr track, threaded_process_stat
         kPassEndSafetyMarginSeconds);
     const double passStartSec = passOffset.startSec;
     const double offset_pct = passOffset.offsetPct;
-
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+    // Actual original seek call receipt, not a decoder-position readback.
+    const bool ciCanSeek = input_file.can_seek();
+    bool ciSeekInvoked = false, ciSeekReturned = false;
+#endif
     if (input_file.can_seek()) {
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+      ciSeekInvoked = true;
+#endif
       input_file.seek(passStartSec, p_abort);
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+      ciSeekReturned = true;
+#endif
     } else if (pass > 0) {
       break; // cannot seek, single pass only
     }
@@ -1862,6 +1885,27 @@ double ModernBpmAnalyzer::analyze(metadb_handle_ptr track, threaded_process_stat
     // MIR-only uses complete
     // analysis hops and keeps the partial tail as segment audio, not ODF state.
     progressAccumulator.flush(true);
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+    if (!ciWindowCaptureFailed &&
+        !smart_tempo::ci_pipeline_trace::permitted_fixture().empty()) {
+      try {
+        ciWindows.push_back({static_cast<std::size_t>(pass),
+                             static_cast<std::size_t>(effectiveSamplePasses),
+                             passStartSec, samplesToReadPerPass, samplesRead,
+                             analysisSamplesEmitted, sampleRate,
+                             analysisSampleRate,
+                             hasKnownTrackLength ? trackLength : 0.0,
+                             effectiveSecondsToRead, offset_pct,
+                             ciSeekInvoked ? passStartSec : 0.0,
+                             static_cast<unsigned>(ciCanSeek),
+                             static_cast<unsigned>(ciSeekInvoked),
+                             static_cast<unsigned>(ciSeekReturned)});
+      } catch (...) {
+        ciWindowCaptureFailed = true;
+        ciWindows.clear();
+      }
+    }
+#endif
 
     if (smart_tempo::experimental::kEnableHodgkinsonTatumProbe) {
       const uint64_t passStartSample =
@@ -1903,6 +1947,27 @@ double ModernBpmAnalyzer::analyze(metadb_handle_ptr track, threaded_process_stat
           fullMirResult =
               smart_tempo::evaluate_hodgkinson_full_mir_segment(fullMirSegment);
         }
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+        ++ciSupply.segments_evaluated;
+        ciSupply.topk_rows_seen += fullMirEvaluation.top_k_count;
+        // Snapshot the REAL MIR evaluator's first-return reason, not an
+        // inference from a later empty candidate board. CI fixture only.
+        if (!ciWindowCaptureFailed &&
+            !smart_tempo::ci_pipeline_trace::permitted_fixture().empty()) {
+          try {
+            ciSupply.segments.push_back({
+                fullMirResult.segment_index, fullMirResult.odf_peak_count,
+                fullMirEvaluation.top_k_count, fullMirResult.candidate_bpm,
+                fullMirResult.loop_fit_score, fullMirResult.candidate,
+                fullMirResult.loop_fit_score > 0.0 ||
+                    fullMirResult.candidate_bpm > 0.0,
+                fullMirResult.reason});
+          } catch (...) {
+            ciWindowCaptureFailed = true;
+            ciSupply.segments.clear();
+          }
+        }
+#endif
         if (verboseLogs) {
           smart_tempo::log_hodgkinson_primary_segment(trackLabel.get_ptr(),
                                                       fullMirResult);
@@ -1940,9 +2005,16 @@ double ModernBpmAnalyzer::analyze(metadb_handle_ptr track, threaded_process_stat
                topKIndex < fullMirEvaluation.top_k_count; ++topKIndex) {
             if (smart_tempo::experimental::kEnableMirPrimaryTelemetry ||
                 smart_tempo::experimental::kEnableMirPolicyPipeline) {
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+              const auto beforeTopK = mirMeasuredCandidateBoard.raw_candidates.size();
+              ++ciSupply.topk_add_calls;
+#endif
               add_mir_topk_candidate(
                   mirMeasuredCandidateBoard,
                   fullMirEvaluation.top_k_candidates[topKIndex]);
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+              ciSupply.topk_new_raw += mirMeasuredCandidateBoard.raw_candidates.size() - beforeTopK;
+#endif
             }
           }
         }
@@ -1955,6 +2027,9 @@ double ModernBpmAnalyzer::analyze(metadb_handle_ptr track, threaded_process_stat
     status.set_progress_secondary(++progress, effectiveSamplePasses);
   }
 
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+  ciSupply.segment_results = hodgkinsonFullMirSegmentResults.size();
+#endif
   if (p_abort.is_aborting()) {
     m_diag.error_reason = "Aborted";
     return 0.0;
@@ -2036,6 +2111,9 @@ double ModernBpmAnalyzer::analyze(metadb_handle_ptr track, threaded_process_stat
             const std::size_t familyRankCount =
                 (std::min)(hodgkinsonFullMirOnlyResult.family_rank_count,
                            hodgkinsonFullMirOnlyResult.family_rank_bpm.size());
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+            ciSupply.family_rank_rows = familyRankCount;
+#endif
             for (std::size_t rank = 0; rank < familyRankCount; ++rank) {
               const double familyBpm =
                   hodgkinsonFullMirOnlyResult.family_rank_bpm[rank];
@@ -2115,8 +2193,15 @@ double ModernBpmAnalyzer::analyze(metadb_handle_ptr track, threaded_process_stat
                            kEnableMirPrimaryTelemetry &&
                        aliasRouteValid) ||
                       mirPolicyEnabled) {
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+                    const auto beforeAlias = mirMeasuredCandidateBoard.raw_candidates.size();
+                    ++ciSupply.alias_add_calls;
+#endif
                     add_mir_alias_pulse_evidence(mirMeasuredCandidateBoard,
                                                  evidence);
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+                    ciSupply.alias_new_raw += mirMeasuredCandidateBoard.raw_candidates.size() - beforeAlias;
+#endif
                   }
                 }
                 if (smart_tempo::experimental::
@@ -2145,8 +2230,15 @@ double ModernBpmAnalyzer::analyze(metadb_handle_ptr track, threaded_process_stat
                            kEnableMirPrimaryTelemetry &&
                        aliasRouteValid) ||
                       mirPolicyEnabled) {
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+                    const auto beforeContinuous = mirMeasuredCandidateBoard.raw_candidates.size();
+                    ++ciSupply.continuous_add_calls;
+#endif
                     add_mir_continuous_refinement_evidence(
                         mirMeasuredCandidateBoard, continuousEvidence);
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+                    ciSupply.continuous_new_raw += mirMeasuredCandidateBoard.raw_candidates.size() - beforeContinuous;
+#endif
                   }
                 }
               }
@@ -2948,7 +3040,17 @@ double ModernBpmAnalyzer::analyze(metadb_handle_ptr track, threaded_process_stat
                 "Hodgkinson/MIR final writer invariant rejected an "
                 "unwitnessed BPM";
           }
-          if (m_diag.suppress_write || captureMeasuredCandidates) {
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+          // CI-only, exact allowlisted disposable WAV/CUE fixture: exercise
+          // the REAL native manual merge even when the UI did not request it.
+          // No production build or user media ever enters this branch.
+          const bool ciCaptureManual =
+              !smart_tempo::ci_pipeline_trace::permitted_fixture().empty();
+#else
+          constexpr bool ciCaptureManual = false;
+#endif
+          if (m_diag.suppress_write || captureMeasuredCandidates ||
+              ciCaptureManual) {
             const auto manualCandidates =
                 prepare_mir_manual_review_candidates(
                     std::span<const MirPolicyMeasuredCandidate>(
@@ -2979,6 +3081,62 @@ double ModernBpmAnalyzer::analyze(metadb_handle_ptr track, threaded_process_stat
               m_diag.measured_bpm_candidates.push_back(std::move(item));
             }
           }
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+          // Observational synthetic-only lineage data. Production has no
+          // observer; this never alters selected BPM, policy or write flag.
+          if (!smart_tempo::ci_pipeline_trace::permitted_fixture().empty()) {
+            const auto& primaryPool = mir_ci_primary_selector_pool();
+            const bool measuredWitness =
+                !m_diag.suppress_write && finalBpm > 0.0 &&
+                mir_output_has_measured_candidate_witness(
+                    finalBpm,
+                    std::span<const MirPolicyMeasuredCandidate>(
+                        mirPolicyCandidates.data(), mirPolicyCandidates.size()),
+                    mirPrimarySelection,
+                    materialRiskLocalExactProbe.candidate
+                        ? &materialRiskLocalExactProbe : nullptr,
+                    partialBarAggregateShadow.candidate
+                        ? &partialBarAggregateShadow : nullptr,
+                    std::span<const smart_tempo::HodgkinsonPartialBarTopKExactCandidate>(
+                        topKExactRows.data(), topKExactRows.size()));
+            const auto ciResource =
+                smart_tempo::ci_pipeline_trace::end_process_resource_observation(
+                    ciResourceStarted);
+            const bool ciWindowsOk = !ciWindowCaptureFailed;
+            const bool ciSelectorOk = mir_ci_primary_selector_trace_complete();
+            const bool traced = ciWindowsOk && ciSelectorOk &&
+                smart_tempo::ci_pipeline_trace::record(
+                mirMeasuredCandidateBoard, ciWindows, primaryPool,
+                mirPolicyMeasuredCandidates,
+                mir_ci_primary_selector_events(), mir_ci_policy_pointer_source(),
+                mirPrimarySelection,
+                mirPolicyDecision, finalBpm, m_diag.suppress_write,
+                measuredWitness, m_diag.policy_reason.get_ptr(),
+                smart_tempo::experimental::kEnableMirPolicyRuntime &&
+                    mirPolicyDecision.enabled,
+                std::span<const IBpmAnalyzer::MeasuredBpmCandidate>(
+                    m_diag.measured_bpm_candidates.data(),
+                    m_diag.measured_bpm_candidates.size()),
+                m_diag.suppress_write || captureMeasuredCandidates ||
+                    ciCaptureManual,
+                ciResource, ciSupply,
+                materialRiskLocalExactProbe.candidate
+                    ? &materialRiskLocalExactProbe : nullptr,
+                partialBarAggregateShadow.candidate
+                    ? &partialBarAggregateShadow : nullptr,
+                std::span<const smart_tempo::HodgkinsonPartialBarTopKExactCandidate>(
+                    topKExactRows.data(), topKExactRows.size()));
+            if (!traced && !ciWindowsOk)
+              (void)smart_tempo::ci_pipeline_trace::trace_reject(
+                  smart_tempo::ci_pipeline_trace::permitted_fixture(), 0);
+            if (!traced && ciWindowsOk && !ciSelectorOk)
+              (void)smart_tempo::ci_pipeline_trace::trace_reject(
+                  smart_tempo::ci_pipeline_trace::permitted_fixture(), 1);
+            FB2K_console_formatter()
+                << (traced ? "SMART_TEMPO_CI_PIPELINE_TRACE=PASS"
+                           : "SMART_TEMPO_CI_PIPELINE_TRACE=FAIL");
+          }
+#endif
         }
       }
 

@@ -24,7 +24,21 @@ jobs:
       - name: Checkout only public source
         uses: actions/checkout@v4
         with:
+          # Pull-request default checkout is a synthetic merge commit, NOT the
+          # reviewed product source SHA. Pin the exact PR head for all native
+          # trace, oracle and no-write qualifications.
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
+
+      - name: Assert exact checked-out product source SHA
+        shell: pwsh
+        run: |
+          $expected = '${{ github.event.pull_request.head.sha || github.sha }}'
+          $actual = ((& git rev-parse HEAD) | Out-String).Trim().ToLowerInvariant()
+          if ($LASTEXITCODE -ne 0 -or $actual -cne $expected.ToLowerInvariant()) {
+            throw "Source checkout mismatch: expected $expected, got $actual"
+          }
+          Write-Host "SMART_TEMPO_EXACT_CHECKOUT_SHA=$actual"
 
       - name: Require absence of personal research
         shell: pwsh
@@ -34,6 +48,76 @@ jobs:
             $_ -match '\.(mp3|flac|wav|wvp|m4a|tsv\.gz|sqlite|sqlite\.gz|b64)$'
           })
           if ($forbidden.Count -gt 0) { throw ('Disallowed personal/research payload: ' + ($forbidden -join ', ')) }
+
+      # Fast source-only architecture proof, before dependency downloads.
+      - name: HARD GATE - full Smart Tempo architecture source contract
+        shell: pwsh
+        run: |
+          python -m unittest discover -s tests -p 'test_smart_tempo_architecture_audit.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'Smart Tempo architecture source-contract regressions failed' }
+          python ./tools/audit_smart_tempo_pipeline.py
+          if ($LASTEXITCODE -ne 0) { throw 'Smart Tempo architecture source audit failed' }
+          python -m unittest discover -s tests -p 'test_smart_tempo_ci_pipeline_trace.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'CI-only candidate lineage integrity regressions failed' }
+          python -m unittest discover -s tests -p 'test_smart_tempo_b_policy_rail_fates.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'Native Policy FullBoard rail source-veto tests failed' }
+          python -m unittest discover -s tests -p 'test_smart_tempo_b_veto_resolution.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'Native branch-veto and final-source reconciliation failed' }
+          python -m unittest discover -s tests -p 'test_smart_tempo_b_veto_ledger.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'Native full selector veto-event ledger regression failed' }
+          python -m unittest discover -s tests -p 'test_smart_tempo_b_primary_hold.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'Native Primary hold causal source-to-writer oracle failed' }
+          python -m unittest discover -s tests -p 'test_smart_tempo_b_writer_resolution.py' -v
+          python -m unittest discover -s tests -p 'test_smart_tempo_b_policy_terminal.py' -v
+          python -m unittest discover -s tests -p 'test_smart_tempo_b_policy_branch.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'Applied native writer branch provenance tests failed' }
+          python -m unittest discover -s tests -p 'test_smart_tempo_b_general_alt_promotion.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'General-144 native promotion source-ID and ratio regression failed' }
+          python -m unittest discover -s tests -p 'test_smart_tempo_b_cluster_rail_fates.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'Independent native cluster rail fate chronology failed' }
+          python -m unittest discover -s tests -p 'test_smart_tempo_b_low_upper_fates.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'Independent native low upper-branch fate chronology failed' }
+          python -m unittest discover -s tests -p 'test_smart_tempo_b_low_continuous_fates.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'Independent native low continuous-center fate chronology failed' }
+          python -m unittest discover -s tests -p 'test_smart_tempo_b_raw_fates.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'Independent native raw-selector fate automaton failed' }
+          python -m unittest discover -s tests -p 'test_smart_tempo_b_manual_export.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'Manual review export native provenance regressions failed' }
+          python -m unittest discover -s tests -p 'test_smart_tempo_b_cross_stage_fates.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'Independent cross-stage source-fate matrix failed' }
+          python -m unittest discover -s tests -p 'test_smart_tempo_b_candidate_fates.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'Independent candidate-fate chronology regressions failed' }
+          python -m unittest discover -s tests -p 'test_smart_tempo_b_decode_geometry.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'Independent native decode geometry conservation failed' }
+          python -m unittest discover -s tests -p 'test_smart_tempo_b_seek_plan.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'Independent native seek-call plan witness failed' }
+          python -m unittest discover -s tests -p 'test_smart_tempo_native_mutations.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'Native-host trace mutation-gate regressions failed' }
+          python -m unittest discover -s tests -p 'test_smart_tempo_ci_pilot_contract.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'Cross-architecture Phase-B pilot contract failed' }
+          python -m unittest discover -s tests -p 'test_smart_tempo_b_pilot_cohort.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'Phase-B pilot cohort adversarial tests failed' }
+          python -m unittest discover -s tests -p 'test_smart_tempo_b_candidate_recall.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'Independent source-vs-reference recall contract failed' }
+          python -m unittest discover -s tests -p 'test_smart_tempo_b_shadow_rank.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'Source-ID-blind shadow ranking adversarial contracts failed' }
+          python -m unittest discover -s tests -p 'test_smart_tempo_b_decision_ablations.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'Native frozen Selector/Policy ablation positive/negative regressions failed' }
+          python -m unittest discover -s tests -p 'test_smart_tempo_b_prospective_ablations.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'Prospective synthetic selector cohort conservation regressions failed' }
+          # Parse the entire original-host harness before downloading SDK/WTL
+          # or spending minutes on compilation. This is syntax-only; it does
+          # not run foobar, install software, or touch any user files.
+          $tokens=$null; $parseErrors=$null
+          [void][System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path -LiteralPath 'tests/diagnostic_live_host_smoke.ps1').Path,
+            [ref]$tokens,[ref]$parseErrors)
+          if ($parseErrors -and $parseErrors.Count -gt 0) {
+            throw ('PowerShell host harness AST parser failed: ' + (($parseErrors | ForEach-Object { $_.ToString() }) -join '; '))
+          }
+          Write-Host 'SMART_TEMPO_HOST_HARNESS_POWERSHELL_AST=PASS'
+          Write-Host 'SMART_TEMPO_ARCHITECTURE_PHASE_A_SOURCE_CONTRACT=PASS'
+          Write-Host 'SMART_TEMPO_MUSICAL_BPM_QUALITY=NOT_INFERRED'
 
       - name: Checkout public foobar2000 SDK (2026-10-01)
         uses: actions/checkout@v4
@@ -182,6 +266,27 @@ jobs:
         shell: pwsh
         run: |
           & ./tests/diagnostic_live_host_smoke.ps1 -Architecture x64 -ComponentDll 'build/ci-probe/x64/foo_smart_tempo.dll'
+
+      # CI-only, no artifact uploads: join both host observations at exact source.
+      - name: HARD GATE - joined Win32/x64 native B-pilot cohort evidence
+        shell: pwsh
+        run: |
+          $sourceSha=((& git rev-parse HEAD) | Out-String).Trim().ToLowerInvariant()
+          python ./tools/audit_smart_tempo_b_pilot_cohort.py `
+            --expected-source-sha $sourceSha `
+            --report "$env:RUNNER_TEMP/smart-tempo-b-pilot-Win32.json" `
+            --report "$env:RUNNER_TEMP/smart-tempo-b-pilot-x64.json"
+          if ($LASTEXITCODE -ne 0) { throw 'Dual-architecture B-pilot evidence incomplete' }
+
+      - name: HARD GATE - joined Win32/x64 prospective synthetic selector ablations
+        shell: pwsh
+        run: |
+          $sourceSha=((& git rev-parse HEAD) | Out-String).Trim().ToLowerInvariant()
+          python ./tools/audit_smart_tempo_b_prospective_ablations.py `
+            --expected-source-sha $sourceSha `
+            --report "$env:RUNNER_TEMP/smart-tempo-b-prospective-Win32.json" `
+            --report "$env:RUNNER_TEMP/smart-tempo-b-prospective-x64.json"
+          if ($LASTEXITCODE -ne 0) { throw 'Dual-architecture prospective ablation evidence incomplete' }
 
       - name: Package foobar2000 component
         shell: cmd
