@@ -806,6 +806,12 @@ bool native_raw_audio_evidence_gate_contract() {
     auto badAlias = measured;
     badAlias.alias_class = "unknown";
     if (!checkSingle(badAlias, false)) return false;
+    auto mismatchedAlias = measured;
+    mismatchedAlias.alias_bit = static_cast<uint16_t>(MirAlias::half);
+    if (!checkSingle(mismatchedAlias, false)) return false;
+    auto compatibleAliasUnion = measured;
+    compatibleAliasUnion.alias_bit |= static_cast<uint16_t>(MirAlias::half);
+    if (!checkSingle(compatibleAliasUnion, true)) return false;
     auto badRail = measured;
     badRail.bpm = -1.0; // invalid numeric BPM; positive out-of-rail is a later policy decision
     if (!checkSingle(badRail, false)) return false;
@@ -894,6 +900,7 @@ bool native_raw_ingest_sanitization_contract() {
     HodgkinsonAliasPulseEvidence pulse{};
     pulse.alias_bpm = 129.0;
     pulse.alias_class = "direct";
+    pulse.route_valid = true;
     pulse.pulse_score = .25;
     pulse.section_support = .45;
     pulse.phase_vs = .20;
@@ -915,12 +922,28 @@ bool native_raw_ingest_sanitization_contract() {
     badPulse = pulse;
     badPulse.alias_class = "unknown";
     add_mir_alias_pulse_evidence(board, badPulse);
+    badPulse = pulse;
+    badPulse.route_valid = false;
+    add_mir_alias_pulse_evidence(board, badPulse);
+    badPulse = pulse;
+    badPulse.pulse_score = 1.01;
+    add_mir_alias_pulse_evidence(board, badPulse);
+    badPulse = pulse;
+    badPulse.section_support = 1.01;
+    add_mir_alias_pulse_evidence(board, badPulse);
+    badPulse = pulse;
+    badPulse.phase_vs = 1.01;
+    add_mir_alias_pulse_evidence(board, badPulse);
+    badPulse = pulse;
+    badPulse.axial_phase_vs = 1.01;
+    add_mir_alias_pulse_evidence(board, badPulse);
     if (!stableTop() || findDirect()->pulse_score != .25 ||
         findDirect()->pulse_section_support != .45) return false;
 
     HodgkinsonContinuousRefinementEvidence continuous{};
     continuous.best_bpm = 129.0;
     continuous.alias_class = "direct";
+    continuous.route_valid = true;
     continuous.best_score = .50;
     continuous.score_ratio = 1.25;
     continuous.section_support = .50;
@@ -943,6 +966,15 @@ bool native_raw_ingest_sanitization_contract() {
     add_mir_continuous_refinement_evidence(board, badContinuous);
     badContinuous = continuous;
     badContinuous.alias_class = "unknown";
+    add_mir_continuous_refinement_evidence(board, badContinuous);
+    badContinuous = continuous;
+    badContinuous.route_valid = false;
+    add_mir_continuous_refinement_evidence(board, badContinuous);
+    badContinuous = continuous;
+    badContinuous.section_support = 1.01;
+    add_mir_continuous_refinement_evidence(board, badContinuous);
+    badContinuous = continuous;
+    badContinuous.section_stability = 1.01;
     add_mir_continuous_refinement_evidence(board, badContinuous);
     if (board.raw_candidates.size() != topCount ||
         findDirect()->continuous_score != .50 ||
@@ -975,6 +1007,7 @@ bool native_raw_alias_lifetime_and_empty_board_contract() {
     pulse.alias_bpm = 129.0;
     char pulseAlias[] = "direct";
     pulse.alias_class = pulseAlias;
+    pulse.route_valid = true;
     pulse.pulse_score = .25;
     pulse.section_support = .45;
     pulse.phase_vs = .20;
@@ -983,6 +1016,7 @@ bool native_raw_alias_lifetime_and_empty_board_contract() {
     continuous.best_bpm = 130.0;
     char continuousAlias[] = "direct";
     continuous.alias_class = continuousAlias;
+    continuous.route_valid = true;
     continuous.best_score = .50;
     continuous.score_ratio = 1.25;
     continuous.section_support = .50;
@@ -1066,6 +1100,7 @@ bool native_raw_accumulator_overflow_contract() {
     continuous.best_bpm = 129.0;
     continuous.alias_class = "direct";
     continuous.best_score = large.combined_score;
+    continuous.route_valid = true;
     continuous.score_ratio = 1.25;
     continuous.section_support = .5;
     continuous.section_stability = .5;
