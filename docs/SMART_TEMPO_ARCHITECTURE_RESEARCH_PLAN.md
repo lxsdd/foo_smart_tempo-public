@@ -1417,7 +1417,7 @@ host and Win32/x64 parity must instead pass at a fresh exact source SHA.
 The same disposable multitempo WAV is opened in the original Win32 and x64
 foobar hosts through three independent external CUE genre contexts: matched
 `Chill; Acapella` must enter the real RAW selector with complete native
-source-indexed winner-to-cluster proof; ordinary `Hardcore` and `Chill`
+source-indexed winner-to-cluster proof; ordinary `Hardcore` and unmatched `Acapella`
 must not emit any RAW comparator, terminal or bridge events. All three use
 the unchanged production routing and 40–220 BPM Primary rails, with no
 oracle BPM, override, user music or tag write. A separate raw-fate oracle

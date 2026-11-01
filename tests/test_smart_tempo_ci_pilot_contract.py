@@ -111,11 +111,11 @@ class PilotContract(unittest.TestCase):
         guard = self.read("tests/ci_fixture_allowlist.h")
         raw = self.read("tools/audit_smart_tempo_b_raw_fates.py")
         for suffix in ("raw_route_multitempo_hardcore.cue",
-                       "raw_route_multitempo_chill.cue"):
+                       "raw_route_multitempo_acapella_unmatched.cue"):
             self.assertEqual(guard.count(suffix), 1)
             self.assertEqual(script.count(suffix), 1)
         self.assertIn("Genre='Hardcore'", script)
-        self.assertIn("Genre='Chill'", script)
+        self.assertIn("Genre='Acapella'", script)
         self.assertIn("-RequireNoRawSelectorCoverage", script)
         self.assertIn("SMART_TEMPO_NATIVE_RAW_NEGATIVE_", script)
         self.assertIn("$rawTraceEvidence[$key] -ne 0", script)

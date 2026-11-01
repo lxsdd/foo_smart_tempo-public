@@ -30,7 +30,7 @@ inline bool permitted(const std::wstring& fixture,
       L"\\synthetic-oracle\\pulse_60_chill.cue",
       L"\\synthetic-oracle\\raw_route_multitempo_chill_acapella.cue",
       L"\\synthetic-oracle\\raw_route_multitempo_hardcore.cue",
-      L"\\synthetic-oracle\\raw_route_multitempo_chill.cue",
+      L"\\synthetic-oracle\\raw_route_multitempo_acapella_unmatched.cue",
   };
   for (const wchar_t* suffix : suffixes) {
     const std::size_t n = std::wcslen(suffix);

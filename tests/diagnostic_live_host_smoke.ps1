@@ -666,7 +666,7 @@ try {
   # must remain outside RAW; a genre prior is not an Acapella witness.
   foreach ($control in @(
     @{ Name='raw_route_multitempo_hardcore.cue'; Genre='Hardcore' },
-    @{ Name='raw_route_multitempo_chill.cue'; Genre='Chill' }
+    @{ Name='raw_route_multitempo_acapella_unmatched.cue'; Genre='Acapella' }
   )) {
     $negativeCue=Join-Path $rawRoot $control.Name
     if (Test-Path -LiteralPath $negativeCue) { throw 'Stale negative route CUE' }
