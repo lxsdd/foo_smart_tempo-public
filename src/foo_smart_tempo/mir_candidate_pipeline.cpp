@@ -470,7 +470,8 @@ void add_mir_alias_pulse_evidence(
     const smart_tempo::HodgkinsonAliasPulseEvidence& evidence) {
   // Phase and support values are part of the same measured witness. Reject
   // malformed rows atomically rather than contaminating a valid RAW object.
-  if (!(evidence.alias_bpm >= 40.0 && evidence.alias_bpm <= 220.0) ||
+  if (board.segment_count == 0 ||
+      !(evidence.alias_bpm >= 40.0 && evidence.alias_bpm <= 220.0) ||
       !std::isfinite(evidence.alias_bpm) || evidence.alias_class == nullptr ||
       !(evidence.pulse_score > 0.0) ||
       !mir_finite_nonnegative(evidence.pulse_score) ||
@@ -480,15 +481,19 @@ void add_mir_alias_pulse_evidence(
     return;
   }
   uint16_t aliasBit = 0;
+  const char* canonicalAliasClass = nullptr;
   for (const auto& alias : kMirAliases) {
     if (std::strcmp(alias.name, evidence.alias_class) == 0) {
       aliasBit = static_cast<uint16_t>(alias.bit);
+      canonicalAliasClass = alias.name;
       break;
     }
   }
   if (aliasBit == 0) return;
+  // Keep only the static, canonical class name: a caller's measured-evidence
+  // buffer may be temporary and must never become a dangling RAW identity.
   auto& raw = upsert_mir_raw_candidate(
-      board, evidence.alias_bpm, evidence.alias_class, aliasBit);
+      board, evidence.alias_bpm, canonicalAliasClass, aliasBit);
 #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
   raw.ci_source_mask |= 2;
 #endif
@@ -503,7 +508,8 @@ void add_mir_alias_pulse_evidence(
 void add_mir_continuous_refinement_evidence(
     MirCandidateBoard& board,
     const smart_tempo::HodgkinsonContinuousRefinementEvidence& evidence) {
-  if (!(evidence.best_bpm >= 40.0 && evidence.best_bpm <= 220.0) ||
+  if (board.segment_count == 0 ||
+      !(evidence.best_bpm >= 40.0 && evidence.best_bpm <= 220.0) ||
       !std::isfinite(evidence.best_bpm) || evidence.alias_class == nullptr ||
       !(evidence.best_score > 0.0) ||
       !mir_finite_nonnegative(evidence.best_score) ||
@@ -513,20 +519,23 @@ void add_mir_continuous_refinement_evidence(
     return;
   }
   uint16_t aliasBit = 0;
+  const char* canonicalAliasClass = nullptr;
   for (const auto& alias : kMirAliases) {
     if (std::strcmp(alias.name, evidence.alias_class) == 0) {
       aliasBit = static_cast<uint16_t>(alias.bit);
+      canonicalAliasClass = alias.name;
       break;
     }
   }
   if (aliasBit == 0 ||
       !mir_raw_accumulation_fits(
-          board, evidence.best_bpm, evidence.alias_class,
+          board, evidence.best_bpm, canonicalAliasClass,
           evidence.best_score, 0.0, 0.0, false)) {
     return;
   }
+  // Never retain an ephemeral evidence-owned alias pointer in the RAW board.
   auto& raw = upsert_mir_raw_candidate(
-      board, evidence.best_bpm, evidence.alias_class, aliasBit);
+      board, evidence.best_bpm, canonicalAliasClass, aliasBit);
 #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
   raw.ci_source_mask |= 4;
 #endif

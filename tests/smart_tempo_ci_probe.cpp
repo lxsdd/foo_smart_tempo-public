@@ -963,6 +963,57 @@ bool native_raw_ingest_sanitization_contract() {
            clean.raw_candidates.size() == topCount;
 }
 
+// Audio evidence aliases may arrive in temporary caller-owned buffers. RAW
+// identity must remain stable after those buffers change; zero decoded
+// segments must never create a pulse/continuous-only measured candidate.
+bool native_raw_alias_lifetime_and_empty_board_contract() {
+    using namespace smart_tempo;
+    using namespace smart_tempo::mir_pipeline;
+    MirCandidateBoard empty{};
+    initialize_mir_candidate_board(empty, 0);
+    HodgkinsonAliasPulseEvidence pulse{};
+    pulse.alias_bpm = 129.0;
+    char pulseAlias[] = "direct";
+    pulse.alias_class = pulseAlias;
+    pulse.pulse_score = .25;
+    pulse.section_support = .45;
+    pulse.phase_vs = .20;
+    pulse.axial_phase_vs = .15;
+    HodgkinsonContinuousRefinementEvidence continuous{};
+    continuous.best_bpm = 130.0;
+    char continuousAlias[] = "direct";
+    continuous.alias_class = continuousAlias;
+    continuous.best_score = .50;
+    continuous.score_ratio = 1.25;
+    continuous.section_support = .50;
+    continuous.section_stability = .60;
+    add_mir_alias_pulse_evidence(empty, pulse);
+    add_mir_continuous_refinement_evidence(empty, continuous);
+    if (!empty.raw_candidates.empty()) return false;
+
+    MirCandidateBoard board{};
+    initialize_mir_candidate_board(board, 2);
+    add_mir_alias_pulse_evidence(board, pulse);
+    add_mir_continuous_refinement_evidence(board, continuous);
+    if (board.raw_candidates.size() != 2) return false;
+    pulseAlias[0] = 'x';
+    continuousAlias[0] = 'x';
+    for (const auto& raw : board.raw_candidates) {
+        if (raw.alias_class == nullptr ||
+            std::strcmp(raw.alias_class, "direct") != 0 ||
+            raw.alias_bit != static_cast<uint16_t>(MirAlias::direct))
+            return false;
+    }
+    const auto collapsed = collapse_mir_candidates(board);
+    if (collapsed.size() != 2) return false;
+    bool sawPulse = false, sawContinuous = false;
+    for (const auto& raw : board.raw_candidates) {
+        sawPulse |= raw.bpm == 129.0 && raw.pulse_score == .25;
+        sawContinuous |= raw.bpm == 130.0 && raw.continuous_score == .50;
+    }
+    return sawPulse && sawContinuous;
+}
+
 // A finite decoded-audio score may still overflow when added to a prior
 // witness. TopK must reject the ENTIRE multi-alias row, not partially update
 // healthy siblings. Continuous refinement has the same source boundary.
@@ -1032,7 +1083,8 @@ bool native_raw_accumulator_overflow_contract() {
 }
 
 bool write_native_raw_fallback_marker() {
-    if (!native_raw_accumulator_overflow_contract() ||
+    if (!native_raw_alias_lifetime_and_empty_board_contract() ||
+        !native_raw_accumulator_overflow_contract() ||
         !native_raw_ingest_sanitization_contract() ||
         !native_raw_audio_evidence_gate_contract() ||
         !native_raw_fallback_contract(0) ||
