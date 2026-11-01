@@ -118,7 +118,7 @@ class PilotContract(unittest.TestCase):
                     "SELECTOR_COMPARE_RAW_LOSSES"):
             self.assertNotIn("'" + key + "'", pilot)
             self.assertIn("'" + key + "'", raw)
-        self.assertIn("$rawTraceEvidence={}", script)
+        self.assertIn("$rawTraceEvidence=@{}", script)
         self.assertIn("$bucket=$rawTraceEvidence", script)
         self.assertIn("$bucket=$traceEvidence", script)
         self.assertIn("if (-not $rawTraceEvidence.ContainsKey($key))", script)
