@@ -106,6 +106,25 @@ class PilotContract(unittest.TestCase):
         self.assertLess(script.index("Run-Case $installer $root $rawCue"),
                         script.index("$pilotReport=Join-Path"))
 
+    def test_native_raw_counts_are_disjoint_from_frozen_pilot_schema(self):
+        script = self.read("tests/diagnostic_live_host_smoke.ps1")
+        auditor = self.read("tools/audit_smart_tempo_b_pilot_cohort.py")
+        pilot = script.split("$script:pilotTraceKeys=@(", 1)[1].split(")\n", 1)[0]
+        raw = script.split("$script:rawTraceKeys=@(", 1)[1].split(")\n", 1)[0]
+        for key in ("NATIVE_RAW_COMPLETE_INVOCATIONS",
+                    "NATIVE_RAW_OBJECT_BRIDGE_VERIFIED",
+                    "NATIVE_RAW_COMPARED_SOURCES",
+                    "SELECTOR_COMPARE_RAW_WINS",
+                    "SELECTOR_COMPARE_RAW_LOSSES"):
+            self.assertNotIn("'" + key + "'", pilot)
+            self.assertIn("'" + key + "'", raw)
+        self.assertIn("$rawTraceEvidence={}", script)
+        self.assertIn("$bucket=$rawTraceEvidence", script)
+        self.assertIn("$bucket=$traceEvidence", script)
+        self.assertIn("if (-not $rawTraceEvidence.ContainsKey($key))", script)
+        self.assertIn("trace=$traceEvidence;", script)
+        self.assertIn("native trace incomplete/privacy field", auditor)
+
     def test_native_two_center_direct_selector_proof_is_ci_only_and_real_host(self):
         source = self.read("tests/smart_tempo_ci_probe.cpp")
         script = self.read("tests/diagnostic_live_host_smoke.ps1")
