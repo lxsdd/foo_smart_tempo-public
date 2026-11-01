@@ -95,6 +95,14 @@ class NativeRawFateTests(unittest.TestCase):
         other = [row("candidate_create","c0","raw_topk","observed")]
         self.assertEqual(reconcile_native_raw(other)["native_raw_complete_invocations"],0)
 
+    def test_nonraw_lane_rejects_orphan_terminal_or_cluster(self):
+        for reason in ("raw_terminal_selected", "raw_cluster_resolved"):
+            with self.subTest(reason=reason):
+                other = [row("candidate_create", "c0", "raw_topk", "observed")]
+                other.append(row("candidate_filter", "c0", reason, "included"))
+                with self.assertRaisesRegex(RawFateError, "orphan raw terminal"):
+                    reconcile_native_raw(other)
+
     def test_adversarial_native_raw_fate_mutations_fail(self):
         for scenario in range(6):
             original = sample(scenario)

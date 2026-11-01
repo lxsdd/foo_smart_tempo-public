@@ -18,7 +18,7 @@ class PilotContract(unittest.TestCase):
         self.assertEqual(header.count(".wav"), len(CASES) + len(PROSPECTIVE) + 1)
         self.assertEqual(header.count("raw_route_multitempo.wav"), 1)
         self.assertEqual(header.count("pulse_60_chill.cue"), 1)
-        self.assertEqual(header.count(".cue"), 2)
+        self.assertEqual(header.count(".cue"), 4)
         self.assertEqual(header.count("raw_route_multitempo_chill_acapella.cue"), 1)
 
         self.assertIn("runner_temp", header)
@@ -101,10 +101,29 @@ class PilotContract(unittest.TestCase):
         self.assertIn("@($rawWav,$rawCue)", script)
         self.assertIn("[STUI]::ButtonDisabled($dialog)", script)
         self.assertIn("MEDIA_WRITE_SAFETY_{0}_{1}=PASS", script)
-        self.assertIn("if (-not $RequireRawSelectorCoverage)", script)
+        self.assertIn("if (-not ($RequireRawSelectorCoverage -or $RequireNoRawSelectorCoverage))", script)
         self.assertNotIn("SMART_TEMPO_CI_ROUTE_OVERRIDE", script)
         self.assertLess(script.index("Run-Case $installer $root $rawCue"),
                         script.index("$pilotReport=Join-Path"))
+
+    def test_decoded_wav_raw_route_positive_and_two_negative_controls(self):
+        script = self.read("tests/diagnostic_live_host_smoke.ps1")
+        guard = self.read("tests/ci_fixture_allowlist.h")
+        raw = self.read("tools/audit_smart_tempo_b_raw_fates.py")
+        for suffix in ("raw_route_multitempo_hardcore.cue",
+                       "raw_route_multitempo_chill.cue"):
+            self.assertEqual(guard.count(suffix), 1)
+            self.assertEqual(script.count(suffix), 1)
+        self.assertIn("Genre='Hardcore'", script)
+        self.assertIn("Genre='Chill'", script)
+        self.assertIn("-RequireNoRawSelectorCoverage", script)
+        self.assertIn("SMART_TEMPO_NATIVE_RAW_NEGATIVE_", script)
+        self.assertIn("$rawTraceEvidence[$key] -ne 0", script)
+        self.assertIn("orphan raw terminal without selector chronology", raw)
+        self.assertIn("Run-Case $installer $root $negativeCue", script)
+        self.assertLess(script.index("Run-Case $installer $root $rawCue"),
+                        script.index("Run-Case $installer $root $negativeCue"))
+        self.assertEqual(guard.count(".cue"), 4)
 
     def test_native_raw_counts_are_disjoint_from_frozen_pilot_schema(self):
         script = self.read("tests/diagnostic_live_host_smoke.ps1")

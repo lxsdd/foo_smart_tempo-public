@@ -117,7 +117,7 @@ $script:pilotScoreKeys=@('EVALUATED','REFERENCE_RHYTHMIC','ACCEPTED_RHYTHMIC',
   'HELD_RHYTHMIC','ACCEPTED_WITHIN_0_05_BPM','ACCEPTED_WITHIN_0_20_BPM',
   'ACCEPTED_OUTSIDE_0_20_BPM','NEGATIVE_TOTAL','NEGATIVE_FALSEACCEPTS',
   'HALF_DOUBLE_ALIAS','CORRECT_ABSTENTION')
-function Run-Case([string]$installer,[string]$root,[string]$inputFile,[string[]]$files,[int]$minimum,[string]$label,[switch]$RequireLowPulseCoverage,[switch]$RequireRawSelectorCoverage) {
+function Run-Case([string]$installer,[string]$root,[string]$inputFile,[string[]]$files,[int]$minimum,[string]$label,[switch]$RequireLowPulseCoverage,[switch]$RequireRawSelectorCoverage,[switch]$RequireNoRawSelectorCoverage) {
   $hostDir=Join-Path $root ('host-'+$label)
   $install=Start-Process $installer -ArgumentList @('/S',"/D=$hostDir") -Wait -PassThru
   if ($install.ExitCode -ne 0) { throw 'Official host installer failed' }
@@ -269,7 +269,7 @@ function Run-Case([string]$installer,[string]$root,[string]$inputFile,[string[]]
         throw 'Real foobar numeric BPM oracle observer is not available'
       }
       $scoreEvidence=@{}
-      if (-not $RequireRawSelectorCoverage) {
+      if (-not ($RequireRawSelectorCoverage -or $RequireNoRawSelectorCoverage)) {
         $scoreOutput=@(python ./tools/score_synthetic_bpm_reference.py --manifest $reference --observed $observed 2>&1)
         if ($LASTEXITCODE -ne 0) { throw ('Real foobar synthetic BPM evaluation failed: '+($scoreOutput -join '; ')) }
         $scoreOutput | ForEach-Object { Write-Host $_ }
@@ -343,7 +343,7 @@ function Run-Case([string]$installer,[string]$root,[string]$inputFile,[string[]]
       # read only by this Python scorer AFTER the native worker has exited.
       # Crucially, neither MIR, Policy nor the host component sees the oracle.
       $recallSeen=@{}
-      if (-not ($RequireLowPulseCoverage -or $RequireRawSelectorCoverage)) {
+      if (-not ($RequireLowPulseCoverage -or $RequireRawSelectorCoverage -or $RequireNoRawSelectorCoverage)) {
         # Oracle attribution is post-host and applies to the original pilot
         # and prospective six-case board, never to live DSP/Policy selection.
         $recallOutput=@(python ./tools/audit_smart_tempo_b_candidate_recall.py --manifest $reference --observed $observed --trace $trace --case $label.Substring(10) 2>&1)
@@ -445,7 +445,7 @@ function Run-Case([string]$installer,[string]$root,[string]$inputFile,[string[]]
         throw 'Source-ID fate conservation or unresolved-veto status contradicted'
       }
       $shadowEvidence=@{}
-      if (-not ($RequireLowPulseCoverage -or $RequireRawSelectorCoverage)) {
+      if (-not ($RequireLowPulseCoverage -or $RequireRawSelectorCoverage -or $RequireNoRawSelectorCoverage)) {
         # Shadow models run ONLY after actual worker completion, using the
         # frozen case oracle solely to SCORE predictions after selection.
         $shadowOutput=@(python ./tools/audit_smart_tempo_b_shadow_rank.py --manifest $reference --observed $observed --trace $trace --case $label.Substring(10) 2>&1)
@@ -537,6 +537,16 @@ function Run-Case([string]$installer,[string]$root,[string]$inputFile,[string[]]
           throw 'Original WAV/CUE host did not execute a complete raw selector and native object bridge'
         }
         Write-Host ("SMART_TEMPO_NATIVE_RAW_WAV_HOST_{0}=PASS" -f $Architecture)
+      } elseif ($RequireNoRawSelectorCoverage) {
+        # Independent decoded-WAV negative: the same numeric board must NOT
+        # enter RAW without a matched non-generic Acapella source context.
+        foreach ($key in $script:rawTraceKeys) {
+          if (-not $rawTraceEvidence.ContainsKey($key) -or
+              $rawTraceEvidence[$key] -ne 0) {
+            throw "Original WAV/CUE unexpectedly entered RAW selector: $key"
+          }
+        }
+        Write-Host ("SMART_TEMPO_NATIVE_RAW_NEGATIVE_{0}_{1}=PASS" -f $Architecture,$label)
       } else {
         $caseId=$label.Substring(10)
         if ($caseId -cin @('pulse_60','pulse_128','pulse_120_sparse','silence')) {
@@ -652,6 +662,23 @@ try {
   ),[Text.Encoding]::ASCII)
   Run-Case $installer $root $rawCue @($rawWav,$rawCue) 1 `
     'SYNTHETIC_raw_route_multitempo_chill_acapella' -RequireRawSelectorCoverage
+  # Same generated WAV, independent default genre-only controls. Both
+  # must remain outside RAW; a genre prior is not an Acapella witness.
+  foreach ($control in @(
+    @{ Name='raw_route_multitempo_hardcore.cue'; Genre='Hardcore' },
+    @{ Name='raw_route_multitempo_chill.cue'; Genre='Chill' }
+  )) {
+    $negativeCue=Join-Path $rawRoot $control.Name
+    if (Test-Path -LiteralPath $negativeCue) { throw 'Stale negative route CUE' }
+    [IO.File]::WriteAllLines($negativeCue,@(
+      ('REM GENRE "'+$control.Genre+'"'),
+      'FILE "raw_route_multitempo.wav" WAVE',
+      '  TRACK 01 AUDIO',
+      '    INDEX 01 00:00:00'
+    ),[Text.Encoding]::ASCII)
+    Run-Case $installer $root $negativeCue @($rawWav,$negativeCue) 1 `
+      ('SYNTHETIC_raw_route_multitempo_'+$control.Genre.ToLowerInvariant()) -RequireNoRawSelectorCoverage
+  }
   # Prospectively frozen six-case synthetic generalization set. Same original
   # foobar host and candidate boards, no production Selector/Policy mutation.
   foreach ($caseId in $script:prospectiveCases) {

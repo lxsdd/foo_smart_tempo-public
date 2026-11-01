@@ -32,7 +32,11 @@ def reconcile_native_raw(rows: list[dict]) -> dict[str, int]:
         "native_raw_object_bridge_verified": 0,
     }
     if not native:
-        # A different MIR lane may never invoke the raw selector.
+        # No RAW selector execution may carry a terminal winner or resolved
+        # cluster. Otherwise a partial/forged trace would appear as zero RAW.
+        if any(row["reason_code"] in
+               ("raw_terminal_selected", "raw_cluster_resolved") for row in rows):
+            raise RawFateError("orphan raw terminal without selector chronology")
         return result
     if not ids:
         raise RawFateError("raw native events without input candidates")

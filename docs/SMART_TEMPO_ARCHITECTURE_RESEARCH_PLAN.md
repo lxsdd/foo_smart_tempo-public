@@ -1411,3 +1411,18 @@ included in the frozen four-/six-case accuracy denominators. Its synthetic
 oracle scorer is deliberately skipped; the original source-indexed native
 RAW automaton, winner-to-cluster pointer bridge, mutation gate, no-write
 host and Win32/x64 parity must instead pass at a fresh exact source SHA.
+
+### 1 November 2026 — matched-genre RAW reachability positive/negative host controls (CI-only)
+
+The same disposable multitempo WAV is opened in the original Win32 and x64
+foobar hosts through three independent external CUE genre contexts: matched
+`Chill; Acapella` must enter the real RAW selector with complete native
+source-indexed winner-to-cluster proof; ordinary `Hardcore` and `Chill`
+must not emit any RAW comparator, terminal or bridge events. All three use
+the unchanged production routing and 40–220 BPM Primary rails, with no
+oracle BPM, override, user music or tag write. A separate raw-fate oracle
+now rejects a forged terminal/cluster bridge when the selector chronology
+is absent. The same original-host no-write and adversarial trace gates apply.
+These controls test branch reachability, **not** global eligibility, musical
+accuracy or Phase-C admission. Qualification requires a new exact-SHA public
+Windows source job on both architectures with zero uploaded artifacts.
