@@ -18,7 +18,7 @@ class SyntheticBpmReferenceTests(unittest.TestCase):
             [sys.executable, str(GENERATOR), "--output", str(folder)],
             text=True, capture_output=True, check=True,
         )
-        self.assertIn("SYNTHETIC_REFERENCE_GENERATED=11", result.stdout)
+        self.assertIn("SYNTHETIC_REFERENCE_GENERATED=17", result.stdout)
         return json.loads((folder / "reference.json").read_text(encoding="utf-8"))
 
     def test_wave_structure_and_reference_oracle(self):
@@ -26,7 +26,7 @@ class SyntheticBpmReferenceTests(unittest.TestCase):
             root = Path(temp) / "fixtures"
             data = self.generate(root)
             self.assertEqual(data["schema"], "synthetic_bpm_reference_v1")
-            self.assertEqual(len(data["cases"]), 11)
+            self.assertEqual(len(data["cases"]), 17)
             for case in data["cases"]:
                 wav = root / (case["id"] + ".wav")
                 with wave.open(str(wav), "rb") as reader:
