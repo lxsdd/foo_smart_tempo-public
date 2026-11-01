@@ -26,9 +26,9 @@ inline bool permitted(const std::wstring& fixture,
       L"\\synthetic-oracle\\probe_156_half_pulse.wav",
       L"\\synthetic-oracle\\probe_90_polyrhythm.wav",
       L"\\synthetic-oracle\\probe_150_sparse.wav",
-      // Only generated temporary CUE: regular foobar metadata routing control.
+      // Only generated temporary CUEs: normal foobar genre routing controls.
       L"\\synthetic-oracle\\pulse_60_chill.cue",
-      L"\\synthetic-oracle\\raw_route_multitempo_hardcore.cue",
+      L"\\synthetic-oracle\\raw_route_multitempo_chill_acapella.cue",
   };
   for (const wchar_t* suffix : suffixes) {
     const std::size_t n = std::wcslen(suffix);
