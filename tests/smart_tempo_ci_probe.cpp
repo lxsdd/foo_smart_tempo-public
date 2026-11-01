@@ -14,6 +14,7 @@
 #include "foobar2000/SDK/playlist_loader.h"
 
 #include <array>
+#include <cmath>
 #include <span>
 #include <cwchar>
 #include <cstring>
@@ -962,8 +963,77 @@ bool native_raw_ingest_sanitization_contract() {
            clean.raw_candidates.size() == topCount;
 }
 
+// A finite decoded-audio score may still overflow when added to a prior
+// witness. TopK must reject the ENTIRE multi-alias row, not partially update
+// healthy siblings. Continuous refinement has the same source boundary.
+bool native_raw_accumulator_overflow_contract() {
+    using namespace smart_tempo;
+    using namespace smart_tempo::mir_pipeline;
+    MirCandidateBoard board{};
+    initialize_mir_candidate_board(board, 2);
+    HodgkinsonFullMirSegmentCandidate top{};
+    top.candidate_bpm = 129.0;
+    top.segment_index = 0;
+    top.combined_score = .80;
+    top.quantization_score = .40;
+    top.meter_score = .30;
+    add_mir_topk_candidate(board, top);
+    if (board.raw_candidates.size() < 2) return false;
+    MirRawCandidate* direct = nullptr;
+    for (auto& raw : board.raw_candidates)
+        if (raw.bpm == 129.0 && raw.alias_class != nullptr &&
+            std::strcmp(raw.alias_class, "direct") == 0) direct = &raw;
+    if (direct == nullptr) return false;
+    direct->score_sum = std::numeric_limits<double>::max() * .75;
+    const auto baseline = board.raw_candidates;
+    const auto unchanged = [&] {
+        if (board.raw_candidates.size() != baseline.size()) return false;
+        for (std::size_t i = 0; i < baseline.size(); ++i) {
+            const auto& before = baseline[i];
+            const auto& after = board.raw_candidates[i];
+            if (before.bpm != after.bpm ||
+                before.score_sum != after.score_sum ||
+                before.quant_sum != after.quant_sum ||
+                before.meter_sum != after.meter_sum ||
+                before.rows != after.rows ||
+                before.winner_rows != after.winner_rows ||
+                before.segment_hits != after.segment_hits ||
+                before.winner_segment_hits != after.winner_segment_hits ||
+                before.segments != after.segments ||
+                before.winner_segments != after.winner_segments ||
+                before.continuous_score != after.continuous_score)
+                return false;
+        }
+        return true;
+    };
+    auto large = top;
+    large.segment_index = 1;
+    large.combined_score = std::numeric_limits<double>::max() * .75;
+    add_mir_topk_candidate(board, large);
+    if (!unchanged()) return false;
+    HodgkinsonContinuousRefinementEvidence continuous{};
+    continuous.best_bpm = 129.0;
+    continuous.alias_class = "direct";
+    continuous.best_score = large.combined_score;
+    continuous.score_ratio = 1.25;
+    continuous.section_support = .5;
+    continuous.section_stability = .5;
+    add_mir_continuous_refinement_evidence(board, continuous);
+    if (!unchanged()) return false;
+    // A valid later measurement must still pass without resetting the board.
+    top.segment_index = 1;
+    add_mir_topk_candidate(board, top);
+    if (board.raw_candidates.size() != baseline.size()) return false;
+    for (const auto& raw : board.raw_candidates)
+        if (raw.rows != 2 || raw.segment_hits != 2 ||
+            raw.segments.size() != 2 || raw.segments[1] != 1 ||
+            !std::isfinite(raw.score_sum)) return false;
+    return true;
+}
+
 bool write_native_raw_fallback_marker() {
-    if (!native_raw_ingest_sanitization_contract() ||
+    if (!native_raw_accumulator_overflow_contract() ||
+        !native_raw_ingest_sanitization_contract() ||
         !native_raw_audio_evidence_gate_contract() ||
         !native_raw_fallback_contract(0) ||
         !native_raw_fallback_contract(1) ||

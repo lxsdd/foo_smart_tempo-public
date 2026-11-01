@@ -377,6 +377,32 @@ MirRawCandidate& upsert_mir_raw_candidate(
   return std::isfinite(value) && value >= 0.0;
 }
 
+// A single decoded-audio row can fan out to several aliases. Preflight every
+// existing destination BEFORE mutating any of them: individually finite
+// measurements can overflow accumulated evidence or counters on replay.
+// Reject the entire row, not only the alias that happened to overflow.
+[[nodiscard]] bool mir_raw_accumulation_fits(
+    const MirCandidateBoard& board, double bpm, const char* aliasClass,
+    double score, double quant, double meter, bool winner) noexcept {
+  const double clustered = cluster_material_bpm(bpm);
+  for (const auto& raw : board.raw_candidates) {
+    if (raw.alias_class == nullptr ||
+        std::abs(raw.bpm - clustered) >= 0.001 ||
+        std::strcmp(raw.alias_class, aliasClass) != 0) {
+      continue;
+    }
+    if (raw.rows == std::numeric_limits<std::size_t>::max() ||
+        (winner &&
+         raw.winner_rows == std::numeric_limits<std::size_t>::max())) {
+      return false;
+    }
+    return std::isfinite(raw.score_sum + score) &&
+           std::isfinite(raw.quant_sum + quant) &&
+           std::isfinite(raw.meter_sum + meter);
+  }
+  return true;
+}
+
 void add_mir_topk_candidate(
     MirCandidateBoard& board,
     const smart_tempo::HodgkinsonFullMirSegmentCandidate& candidate) {
@@ -390,6 +416,19 @@ void add_mir_topk_candidate(
        candidate.quantization_score == 0.0 &&
        candidate.meter_score == 0.0)) {
     return;
+  }
+  for (const auto& alias : kMirAliases) {
+    const double aliasBpm = candidate.candidate_bpm * alias.multiplier;
+    if (!(aliasBpm >= 40.0 && aliasBpm <= 220.0) ||
+        !std::isfinite(aliasBpm)) {
+      continue;
+    }
+    if (!mir_raw_accumulation_fits(
+            board, aliasBpm, alias.name, candidate.combined_score,
+            candidate.quantization_score, candidate.meter_score,
+            candidate.winner)) {
+      return;
+    }
   }
   for (const auto& alias : kMirAliases) {
     const double aliasBpm = candidate.candidate_bpm * alias.multiplier;
@@ -480,7 +519,12 @@ void add_mir_continuous_refinement_evidence(
       break;
     }
   }
-  if (aliasBit == 0) return;
+  if (aliasBit == 0 ||
+      !mir_raw_accumulation_fits(
+          board, evidence.best_bpm, evidence.alias_class,
+          evidence.best_score, 0.0, 0.0, false)) {
+    return;
+  }
   auto& raw = upsert_mir_raw_candidate(
       board, evidence.best_bpm, evidence.alias_class, aliasBit);
 #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
