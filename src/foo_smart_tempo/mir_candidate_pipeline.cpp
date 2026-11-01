@@ -157,6 +157,49 @@ constexpr std::array<MirAliasOption, 11> kMirAliases{{
     {4.0, "quadruple", MirAlias::quadruple},
 }};
 
+// The production candidate board is populated exclusively by decoded-audio
+// TopK, onset-pulse or continuous-refinement measurements. A numeric BPM,
+// alias, genre or route alone is not evidence. Keep this predicate common to
+// cluster construction, lane classification and the RAW fallback path so an
+// invalid source cannot be resurrected by an alias/support fallback.
+[[nodiscard]] bool mir_raw_audio_evidence_eligible(
+    const MirRawCandidate& raw) noexcept {
+  if (!std::isfinite(raw.bpm) || raw.bpm < kMirProductionMinBpm ||
+      raw.bpm > kMirProductionMaxBpm || raw.alias_class == nullptr) {
+    return false;
+  }
+  bool recognizedAlias = false;
+  for (const auto& alias : kMirAliases) {
+    if (raw.alias_bit == static_cast<uint16_t>(alias.bit) &&
+        std::strcmp(raw.alias_class, alias.name) == 0) {
+      recognizedAlias = true;
+      break;
+    }
+  }
+  if (!recognizedAlias) {
+    return false;
+  }
+  const std::array<double, 16> measurements{{
+      raw.score_sum, raw.quant_sum, raw.meter_sum,
+      raw.best_combined_score, raw.best_quantization_score,
+      raw.best_meter_score, raw.synthetic_support,
+      raw.synthetic_winner_support, raw.pulse_score,
+      raw.pulse_section_support, raw.pulse_phase_vs,
+      raw.pulse_axial_phase_vs, raw.continuous_score,
+      raw.continuous_section_support, raw.continuous_score_ratio,
+      raw.continuous_section_stability}};
+  if (!std::all_of(measurements.begin(), measurements.end(),
+                   [](double value) noexcept {
+                     return std::isfinite(value) && value >= 0.0;
+                   })) {
+    return false;
+  }
+  return (raw.rows > 0 &&
+          (raw.score_sum > 0.0 || raw.best_combined_score > 0.0 ||
+           raw.quant_sum > 0.0 || raw.meter_sum > 0.0)) ||
+         raw.pulse_score > 0.0 || raw.continuous_score > 0.0;
+}
+
 static_assert([] {
   if (kMirAliases.size() != kMirPulseRelations.size()) {
     return false;
@@ -529,6 +572,7 @@ evaluate_mir_high_pulse_interval_conflict_shadow(
   std::vector<MirCandidate> out;
   out.reserve(board.raw_candidates.size());
   for (const auto& raw : board.raw_candidates) {
+    if (!mir_raw_audio_evidence_eligible(raw)) continue;
     auto existing = std::find_if(
         out.begin(), out.end(), [&](const MirCandidate& candidate) {
           return std::abs(candidate.bpm - raw.bpm) < 0.001;
@@ -857,6 +901,7 @@ evaluate_mir_high_pulse_interval_conflict_shadow(
     MirLaneStats* laneStats) noexcept {
   MirLaneStats stats;
   for (const auto& raw : board.raw_candidates) {
+    if (!mir_raw_audio_evidence_eligible(raw)) continue;
     const auto segmentSupport =
         [&raw, &board]() noexcept {
           if (board.segment_count == 0 || raw.segments.empty()) {
@@ -1037,6 +1082,15 @@ evaluate_mir_high_pulse_interval_conflict_shadow(
   std::vector<const MirRawCandidate*> pool;
   pool.reserve(board.raw_candidates.size());
   for (const auto& candidate : board.raw_candidates) {
+    if (!mir_raw_audio_evidence_eligible(candidate)) {
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+      ci_primary_event(static_cast<std::size_t>(
+                           &candidate - board.raw_candidates.data()),
+                       candidate.bpm, 0.0, true, false,
+                       "raw_audio_evidence_veto");
+#endif
+      continue;
+    }
     const bool aliasAllowed = mir_raw_alias_allowed(candidate, lane);
 #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
     ci_primary_event(static_cast<std::size_t>(&candidate - board.raw_candidates.data()),
@@ -1049,6 +1103,7 @@ evaluate_mir_high_pulse_interval_conflict_shadow(
   }
   if (pool.empty()) {
     for (const auto& candidate : board.raw_candidates) {
+      if (!mir_raw_audio_evidence_eligible(candidate)) continue;
 #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
       ci_primary_event(static_cast<std::size_t>(&candidate - board.raw_candidates.data()),
                        candidate.bpm, 0.0, true, true,
@@ -1062,7 +1117,8 @@ evaluate_mir_high_pulse_interval_conflict_shadow(
     // The native alias fallback did not run. Only NOW can an exclusion
     // be called decisive. Raw source indexes, not BPM proximity, identify it.
     for (const auto& candidate : board.raw_candidates)
-      if (!mir_raw_alias_allowed(candidate, lane))
+      if (mir_raw_audio_evidence_eligible(candidate) &&
+          !mir_raw_alias_allowed(candidate, lane))
         ci_primary_event(static_cast<std::size_t>(
                              &candidate - board.raw_candidates.data()),
                          candidate.bpm, 0.0, true, false,
