@@ -628,20 +628,24 @@ try {
   }
   # Coverage-only original WAV/CUE route, never a single-BPM accuracy case.
   # Four independent 45s pulse families challenge alias-family saturation.
+  # Productive Primary is always called on the 40..220 rail (center 130),
+  # regardless of the route's soft BPM prior. Hardcore alone therefore
+  # cannot invoke RAW. A matched Chill route plus Acapella source context
+  # reaches the existing sparse_or_acapella RAW selector without any override.
   $rawRoot=Join-Path (Join-Path $root 'raw-host-multitempo') 'synthetic-oracle'
   python ./tools/generate_synthetic_raw_route.py --output $rawRoot
   if ($LASTEXITCODE -ne 0) { throw 'Raw-host synthetic WAV generation failed' }
   $rawWav=Join-Path $rawRoot 'raw_route_multitempo.wav'
-  $rawCue=Join-Path $rawRoot 'raw_route_multitempo_hardcore.cue'
+  $rawCue=Join-Path $rawRoot 'raw_route_multitempo_chill_acapella.cue'
   if (Test-Path -LiteralPath $rawCue) { throw 'Stale raw-host route CUE' }
   [IO.File]::WriteAllLines($rawCue,@(
-    'REM GENRE "Hardcore"',
+    'REM GENRE "Chill; Acapella"',
     'FILE "raw_route_multitempo.wav" WAVE',
     '  TRACK 01 AUDIO',
     '    INDEX 01 00:00:00'
   ),[Text.Encoding]::ASCII)
   Run-Case $installer $root $rawCue @($rawWav,$rawCue) 1 `
-    'SYNTHETIC_raw_route_multitempo_hardcore' -RequireRawSelectorCoverage
+    'SYNTHETIC_raw_route_multitempo_chill_acapella' -RequireRawSelectorCoverage
   # Prospectively frozen six-case synthetic generalization set. Same original
   # foobar host and candidate boards, no production Selector/Policy mutation.
   foreach ($caseId in $script:prospectiveCases) {
