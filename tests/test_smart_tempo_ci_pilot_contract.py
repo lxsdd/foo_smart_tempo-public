@@ -19,7 +19,7 @@ class PilotContract(unittest.TestCase):
         self.assertEqual(header.count("raw_route_multitempo.wav"), 1)
         self.assertEqual(header.count("pulse_60_chill.cue"), 1)
         self.assertEqual(header.count(".cue"), 2)
-        self.assertEqual(header.count("raw_route_multitempo_hardcore.cue"), 1)
+        self.assertEqual(header.count("raw_route_multitempo_chill_acapella.cue"), 1)
 
         self.assertIn("runner_temp", header)
         self.assertIn("_wcsnicmp", header)
@@ -70,18 +70,28 @@ class PilotContract(unittest.TestCase):
         self.assertEqual(script.count("-RequireLowPulseCoverage"), 1)
         self.assertIn("if ($caseId -ceq 'pulse_60')", script)
 
-    def test_real_wav_hardcore_route_reaches_raw_pointer_bridge(self):
+    def test_real_wav_matched_acapella_route_reaches_raw_pointer_bridge(self):
         script = self.read("tests/diagnostic_live_host_smoke.ps1")
         guard = self.read("tests/ci_fixture_allowlist.h")
         config = self.read("src/foo_smart_tempo/preferences.cpp")
         raw = self.read("tools/audit_smart_tempo_b_raw_fates.py")
-        self.assertIn("Hardcore; Gabber", config)
-        self.assertIn('REM GENRE "Hardcore"', script)
+        pipeline = self.read("src/foo_smart_tempo/mir_candidate_pipeline.cpp")
+        analyzer = self.read("src/foo_smart_tempo/modern_bpm_analyzer.cpp")
+        self.assertIn("Chill; Chillout; Easy Listening", config)
+        self.assertIn('REM GENRE "Chill; Acapella"', script)
+        # The original analyzer deliberately passes the 40..220 production
+        # rail, regardless of a genre's soft BPM prior. RAW is reached via
+        # a real matched non-generic Acapella lane, not a CI route override.
+        self.assertIn("kMirProductionMinBpm, kMirProductionMaxBpm", analyzer)
+        self.assertIn('contains_ascii_case_insensitive(routingContext->source_genres,', pipeline)
+        self.assertIn('"acapella"', pipeline)
+        self.assertIn('return "sparse_or_acapella"', pipeline)
+        self.assertIn("select_mir_raw_conservative(", pipeline)
         self.assertIn('FILE "raw_route_multitempo.wav" WAVE', script)
-        self.assertIn("raw_route_multitempo_hardcore.cue", guard)
+        self.assertIn("raw_route_multitempo_chill_acapella.cue", guard)
         self.assertIn("raw_route_multitempo.wav", guard)
         self.assertIn("generate_synthetic_raw_route.py --output $rawRoot", script)
-        self.assertIn("'SYNTHETIC_raw_route_multitempo_hardcore' -RequireRawSelectorCoverage", script)
+        self.assertIn("'SYNTHETIC_raw_route_multitempo_chill_acapella' -RequireRawSelectorCoverage", script)
         self.assertIn("SMART_TEMPO_NATIVE_RAW_WAV_HOST_{0}=PASS", script)
         self.assertIn("NATIVE_RAW_OBJECT_BRIDGE_VERIFIED", script)
         self.assertIn("NATIVE_RAW_COMPLETE_INVOCATIONS", script)
