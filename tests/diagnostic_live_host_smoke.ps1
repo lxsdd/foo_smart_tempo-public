@@ -98,10 +98,11 @@ $script:pilotTraceKeys=@('NATIVE_SOURCE_INVENTORY_VERIFIED','RAW','COLLAPSED','W
   'INDEXED_NATIVE_FINAL_WITNESS','UNINDEXED_SUPPLEMENTAL_FINAL_WITNESS',
   'SUPPLEMENTAL_SELECTED_SOURCES','POLICY_SUPPLEMENTAL_POINTER_IDENTITY_COMPLETE',
   'NEGATIVE_NO_CANDIDATE_TRACE','SELECTOR_LOW_BESTBY_EPISODES',
-  'SELECTOR_COMPARE_LOW_WINS','SELECTOR_COMPARE_LOW_LOSSES',
-  'NATIVE_RAW_COMPLETE_INVOCATIONS','NATIVE_RAW_OBJECT_BRIDGE_VERIFIED',
-  'NATIVE_RAW_COMPARED_SOURCES','SELECTOR_COMPARE_RAW_WINS',
-  'SELECTOR_COMPARE_RAW_LOSSES')
+  'SELECTOR_COMPARE_LOW_WINS','SELECTOR_COMPARE_LOW_LOSSES')
+# Raw CUE witness belongs only to its source-path gate, not the frozen BPM pilots.
+$script:rawTraceKeys=@('NATIVE_RAW_COMPLETE_INVOCATIONS',
+  'NATIVE_RAW_OBJECT_BRIDGE_VERIFIED','NATIVE_RAW_COMPARED_SOURCES',
+  'SELECTOR_COMPARE_RAW_WINS','SELECTOR_COMPARE_RAW_LOSSES')
 $script:pilotShadowKeys=@('CANDIDATES','REFERENCE_PRESENT','NATIVE_PRIMARY_CORRECT',
   'NATIVE_FINAL_CORRECT','NATIVE_PRIMARY_SOURCE_INDEXED','REFERENCE_LOST_AT_PRIMARY',
   'MODEL_SCORE_SUM_CORRECT','MODEL_SUPPORT_CORRECT','MODEL_COMBINED_CORRECT',
@@ -377,17 +378,22 @@ function Run-Case([string]$installer,[string]$root,[string]$inputFile,[string[]]
         if ($recallSeen.Count -ne 8) { throw 'Incomplete original-host causal recall' }
       }
       $traceEvidence=@{}
+      $rawTraceEvidence=@{}
       foreach ($line in $traceOutput) {
-        if ([string]$line -cmatch '^SMART_TEMPO_TRACE_([A-Z0-9_]+)=([A-Za-z0-9_.]+)$' -and
-            $Matches[1] -cin $script:pilotTraceKeys) {
+        if ([string]$line -cmatch '^SMART_TEMPO_TRACE_([A-Z0-9_]+)=([A-Za-z0-9_.]+)$') {
           $key=$Matches[1]; $value=$Matches[2]
-          if ($traceEvidence.ContainsKey($key)) { throw 'Duplicate trace key' }
+          if ($key -cin $script:pilotTraceKeys) {
+            $bucket=$traceEvidence
+          } elseif ($key -cin $script:rawTraceKeys) {
+            $bucket=$rawTraceEvidence
+          } else { continue }
+          if ($bucket.ContainsKey($key)) { throw 'Duplicate trace key' }
           if ($key -in @('PHASE_B_CAUSAL_COMPLETENESS','WRITER_REASON')) {
-            $traceEvidence[$key]=$value
+            $bucket[$key]=$value
           } elseif ($key -in @('PROCESS_CPU_SECONDS','PROCESS_PEAK_RSS_BYTES')) {
-            $traceEvidence[$key]=[double]::Parse($value,[Globalization.CultureInfo]::InvariantCulture)
+            $bucket[$key]=[double]::Parse($value,[Globalization.CultureInfo]::InvariantCulture)
           } elseif ($value -cmatch '^[0-9]+$') {
-            $traceEvidence[$key]=[int]$value
+            $bucket[$key]=[int]$value
           } else { throw 'Malformed trace counter' }
         }
       }
@@ -518,16 +524,16 @@ function Run-Case([string]$installer,[string]$root,[string]$inputFile,[string[]]
                            'NATIVE_RAW_COMPARED_SOURCES',
                            'SELECTOR_COMPARE_RAW_WINS',
                            'SELECTOR_COMPARE_RAW_LOSSES')) {
-          if (-not $traceEvidence.ContainsKey($key)) {
+          if (-not $rawTraceEvidence.ContainsKey($key)) {
             throw "Missing actual WAV-host raw selector evidence: $key"
           }
         }
-        $wins=$traceEvidence['SELECTOR_COMPARE_RAW_WINS']
-        $losses=$traceEvidence['SELECTOR_COMPARE_RAW_LOSSES']
-        if ($traceEvidence['NATIVE_RAW_COMPLETE_INVOCATIONS'] -ne 1 -or
-            $traceEvidence['NATIVE_RAW_OBJECT_BRIDGE_VERIFIED'] -ne 1 -or
+        $wins=$rawTraceEvidence['SELECTOR_COMPARE_RAW_WINS']
+        $losses=$rawTraceEvidence['SELECTOR_COMPARE_RAW_LOSSES']
+        if ($rawTraceEvidence['NATIVE_RAW_COMPLETE_INVOCATIONS'] -ne 1 -or
+            $rawTraceEvidence['NATIVE_RAW_OBJECT_BRIDGE_VERIFIED'] -ne 1 -or
             $wins -lt 1 -or
-            $traceEvidence['NATIVE_RAW_COMPARED_SOURCES'] -ne ($wins+$losses)) {
+            $rawTraceEvidence['NATIVE_RAW_COMPARED_SOURCES'] -ne ($wins+$losses)) {
           throw 'Original WAV/CUE host did not execute a complete raw selector and native object bridge'
         }
         Write-Host ("SMART_TEMPO_NATIVE_RAW_WAV_HOST_{0}=PASS" -f $Architecture)
