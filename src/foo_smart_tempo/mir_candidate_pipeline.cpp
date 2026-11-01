@@ -13,6 +13,108 @@
 #include <vector>
 
 namespace smart_tempo::mir_pipeline {
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+namespace {
+thread_local std::vector<MirCiSelectorEvent> g_ci_primary_events;
+thread_local std::vector<MirCandidate> g_ci_primary_pool;
+thread_local bool g_ci_primary_trace_complete = true;
+thread_local std::span<const MirPolicyMeasuredCandidate> g_ci_policy_board;
+thread_local MirCiPolicyPointerSource g_ci_policy_source;
+thread_local std::array<const char*, 4> g_ci_policy_stage_path{};
+thread_local std::size_t g_ci_policy_stage_count = 0;
+thread_local bool g_ci_policy_stage_complete = true;
+thread_local const char* g_ci_policy_branch_token = nullptr;
+inline void ci_policy_branch(const char* token) noexcept {
+  g_ci_policy_branch_token = token;
+}
+inline void ci_policy_stage(const char* token) noexcept {
+  if (g_ci_policy_stage_count >= g_ci_policy_stage_path.size()) {
+    g_ci_policy_stage_complete = false;
+    return;
+  }
+  g_ci_policy_stage_path[g_ci_policy_stage_count++] = token;
+}
+thread_local std::vector<MirCiPolicyRailEvent> g_ci_policy_rail_events;
+thread_local bool g_ci_policy_rail_complete = true;
+inline void ci_policy_rail_event(std::size_t index, double sourceBpm,
+                                 double resolvedBpm, bool included) noexcept {
+  if (g_ci_policy_rail_events.size() >= 4096) {
+    g_ci_policy_rail_complete = false;
+    return;
+  }
+  try {
+    g_ci_policy_rail_events.push_back({index, sourceBpm, resolvedBpm, included});
+  } catch (...) {
+    g_ci_policy_rail_complete = false;
+  }
+}
+inline void ci_policy_selected(const MirPolicyMeasuredCandidate& selected) noexcept {
+  g_ci_policy_source = {true, false, 0, selected.bpm};
+  for (std::size_t i = 0; i < g_ci_policy_board.size(); ++i) {
+    if (&g_ci_policy_board[i] == &selected) {
+      g_ci_policy_source.in_fullboard = true;
+      g_ci_policy_source.index = i;
+      return;
+    }
+  }
+}
+inline void ci_policy_supplemental(double bpm, MirCiSupplementalKind kind,
+                                   const void* object) noexcept {
+  g_ci_policy_source = {true, false, 0, bpm, kind, object};
+}
+
+inline void ci_primary_event(std::size_t sourceIndex, double bpm, double score,
+                             bool raw, bool included, const char* reason,
+                             std::array<double, 4> tieMetrics = {},
+                             bool hasTieMetrics = false,
+                             std::size_t lowPoolEpoch = 0,
+                             bool hasLowPoolEpoch = false,
+                             double tieMetric4 = 0.0,
+                             bool hasTieMetric4 = false) noexcept {
+  if (g_ci_primary_events.size() >= 4096) {
+    g_ci_primary_trace_complete = false;
+    return;
+  }
+  try {
+    g_ci_primary_events.push_back({bpm, score, raw, included, reason, sourceIndex,
+                                   tieMetrics, hasTieMetrics,
+                                   lowPoolEpoch, hasLowPoolEpoch,
+                                   tieMetric4, hasTieMetric4});
+  } catch (...) {
+    // CI-only diagnostics never affect selection; incomplete evidence fails the host gate.
+    g_ci_primary_trace_complete = false;
+  }
+}
+}
+std::span<const MirCiSelectorEvent>
+mir_ci_primary_selector_events() noexcept {
+  return {g_ci_primary_events.data(), g_ci_primary_events.size()};
+}
+bool mir_ci_primary_selector_trace_complete() noexcept {
+  return g_ci_primary_trace_complete;
+}
+const std::vector<MirCandidate>& mir_ci_primary_selector_pool() noexcept {
+  return g_ci_primary_pool;
+}
+std::span<const char* const> mir_ci_policy_stage_path() noexcept {
+  return {g_ci_policy_stage_path.data(), g_ci_policy_stage_count};
+}
+bool mir_ci_policy_stage_path_complete() noexcept {
+  return g_ci_policy_stage_complete;
+}
+const char* mir_ci_policy_branch_token() noexcept {
+  return g_ci_policy_branch_token;
+}
+MirCiPolicyPointerSource mir_ci_policy_pointer_source() noexcept {
+  return g_ci_policy_source;
+}
+std::span<const MirCiPolicyRailEvent> mir_ci_policy_rail_events() noexcept {
+  return {g_ci_policy_rail_events.data(), g_ci_policy_rail_events.size()};
+}
+bool mir_ci_policy_rail_trace_complete() noexcept {
+  return g_ci_policy_rail_complete;
+}
+#endif
 namespace {
 constexpr double kMirProductionMinBpm = 40.0;
 constexpr double kMirProductionMaxBpm = 220.0;
@@ -236,6 +338,9 @@ void add_mir_topk_candidate(
     }
     auto& raw = upsert_mir_raw_candidate(
         board, aliasBpm, alias.name, static_cast<uint16_t>(alias.bit));
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+  raw.ci_source_mask |= 1;
+#endif
     if (raw.segments[candidate.segment_index] == 0) {
       raw.segments[candidate.segment_index] = 1;
       ++raw.segment_hits;
@@ -276,6 +381,9 @@ void add_mir_alias_pulse_evidence(
   }
   auto& raw = upsert_mir_raw_candidate(
       board, evidence.alias_bpm, evidence.alias_class, aliasBit);
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+  raw.ci_source_mask |= 2;
+#endif
   raw.pulse_score = (std::max)(raw.pulse_score, evidence.pulse_score);
   raw.pulse_section_support =
       (std::max)(raw.pulse_section_support, evidence.section_support);
@@ -300,6 +408,9 @@ void add_mir_continuous_refinement_evidence(
   }
   auto& raw = upsert_mir_raw_candidate(
       board, evidence.best_bpm, evidence.alias_class, aliasBit);
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+  raw.ci_source_mask |= 4;
+#endif
   raw.rows += 1;
   raw.score_sum += evidence.best_score;
   raw.best_combined_score =
@@ -926,32 +1037,84 @@ evaluate_mir_high_pulse_interval_conflict_shadow(
   std::vector<const MirRawCandidate*> pool;
   pool.reserve(board.raw_candidates.size());
   for (const auto& candidate : board.raw_candidates) {
-    if (mir_raw_alias_allowed(candidate, lane)) {
+    const bool aliasAllowed = mir_raw_alias_allowed(candidate, lane);
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+    ci_primary_event(static_cast<std::size_t>(&candidate - board.raw_candidates.data()),
+                     candidate.bpm, 0.0, true, aliasAllowed,
+                     aliasAllowed ? "raw_alias_allowed" : "raw_alias_provisional_exclusion");
+#endif
+    if (aliasAllowed) {
       pool.push_back(&candidate);
     }
   }
   if (pool.empty()) {
     for (const auto& candidate : board.raw_candidates) {
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+      ci_primary_event(static_cast<std::size_t>(&candidate - board.raw_candidates.data()),
+                       candidate.bpm, 0.0, true, true,
+                       "raw_alias_fallback_readmitted");
+#endif
       pool.push_back(&candidate);
     }
   }
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+  else {
+    // The native alias fallback did not run. Only NOW can an exclusion
+    // be called decisive. Raw source indexes, not BPM proximity, identify it.
+    for (const auto& candidate : board.raw_candidates)
+      if (!mir_raw_alias_allowed(candidate, lane))
+        ci_primary_event(static_cast<std::size_t>(
+                             &candidate - board.raw_candidates.data()),
+                         candidate.bpm, 0.0, true, false,
+                         "raw_alias_decisive_veto");
+  }
+#endif
   const double supportFloor = std::strcmp(lane, "sparse_or_acapella") == 0 ? 0.08 : 0.15;
   std::vector<const MirRawCandidate*> supported;
   supported.reserve(pool.size());
   for (const auto* candidate : pool) {
-    if (mir_raw_support(*candidate, board.segment_count) >= supportFloor) {
+    const double support = mir_raw_support(*candidate, board.segment_count);
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+    ci_primary_event(static_cast<std::size_t>(candidate - board.raw_candidates.data()),
+                     candidate->bpm, support, true, support >= supportFloor,
+                     support >= supportFloor ? "raw_support_allowed" : "raw_support_provisional_exclusion");
+#endif
+    if (support >= supportFloor) {
       supported.push_back(candidate);
     }
   }
   if (!supported.empty()) {
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+    // No support fallback: record the first actual irrevocable exclusion.
+    // Does not affect score, candidate identity or any production decision.
+    for (const auto* candidate : pool)
+      if (mir_raw_support(*candidate, board.segment_count) < supportFloor)
+        ci_primary_event(static_cast<std::size_t>(
+                             candidate - board.raw_candidates.data()),
+                         candidate->bpm,
+                         mir_raw_support(*candidate, board.segment_count),
+                         true, false, "raw_support_decisive_veto");
+#endif
     pool = std::move(supported);
   }
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+  else {
+    for (const auto* candidate : pool)
+      ci_primary_event(static_cast<std::size_t>(candidate - board.raw_candidates.data()),
+                       candidate->bpm, mir_raw_support(*candidate, board.segment_count),
+                       true, true, "raw_support_fallback_readmitted");
+  }
+#endif
 
   const MirRawCandidate* best = nullptr;
   double bestScore = -std::numeric_limits<double>::infinity();
   for (const auto* candidate : pool) {
     const double score = score_mir_raw_conservative(
         *candidate, board.segment_count, lane, routeMin, routeMax, routeCenter);
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+    ci_primary_event(static_cast<std::size_t>(candidate - board.raw_candidates.data()),
+                     candidate->bpm, score, true, true, "raw_rank_scored");
+#endif
     const auto tie = std::make_tuple(
         mir_raw_support(*candidate, board.segment_count),
         mir_raw_winner_support(*candidate, board.segment_count),
@@ -962,11 +1125,24 @@ evaluate_mir_high_pulse_interval_conflict_shadow(
                                                mir_raw_winner_support(*best, board.segment_count),
                                                best->score_sum,
                                                -std::abs(best->bpm - routeCenter));
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+    const bool ciComparisonWon =
+        best == nullptr || score > bestScore + 1e-9 ||
+        (std::abs(score - bestScore) <= 1e-9 && tie > bestTie);
+#endif
     if (best == nullptr || score > bestScore + 1e-9 ||
         (std::abs(score - bestScore) <= 1e-9 && tie > bestTie)) {
       best = candidate;
       bestScore = score;
     }
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+    ci_primary_event(static_cast<std::size_t>(candidate - board.raw_candidates.data()),
+                     candidate->bpm, score, true, ciComparisonWon,
+                     ciComparisonWon ? "raw_compare_won" :
+                                     "raw_compare_lost",
+                     {std::get<0>(tie), std::get<1>(tie),
+                      std::get<2>(tie), std::get<3>(tie)}, true);
+#endif
   }
   return best;
 }
@@ -1065,6 +1241,11 @@ evaluate_mir_high_pulse_interval_conflict_shadow(
   for (const auto* candidate : *searchPool) {
     const double score = score_mir_cluster_conservative(
         *candidate, lane, routeMin, routeMax, routeCenter);
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+    ci_primary_event(static_cast<std::size_t>(candidate - candidates.data()),
+                     candidate->bpm, score, false, true,
+                     "general_baseline_rank_scored");
+#endif
     const auto tie = std::make_tuple(candidate->support, candidate->winner_support,
                                      candidate->score_sum,
                                      -std::abs(candidate->bpm - routeCenter));
@@ -1074,11 +1255,24 @@ evaluate_mir_high_pulse_interval_conflict_shadow(
                              : std::make_tuple(best->support, best->winner_support,
                                                best->score_sum,
                                                -std::abs(best->bpm - routeCenter));
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+    const bool ciComparisonWon =
+        best == nullptr || score > bestScore + 1e-9 ||
+        (std::abs(score - bestScore) <= 1e-9 && tie > bestTie);
+#endif
     if (best == nullptr || score > bestScore + 1e-9 ||
         (std::abs(score - bestScore) <= 1e-9 && tie > bestTie)) {
       best = candidate;
       bestScore = score;
     }
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+    ci_primary_event(static_cast<std::size_t>(candidate - candidates.data()),
+                     candidate->bpm, score, false, ciComparisonWon,
+                     ciComparisonWon ? "general_baseline_compare_won" :
+                                     "general_baseline_compare_lost",
+                     {std::get<0>(tie), std::get<1>(tie),
+                      std::get<2>(tie), std::get<3>(tie)}, true);
+#endif
   }
   return best;
 }
@@ -1105,16 +1299,39 @@ evaluate_mir_high_pulse_interval_conflict_shadow(
            (mir_has_alias(c->alias_bits, MirAlias::direct) ? 0.7
                                                                   : 0.0);
   };
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+  std::size_t ciLowBestByEpoch = 0;
+#endif
   const auto bestBy = [&](const std::vector<const MirCandidate*>& pool,
                           const auto& scoreFn) -> const MirCandidate* {
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+    // Each nested rescue invokes a fresh bestBy with an empty incumbent.
+    const std::size_t ciThisPoolEpoch = ++ciLowBestByEpoch;
+#endif
     const MirCandidate* best = nullptr;
     double bestScore = -std::numeric_limits<double>::infinity();
     for (const auto* candidate : pool) {
       const double score = scoreFn(candidate);
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+      // Actual low-pulse score comparison, including nested rescues.
+      // Ranking is not an executed terminal veto.
+      ci_primary_event(static_cast<std::size_t>(candidate - candidates.data()),
+                       candidate->bpm, score, false, true, "low_rank_scored",
+                       {}, false, ciThisPoolEpoch, true);
+#endif
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+      const bool ciComparisonWon = best == nullptr || score > bestScore;
+#endif
       if (best == nullptr || score > bestScore) {
         best = candidate;
         bestScore = score;
       }
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+      ci_primary_event(static_cast<std::size_t>(candidate - candidates.data()),
+                       candidate->bpm, score, false, ciComparisonWon,
+                       ciComparisonWon ? "low_compare_won" : "low_compare_lost",
+                       {}, false, ciThisPoolEpoch, true);
+#endif
     }
     return best;
   };
@@ -1123,13 +1340,33 @@ evaluate_mir_high_pulse_interval_conflict_shadow(
   // threshold_best -> targeted_rescue_v3 -> targeted_rescue_v4.
   std::vector<const MirCandidate*> upper;
   for (const auto& candidate : candidates) {
-    if (candidate.bpm >= 95.0 && candidate.bpm <= 125.0 &&
+    const bool qualifies = candidate.bpm >= 95.0 && candidate.bpm <= 125.0 &&
         candidate.support >= 0.70 && candidate.pulse_score >= 0.35 &&
-        candidate.pulse_section_support >= 0.35) {
+        candidate.pulse_section_support >= 0.35;
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+    ci_primary_event(static_cast<std::size_t>(&candidate - candidates.data()),
+                     candidate.bpm, candidate.pulse_score, false, qualifies,
+                     qualifies ? "low_upper_gate_allowed" : "low_upper_gate_provisional_exclusion");
+#endif
+    if (qualifies) {
       upper.push_back(&candidate);
     }
   }
   if (!upper.empty()) {
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+    // The upper branch will return without visiting threshold/rescue pools.
+    // This veto is BRANCH-LOCAL: a later continuous-center rescue can still
+    // select this same cluster, so it is NOT a final primary first-veto.
+    for (const auto& candidate : candidates) {
+      const bool qualifies = candidate.bpm >= 95.0 && candidate.bpm <= 125.0 &&
+          candidate.support >= 0.70 && candidate.pulse_score >= 0.35 &&
+          candidate.pulse_section_support >= 0.35;
+      if (!qualifies)
+        ci_primary_event(static_cast<std::size_t>(&candidate - candidates.data()),
+                         candidate.bpm, candidate.pulse_score, false, false,
+                         "low_upper_branch_veto");
+    }
+#endif
     return bestBy(upper, [&](const MirCandidate* c) noexcept {
       return c->pulse_score * 8.0 + c->pulse_section_support * 6.0 +
              c->support * 2.0 +
@@ -1141,12 +1378,23 @@ evaluate_mir_high_pulse_interval_conflict_shadow(
 
   std::vector<const MirCandidate*> thresholdPool;
   for (const auto& candidate : candidates) {
-    if (candidate.bpm >= 45.0 && candidate.bpm <= 90.0) {
+    const bool inRange = candidate.bpm >= 45.0 && candidate.bpm <= 90.0;
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+    ci_primary_event(static_cast<std::size_t>(&candidate - candidates.data()),
+                     candidate.bpm, candidate.support, false, inRange,
+                     inRange ? "low_threshold_allowed" : "low_threshold_provisional_exclusion");
+#endif
+    if (inRange) {
       thresholdPool.push_back(&candidate);
     }
   }
   if (thresholdPool.empty()) {
     for (const auto& candidate : candidates) {
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+      ci_primary_event(static_cast<std::size_t>(&candidate - candidates.data()),
+                       candidate.bpm, candidate.support, false, true,
+                       "low_threshold_fallback_readmitted");
+#endif
       thresholdPool.push_back(&candidate);
     }
   }
@@ -1189,6 +1437,16 @@ evaluate_mir_high_pulse_interval_conflict_shadow(
   if (baseBpm >= 58.0 && baseBpm <= 61.0) {
     std::vector<const MirCandidate*> mid;
     for (const auto& candidate : candidates) {
+      #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+      const bool ciLowEligible = (candidate.bpm >= 68.0 && candidate.bpm <= 82.0 &&
+          (candidate.support >= 0.45 ||
+           (candidate.best_combined_score >= 0.15 &&
+            candidate.score_sum >= 0.55)));
+      ci_primary_event(static_cast<std::size_t>(&candidate - candidates.data()),
+                       candidate.bpm, candidate.support, false, ciLowEligible,
+                       ciLowEligible ? "low_mid_58_61_allowed" :
+                                       "low_mid_58_61_provisional_exclusion");
+#endif
       if (candidate.bpm >= 68.0 && candidate.bpm <= 82.0 &&
           (candidate.support >= 0.45 ||
            (candidate.best_combined_score >= 0.15 &&
@@ -1206,6 +1464,18 @@ evaluate_mir_high_pulse_interval_conflict_shadow(
           aliasBitsExactly(*selectedMid, twoThirdsBit)) {
         std::vector<const MirCandidate*> lowerMid;
         for (const auto& candidate : candidates) {
+          #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+          const bool ciLowEligible = (candidate.bpm >= 69.5 && candidate.bpm <= 72.5 &&
+              aliasCount(candidate, lowerMidAliases) >= 2 &&
+              (lowEvidence(&candidate) >= lowEvidence(selectedMid) * 0.80 ||
+               (candidate.winner_support >= 0.24 &&
+                candidate.score_sum >= 1.0 &&
+                candidate.pulse_score >= 0.20)));
+          ci_primary_event(static_cast<std::size_t>(&candidate - candidates.data()),
+                           candidate.bpm, candidate.support, false, ciLowEligible,
+                           ciLowEligible ? "low_lower_mid_58_61_allowed" :
+                                           "low_lower_mid_58_61_provisional_exclusion");
+#endif
           if (candidate.bpm >= 69.5 && candidate.bpm <= 72.5 &&
               aliasCount(candidate, lowerMidAliases) >= 2 &&
               (lowEvidence(&candidate) >= lowEvidence(selectedMid) * 0.80 ||
@@ -1229,6 +1499,16 @@ evaluate_mir_high_pulse_interval_conflict_shadow(
   } else if (baseBpm >= 56.0 && baseBpm <= 58.0) {
     std::vector<const MirCandidate*> midLow;
     for (const auto& candidate : candidates) {
+      #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+      const bool ciLowEligible = (candidate.bpm >= 63.0 && candidate.bpm <= 66.5 &&
+          (mir_has_alias(candidate.alias_bits, MirAlias::direct) ||
+           candidate.best_combined_score >= 0.16) &&
+          candidate.support >= 0.10);
+      ci_primary_event(static_cast<std::size_t>(&candidate - candidates.data()),
+                       candidate.bpm, candidate.support, false, ciLowEligible,
+                       ciLowEligible ? "low_midlow_56_58_allowed" :
+                                       "low_midlow_56_58_provisional_exclusion");
+#endif
       if (candidate.bpm >= 63.0 && candidate.bpm <= 66.5 &&
           (mir_has_alias(candidate.alias_bits, MirAlias::direct) ||
            candidate.best_combined_score >= 0.16) &&
@@ -1244,6 +1524,18 @@ evaluate_mir_high_pulse_interval_conflict_shadow(
   } else if (baseBpm >= 64.0 && baseBpm <= 67.0) {
     std::vector<const MirCandidate*> deepLow;
     for (const auto& candidate : candidates) {
+      #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+      const bool ciLowEligible = (candidate.bpm >= 50.0 && candidate.bpm <= 53.0 &&
+          (candidate.pulse_score >= 0.22 ||
+           candidate.best_combined_score >= 0.15) &&
+          hasAnyAlias(candidate, static_cast<uint16_t>(MirAlias::one_third) |
+                                   static_cast<uint16_t>(
+                                       MirAlias::quarter)));
+      ci_primary_event(static_cast<std::size_t>(&candidate - candidates.data()),
+                       candidate.bpm, candidate.support, false, ciLowEligible,
+                       ciLowEligible ? "low_deeplow_64_67_allowed" :
+                                       "low_deeplow_64_67_provisional_exclusion");
+#endif
       if (candidate.bpm >= 50.0 && candidate.bpm <= 53.0 &&
           (candidate.pulse_score >= 0.22 ||
            candidate.best_combined_score >= 0.15) &&
@@ -1262,6 +1554,17 @@ evaluate_mir_high_pulse_interval_conflict_shadow(
              aliasBitsExactly(*selected, twoThirdsBit)) {
     std::vector<const MirCandidate*> lowerMid;
     for (const auto& candidate : candidates) {
+      #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+      const bool ciLowEligible = (candidate.bpm >= 69.5 && candidate.bpm <= 72.5 &&
+          aliasCount(candidate, lowerMidAliases) >= 2 &&
+          (candidate.support >= 0.30 ||
+           candidate.best_combined_score >= 0.15 ||
+           candidate.score_sum >= 0.60));
+      ci_primary_event(static_cast<std::size_t>(&candidate - candidates.data()),
+                       candidate.bpm, candidate.support, false, ciLowEligible,
+                       ciLowEligible ? "low_lower_mid_79_81_allowed" :
+                                       "low_lower_mid_79_81_provisional_exclusion");
+#endif
       if (candidate.bpm >= 69.5 && candidate.bpm <= 72.5 &&
           aliasCount(candidate, lowerMidAliases) >= 2 &&
           (candidate.support >= 0.30 ||
@@ -1283,6 +1586,16 @@ evaluate_mir_high_pulse_interval_conflict_shadow(
   } else if (baseBpm >= 86.0 && baseBpm <= 90.0) {
     std::vector<const MirCandidate*> upperDirect;
     for (const auto& candidate : candidates) {
+      #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+      const bool ciLowEligible = (candidate.bpm >= 98.0 && candidate.bpm <= 102.0 &&
+          mir_has_alias(candidate.alias_bits, MirAlias::direct) &&
+          candidate.support >= 0.60 &&
+          candidate.best_combined_score >= 0.18);
+      ci_primary_event(static_cast<std::size_t>(&candidate - candidates.data()),
+                       candidate.bpm, candidate.support, false, ciLowEligible,
+                       ciLowEligible ? "low_upper_direct_86_90_allowed" :
+                                       "low_upper_direct_86_90_provisional_exclusion");
+#endif
       if (candidate.bpm >= 98.0 && candidate.bpm <= 102.0 &&
           mir_has_alias(candidate.alias_bits, MirAlias::direct) &&
           candidate.support >= 0.60 &&
@@ -1302,6 +1615,18 @@ evaluate_mir_high_pulse_interval_conflict_shadow(
       selected->bpm <= 53.0) {
     std::vector<const MirCandidate*> veryLow;
     for (const auto& candidate : candidates) {
+      #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+      const bool ciLowEligible = (candidate.bpm >= 48.5 && candidate.bpm <= 50.5 &&
+          hasAnyAlias(candidate, static_cast<uint16_t>(MirAlias::one_third) |
+                                   static_cast<uint16_t>(
+                                       MirAlias::direct)) &&
+          candidate.support >= 0.50 &&
+          candidate.support >= selected->support + 0.30);
+      ci_primary_event(static_cast<std::size_t>(&candidate - candidates.data()),
+                       candidate.bpm, candidate.support, false, ciLowEligible,
+                       ciLowEligible ? "low_verylow_50_53_allowed" :
+                                       "low_verylow_50_53_provisional_exclusion");
+#endif
       if (candidate.bpm >= 48.5 && candidate.bpm <= 50.5 &&
           hasAnyAlias(candidate, static_cast<uint16_t>(MirAlias::one_third) |
                                    static_cast<uint16_t>(
@@ -1321,6 +1646,18 @@ evaluate_mir_high_pulse_interval_conflict_shadow(
                selected->support < 0.35) {
       std::vector<const MirCandidate*> upper;
       for (const auto& candidate : candidates) {
+        #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+        const bool ciLowEligible = (candidate.bpm >= 98.0 && candidate.bpm <= 102.0 &&
+            hasAnyAlias(candidate,
+                        static_cast<uint16_t>(MirAlias::direct) |
+                            static_cast<uint16_t>(
+                                MirAlias::three_quarters)) &&
+            candidate.support >= 0.60);
+        ci_primary_event(static_cast<std::size_t>(&candidate - candidates.data()),
+                         candidate.bpm, candidate.support, false, ciLowEligible,
+                         ciLowEligible ? "low_upper_recovery_50_53_allowed" :
+                                         "low_upper_recovery_50_53_provisional_exclusion");
+#endif
         if (candidate.bpm >= 98.0 && candidate.bpm <= 102.0 &&
             hasAnyAlias(candidate,
                         static_cast<uint16_t>(MirAlias::direct) |
@@ -1355,6 +1692,17 @@ select_mir_low_pulse_continuous_center_rescue(
                                             : 99.0;
   const MirCandidate* best = nullptr;
   for (const auto& candidate : candidates) {
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+    const bool excluded = !(candidate.bpm >= 95.0 && candidate.bpm <= 102.0) ||
+        std::abs(candidate.bpm - selected->bpm) < 10.0 ||
+        candidate.continuous_score_ratio < 1.50 ||
+        candidate.continuous_section_support < 0.80 ||
+        candidate.continuous_section_stability < 0.70;
+    ci_primary_event(static_cast<std::size_t>(&candidate - candidates.data()),
+                     candidate.bpm, candidate.continuous_score_ratio, false,
+                     !excluded, excluded ? "low_continuous_provisional_exclusion" :
+                                           "low_continuous_allowed");
+#endif
     if (!(candidate.bpm >= 95.0 && candidate.bpm <= 102.0) ||
         std::abs(candidate.bpm - selected->bpm) < 10.0 ||
         candidate.continuous_score_ratio < 1.50 ||
@@ -1362,6 +1710,37 @@ select_mir_low_pulse_continuous_center_rescue(
         candidate.continuous_section_stability < 0.70) {
       continue;
     }
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+    // EXACT same input fields/order as the untouched productive five-field
+    // lexicographic condition below. A gate alone never proves its winner.
+    const auto ciCandidateTuple = std::make_tuple(
+        candidate.continuous_score_ratio,
+        candidate.continuous_section_support,
+        candidate.continuous_section_stability,
+        candidate.continuous_score,
+        -std::abs(candidate.bpm - routeCenter));
+    const auto ciBestTuple = best == nullptr ? ciCandidateTuple
+        : std::make_tuple(best->continuous_score_ratio,
+                          best->continuous_section_support,
+                          best->continuous_section_stability,
+                          best->continuous_score,
+                          -std::abs(best->bpm - routeCenter));
+    const bool ciContinuousWon =
+        best == nullptr || ciCandidateTuple > ciBestTuple;
+    const auto ciIndex =
+        static_cast<std::size_t>(&candidate - candidates.data());
+    ci_primary_event(ciIndex, candidate.bpm, candidate.continuous_score_ratio,
+                     false, true, "low_continuous_rank_scored");
+    ci_primary_event(ciIndex, candidate.bpm, candidate.continuous_score_ratio,
+                     false, ciContinuousWon,
+                     ciContinuousWon ? "low_continuous_compare_won" :
+                                       "low_continuous_compare_lost",
+                     {std::get<0>(ciCandidateTuple),
+                      std::get<1>(ciCandidateTuple),
+                      std::get<2>(ciCandidateTuple),
+                      std::get<3>(ciCandidateTuple)},
+                     true, 0, false, std::get<4>(ciCandidateTuple), true);
+#endif
     if (best == nullptr ||
         std::make_tuple(candidate.continuous_score_ratio,
                         candidate.continuous_section_support,
@@ -1376,6 +1755,23 @@ select_mir_low_pulse_continuous_center_rescue(
       best = &candidate;
     }
   }
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+  // Executed continuous-center rescue: complete BRANCH-LOCAL source fates.
+  // A veto here is not global ineligibility (the prior low lane may win).
+  for (const auto& candidate : candidates) {
+    const bool qualifies = candidate.bpm >= 95.0 && candidate.bpm <= 102.0 &&
+        std::abs(candidate.bpm - selected->bpm) >= 10.0 &&
+        candidate.continuous_score_ratio >= 1.50 &&
+        candidate.continuous_section_support >= 0.80 &&
+        candidate.continuous_section_stability >= 0.70;
+    const bool winner = qualifies && &candidate == best;
+    ci_primary_event(static_cast<std::size_t>(&candidate - candidates.data()),
+                     candidate.bpm, candidate.continuous_score_ratio, false,
+                     winner, !qualifies ? "low_continuous_branch_veto" :
+                         winner ? "low_continuous_branch_winner" :
+                                  "low_continuous_branch_ranked_out");
+  }
+#endif
   return best;
 }
 
@@ -1386,11 +1782,28 @@ select_mir_low_pulse_continuous_center_rescue(
   double routeCenter) noexcept {
   std::vector<const MirCandidate*> pool;
   for (const auto& candidate : candidates) {
-    if (candidate.bpm >= kMirProductionMinBpm &&
-        candidate.bpm <= kMirProductionMaxBpm) {
+    const bool inRail = candidate.bpm >= kMirProductionMinBpm &&
+        candidate.bpm <= kMirProductionMaxBpm;
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+    ci_primary_event(static_cast<std::size_t>(&candidate - candidates.data()),
+                     candidate.bpm, candidate.support, false, inRail,
+                     inRail ? "harmonic_in_rail" : "harmonic_out_of_rail");
+#endif
+    if (inRail) {
       pool.push_back(&candidate);
     }
   }
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+  // Harmonic has no rail fallback; every out-of-rail source is a genuine
+  // decisive rail veto for this executed lane, not a provisional rejection.
+  for (const auto& candidate : candidates)
+    if (!(candidate.bpm >= kMirProductionMinBpm &&
+          candidate.bpm <= kMirProductionMaxBpm))
+      ci_primary_event(static_cast<std::size_t>(
+                           &candidate - candidates.data()),
+                       candidate.bpm, candidate.support, false, false,
+                       "harmonic_rail_decisive_veto");
+#endif
   const MirCandidate* best = nullptr;
   double bestScore = -std::numeric_limits<double>::infinity();
   for (const auto* candidate : pool) {
@@ -1416,10 +1829,23 @@ select_mir_low_pulse_continuous_center_rescue(
     if (routeCenter > 0.0 && candidate->bpm > routeCenter + 20.0) {
       score -= 1.2;
     }
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+    ci_primary_event(static_cast<std::size_t>(candidate - candidates.data()),
+                     candidate->bpm, score, false, true, "harmonic_rank_scored");
+#endif
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+    const bool ciComparisonWon = best == nullptr || score > bestScore;
+#endif
     if (best == nullptr || score > bestScore) {
       best = candidate;
       bestScore = score;
     }
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+    ci_primary_event(static_cast<std::size_t>(candidate - candidates.data()),
+                     candidate->bpm, score, false, ciComparisonWon,
+                     ciComparisonWon ? "harmonic_compare_won" :
+                                     "harmonic_compare_lost");
+#endif
   }
   return best;
 }
@@ -1432,18 +1858,52 @@ select_mir_low_pulse_continuous_center_rescue(
   double routeCenter) noexcept {
   std::vector<const MirCandidate*> pool;
   for (const auto& candidate : candidates) {
-    if (candidate.bpm >= kMirProductionMinBpm &&
-        candidate.bpm <= kMirProductionMaxBpm) {
+    const bool inRail = candidate.bpm >= kMirProductionMinBpm &&
+        candidate.bpm <= kMirProductionMaxBpm;
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+    ci_primary_event(static_cast<std::size_t>(&candidate - candidates.data()),
+                     candidate.bpm, candidate.support, false, inRail,
+                     inRail ? "general_in_rail" : "general_out_of_rail_provisional");
+#endif
+    if (inRail) {
       pool.push_back(&candidate);
     }
   }
   if (pool.empty()) {
     for (const auto& candidate : candidates) {
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+      ci_primary_event(static_cast<std::size_t>(&candidate - candidates.data()),
+                       candidate.bpm, candidate.support, false, true,
+                       "general_rail_fallback_readmitted");
+#endif
       pool.push_back(&candidate);
     }
   }
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+  else {
+    // The productive General rail fallback did not fire: an out-of-rail
+    // source cannot re-enter this selector's baseline or 144 alternative.
+    for (const auto& candidate : candidates)
+      if (!(candidate.bpm >= kMirProductionMinBpm &&
+            candidate.bpm <= kMirProductionMaxBpm))
+        ci_primary_event(static_cast<std::size_t>(
+                             &candidate - candidates.data()),
+                         candidate.bpm, candidate.support, false, false,
+                         "general_rail_decisive_veto");
+  }
+#endif
   const MirCandidate* baseline = best_mir_cluster_candidate(
       candidates, pool, lane, routeMin, routeMax, routeCenter);
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+  if (baseline != nullptr)
+    ci_primary_event(static_cast<std::size_t>(baseline - candidates.data()),
+                     baseline->bpm, 0.0, false, true,
+                     "general_alt_baseline_source");
+  if (baseline != nullptr && routeCenter >= 150.0)
+    ci_primary_event(static_cast<std::size_t>(baseline - candidates.data()),
+                     baseline->bpm, 0.0, false, true,
+                     "general_alt_bypass_route");
+#endif
   if (baseline == nullptr || routeCenter >= 150.0) {
     return baseline;
   }
@@ -1452,6 +1912,11 @@ select_mir_low_pulse_continuous_center_rescue(
       (mir_has_alias(baseline->alias_bits, MirAlias::three_halves) ||
        mir_has_alias(baseline->alias_bits, MirAlias::four_thirds));
   if (!baseline144) {
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+    ci_primary_event(static_cast<std::size_t>(baseline - candidates.data()),
+                     baseline->bpm, 0.0, false, true,
+                     "general_alt_bypass_non144");
+#endif
     return baseline;
   }
 
@@ -1467,6 +1932,13 @@ select_mir_low_pulse_continuous_center_rescue(
   const MirCandidate* best = nullptr;
   double bestScore = -std::numeric_limits<double>::infinity();
   for (const auto* candidate : pool) {
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+    const bool ciAltWindow = candidate->bpm >= 126.0 && candidate->bpm <= 141.5;
+    ci_primary_event(static_cast<std::size_t>(candidate - candidates.data()),
+                     candidate->bpm, candidate->support, false, ciAltWindow,
+                     ciAltWindow ? "general_alt_window_allowed" :
+                                   "general_alt_window_provisional_exclusion");
+#endif
     if (!(candidate->bpm >= 126.0 && candidate->bpm <= 141.5)) {
       continue;
     }
@@ -1498,18 +1970,53 @@ select_mir_low_pulse_continuous_center_rescue(
     if (candidate144 && bestNon144Evidence >= evidence * 1.20) {
       score -= 3.5;
     }
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+    ci_primary_event(static_cast<std::size_t>(candidate - candidates.data()),
+                     candidate->bpm, score, false, true,
+                     "general_alt_rank_scored");
+#endif
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+    const bool ciComparisonWon = best == nullptr || score > bestScore;
+#endif
     if (best == nullptr || score > bestScore) {
       best = candidate;
       bestScore = score;
     }
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+    ci_primary_event(static_cast<std::size_t>(candidate - candidates.data()),
+                     candidate->bpm, score, false, ciComparisonWon,
+                     ciComparisonWon ? "general_alt_compare_won" :
+                                     "general_alt_compare_lost");
+#endif
   }
   if (best == nullptr) {
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+    ci_primary_event(static_cast<std::size_t>(baseline - candidates.data()),
+                     baseline->bpm, 0.0, false, true,
+                     "general_alt_no_challenger");
+#endif
     return baseline;
   }
   const double bestEvidence =
       best->best_combined_score + best->pulse_section_support * 0.12;
   const double baselineEvidence =
       baseline->best_combined_score + baseline->pulse_section_support * 0.12;
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+  // Causal promotion witness from the ACTUAL native baseline and challenger.
+  // Separate candidate identities and measured evidence are serialized;
+  // the independent host parser checks the exact >=1.20 comparison.
+  ci_primary_event(static_cast<std::size_t>(baseline - candidates.data()),
+                   baseline->bpm, baselineEvidence, false, true,
+                   "general_alt_baseline_evidence");
+  ci_primary_event(static_cast<std::size_t>(best - candidates.data()),
+                   best->bpm, bestEvidence, false, true,
+                   "general_alt_challenger_evidence");
+  const bool ciPromoted = bestEvidence >= baselineEvidence * 1.20;
+  ci_primary_event(static_cast<std::size_t>(best - candidates.data()),
+                   best->bpm, bestEvidence, false, ciPromoted,
+                   ciPromoted ? "general_alt_challenger_promoted" :
+                                "general_alt_challenger_rejected");
+#endif
   return bestEvidence >= baselineEvidence * 1.20 ? best : baseline;
 }
 
@@ -1529,6 +2036,28 @@ select_mir_low_pulse_continuous_center_rescue(
     double bestEvidence = 0.0;
     for (const auto& candidate : candidates) {
       const double evidence = mir_evidence_score(candidate);
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+      const bool eligible = candidate.bpm >= 126.0 && candidate.bpm <= 130.5 &&
+          candidate.support >= 0.60 && candidate.best_combined_score >= 0.18 &&
+          candidate.pulse_section_support >= 0.55 &&
+          evidence >= selectedEvidence * 1.25;
+      ci_primary_event(static_cast<std::size_t>(&candidate - candidates.data()),
+                       candidate.bpm, evidence, false, eligible,
+                       eligible ? "residual_high_gate_allowed" :
+                                  "residual_high_gate_provisional_exclusion");
+#endif
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+      if (eligible) {
+        const bool ciRescueWon = best == nullptr || evidence > bestEvidence;
+        const std::size_t ciIndex =
+            static_cast<std::size_t>(&candidate - candidates.data());
+        ci_primary_event(ciIndex, candidate.bpm, evidence, false, true,
+                         "residual_high_rank_scored");
+        ci_primary_event(ciIndex, candidate.bpm, evidence, false, ciRescueWon,
+                         ciRescueWon ? "residual_high_compare_won" :
+                                       "residual_high_compare_lost");
+      }
+#endif
       if (candidate.bpm >= 126.0 && candidate.bpm <= 130.5 &&
           candidate.support >= 0.60 &&
           candidate.best_combined_score >= 0.18 &&
@@ -1554,6 +2083,41 @@ select_mir_low_pulse_continuous_center_rescue(
     double lowerEvidence = 0.0;
     for (const auto& candidate : candidates) {
       const double evidence = mir_evidence_score(candidate);
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+      const bool eligible = candidate.bpm >= 84.0 &&
+          mir_pulse_ratio_in_range(candidate.bpm, selected->bpm, 0.64, 0.69) &&
+          candidate.support >= 0.85 && candidate.winner_support >= 0.25 &&
+          candidate.best_combined_score >= 0.08 &&
+          evidence >= selectedEvidence * 0.55 &&
+          selected->pulse_section_support < 0.60 && selectedHarmonic &&
+          (mir_has_alias(candidate.alias_bits, MirAlias::two_thirds) ||
+           mir_has_alias(candidate.alias_bits, MirAlias::four_thirds) ||
+           mir_has_alias(candidate.alias_bits, MirAlias::three_quarters));
+      ci_primary_event(static_cast<std::size_t>(&candidate - candidates.data()),
+                       candidate.bpm, evidence, false, eligible,
+                       eligible ? "residual_harmonic_gate_allowed" :
+                                  "residual_harmonic_gate_provisional_exclusion");
+#endif
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+      if (eligible) {
+        const auto ciTie = std::make_tuple(
+            evidence, candidate.support, candidate.winner_support, 0.0);
+        const auto ciBestTie = lower == nullptr
+            ? ciTie
+            : std::make_tuple(lowerEvidence, lower->support,
+                              lower->winner_support, 0.0);
+        const bool ciRescueWon = lower == nullptr || ciTie > ciBestTie;
+        const std::size_t ciIndex =
+            static_cast<std::size_t>(&candidate - candidates.data());
+        ci_primary_event(ciIndex, candidate.bpm, evidence, false, true,
+                         "residual_harmonic_rank_scored");
+        ci_primary_event(ciIndex, candidate.bpm, evidence, false, ciRescueWon,
+                         ciRescueWon ? "residual_harmonic_compare_won" :
+                                       "residual_harmonic_compare_lost",
+                         {std::get<0>(ciTie), std::get<1>(ciTie),
+                          std::get<2>(ciTie), std::get<3>(ciTie)}, true);
+      }
+#endif
       if (candidate.bpm >= 84.0 &&
           mir_pulse_ratio_in_range(candidate.bpm, selected->bpm, 0.64,
                                    0.69) &&
@@ -1588,6 +2152,11 @@ compute_mir_primary_selection(
     double routeMin,
     double routeMax,
     bool enabled) {
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+  g_ci_primary_events.clear();
+  g_ci_primary_pool.clear();
+  g_ci_primary_trace_complete = true;
+#endif
   smart_tempo::MirPrimarySelection shadow;
   shadow.enabled = enabled;
   shadow.route_min_bpm = routeMin;
@@ -1604,6 +2173,16 @@ compute_mir_primary_selection(
     return shadow;
   }
   std::vector<MirCandidate> candidates = collapse_mir_candidates(board);
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+  // Freeze exactly the input vector for the executed selector. An OOM in
+  // diagnostic copying must never change its output.
+  try {
+    g_ci_primary_pool = candidates;
+  } catch (...) {
+    g_ci_primary_pool.clear();
+    g_ci_primary_trace_complete = false;
+  }
+#endif
   shadow.candidate_count = candidates.size();
   if (candidates.empty()) {
     shadow.decision_class = "no_candidate";
@@ -1627,6 +2206,22 @@ compute_mir_primary_selection(
   shadow.material_risk_review_hold = materialRisk.review_hold_candidate;
 
   const MirCandidate* selected = nullptr;
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+  // Capture actual raw winning object and productive first-match cluster.
+  const auto ciRecordRawBridge = [&](const MirRawCandidate* raw) noexcept {
+    if (raw == nullptr) return;
+    if (selected == nullptr) {
+      g_ci_primary_trace_complete = false;
+      return;
+    }
+    ci_primary_event(static_cast<std::size_t>(
+                         raw - board.raw_candidates.data()),
+                     raw->bpm, 0.0, true, true, "raw_terminal_selected");
+    ci_primary_event(static_cast<std::size_t>(
+                         selected - candidates.data()),
+                     selected->bpm, 0.0, false, true, "raw_cluster_resolved");
+  };
+#endif
   if (std::strcmp(lane, "low_pulse_context") == 0) {
     shadow.lane_variant = "low_pulse_targeted_rescue_v4";
     selected = select_mir_low_pulse(candidates);
@@ -1652,6 +2247,9 @@ compute_mir_primary_selection(
       selected = rawSelected != nullptr
                      ? find_mir_cluster(candidates, rawSelected->bpm)
                      : nullptr;
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+      ciRecordRawBridge(rawSelected);
+#endif
     } else {
       selected = select_mir_general_144_soft(
           candidates, lane, routeMin, routeMax, shadow.route_center_bpm);
@@ -1663,14 +2261,61 @@ compute_mir_primary_selection(
     selected = rawSelected != nullptr
                    ? find_mir_cluster(candidates, rawSelected->bpm)
                    : nullptr;
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+      ciRecordRawBridge(rawSelected);
+#endif
   }
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+  if (selected != nullptr)
+    ci_primary_event(static_cast<std::size_t>(selected - candidates.data()),
+                     selected->bpm, selected->best_combined_score, false,
+                     true, "terminal_lane_choice");
+#endif
   selected = apply_mir_residual_rescue(candidates, selected, lane, routeMin);
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+  if (selected != nullptr)
+    ci_primary_event(static_cast<std::size_t>(selected - candidates.data()),
+                     selected->bpm, selected->best_combined_score, false,
+                     true, "terminal_residual_choice");
+#endif
   if (std::strcmp(lane, "harmonic_conflict") == 0 && selected != nullptr &&
       selected->bpm >= 143.0 && selected->bpm <= 145.0 &&
       (mir_has_alias(selected->alias_bits, MirAlias::four_thirds) ||
        mir_has_alias(selected->alias_bits, MirAlias::three_halves))) {
     const MirCandidate* direct = nullptr;
     for (const auto& candidate : candidates) {
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+      const bool eligible = candidate.bpm >= 128.0 && candidate.bpm <= 132.0 &&
+          mir_has_alias(candidate.alias_bits, MirAlias::direct) &&
+          candidate.support >= 0.70 &&
+          candidate.support >= selected->support * 0.70;
+      ci_primary_event(static_cast<std::size_t>(&candidate - candidates.data()),
+                       candidate.bpm, candidate.support, false, eligible,
+                       eligible ? "harmonic_direct_gate_allowed" :
+                                  "harmonic_direct_gate_provisional_exclusion");
+#endif
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+      if (eligible) {
+        const auto ciTie = std::make_tuple(
+            candidate.support, candidate.best_combined_score,
+            candidate.winner_support, 0.0);
+        const auto ciBestTie = direct == nullptr
+            ? ciTie
+            : std::make_tuple(direct->support, direct->best_combined_score,
+                              direct->winner_support, 0.0);
+        const bool ciRescueWon = direct == nullptr || ciTie > ciBestTie;
+        const std::size_t ciIndex =
+            static_cast<std::size_t>(&candidate - candidates.data());
+        ci_primary_event(ciIndex, candidate.bpm, candidate.support,
+                         false, true, "harmonic_direct_rank_scored");
+        ci_primary_event(ciIndex, candidate.bpm, candidate.support,
+                         false, ciRescueWon,
+                         ciRescueWon ? "harmonic_direct_compare_won" :
+                                       "harmonic_direct_compare_lost",
+                         {std::get<0>(ciTie), std::get<1>(ciTie),
+                          std::get<2>(ciTie), std::get<3>(ciTie)}, true);
+      }
+#endif
       if (candidate.bpm >= 128.0 && candidate.bpm <= 132.0 &&
           mir_has_alias(candidate.alias_bits, MirAlias::direct) &&
           candidate.support >= 0.70 &&
@@ -1688,6 +2333,12 @@ compute_mir_primary_selection(
       shadow.lane_variant = "harmonic_direct_protection";
     }
   }
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+  if (selected != nullptr)
+    ci_primary_event(static_cast<std::size_t>(selected - candidates.data()),
+                     selected->bpm, selected->best_combined_score, false,
+                     true, "terminal_final_choice");
+#endif
   if (selected == nullptr) {
     shadow.decision_class = "no_candidate";
     shadow.reason = "selector_returned_no_candidate";
@@ -2138,6 +2789,10 @@ compute_mir_soft_center_selection(
 prepare_mir_policy_fullboard_candidates(
     const MirCandidateBoard& board,
     MirLocalExactCache& localExactCache) {
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+  g_ci_policy_rail_events.clear();
+  g_ci_policy_rail_complete = true;
+#endif
   const std::vector<MirCandidate> collapsed =
       collapse_mir_candidates(board);
   struct PendingCandidate {
@@ -2166,11 +2821,16 @@ prepare_mir_policy_fullboard_candidates(
 
   std::vector<MirPolicyMeasuredCandidate> measured;
   measured.reserve(pending.size());
-  for (const auto& item : pending) {
+  for (std::size_t sourceIndex = 0; sourceIndex < pending.size(); ++sourceIndex) {
+    const auto& item = pending[sourceIndex];
     const double bpm =
         item.exact.bpm > 0.0 ? item.exact.bpm : item.candidate.bpm;
-    if (!(bpm >= kMirProductionMinBpm && bpm <= kMirProductionMaxBpm) ||
-        !std::isfinite(bpm)) {
+    const bool inRail = bpm >= kMirProductionMinBpm &&
+                        bpm <= kMirProductionMaxBpm && std::isfinite(bpm);
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+    ci_policy_rail_event(sourceIndex, item.candidate.bpm, bpm, inRail);
+#endif
+    if (!inRail) {
       continue;
     }
     const double baseScore =
@@ -4037,6 +4697,9 @@ struct MirPolicyQualificationStage {
 void select_mir_policy_candidate(
     smart_tempo::MirPolicyDecision& shadow,
     const MirPolicyMeasuredCandidate& selected) noexcept {
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+  ci_policy_selected(selected);
+#endif
   shadow.candidate_bpm = selected.bpm;
   shadow.candidate_cluster_bpm = selected.cluster_bpm;
   shadow.candidate_base_score = selected.base_score;
@@ -4175,6 +4838,9 @@ void set_mir_policy_candidate_resolution(
     shadow.action = "writer_override";
     shadow.decision_class = "measured_recovery_candidate";
     shadow.reason = "measured_out_of_rail_primary_witness_release";
+    #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+    ci_policy_branch("current_release_01");
+    #endif
     return true;
   }
 
@@ -4194,6 +4860,9 @@ void set_mir_policy_candidate_resolution(
     shadow.action = "writer_override";
     shadow.decision_class = "measured_recovery_candidate";
     shadow.reason = "measured_low_pulse_four_thirds_fullboard_release";
+    #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+    ci_policy_branch("current_release_02");
+    #endif
     return true;
   }
 
@@ -4293,6 +4962,9 @@ void set_mir_policy_candidate_resolution(
     shadow.action = "writer_override";
     shadow.decision_class = "measured_recovery_candidate";
     shadow.reason = "measured_dominant_direct_fullboard_release";
+    #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+    ci_policy_branch("current_release_03");
+    #endif
     return true;
   }
 
@@ -4316,6 +4988,9 @@ void set_mir_policy_candidate_resolution(
     shadow.action = "family_conflict_review_hold";
     shadow.decision_class = "review_hold_candidate";
     shadow.reason = "generic_three_halves_family_conflict";
+    #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+    ci_policy_branch("current_release_04");
+    #endif
     return true;
   }
 
@@ -4347,6 +5022,9 @@ void set_mir_policy_candidate_resolution(
         shadow.action = "writer_override";
         shadow.decision_class = "measured_recovery_candidate";
         shadow.reason = recoveryReason;
+        #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+        ci_policy_branch("current_release_05");
+        #endif
         return true;
       }
       const MirPolicyMeasuredCandidate* centeredHarmonicRelease =
@@ -4363,6 +5041,9 @@ void set_mir_policy_candidate_resolution(
         shadow.decision_class = "measured_recovery_candidate";
         shadow.reason =
             "measured_centered_continuous_harmonic_release";
+        #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+        ci_policy_branch("current_release_06");
+        #endif
         return true;
       }
       if (mir_policy_broad_route_conflict_review_hold(
@@ -4376,6 +5057,9 @@ void set_mir_policy_candidate_resolution(
         shadow.action = "broad_route_conflict_review_hold";
         shadow.decision_class = "review_hold_candidate";
         shadow.reason = "weak_current_strong_remote_family_conflict";
+        #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+        ci_policy_branch("current_release_07");
+        #endif
         return true;
       }
     }
@@ -4708,7 +5392,11 @@ void set_mir_policy_candidate_resolution(
           } else if (mir_policy_partial_bar_family_conflict_release(
                          partialBarAggregate, priorCenterBpm,
                          priorSpreadBpm, routeMatched, genericRoute)) {
-            shadow.candidate_bpm = partialBarAggregate->local_exact_bpm;
+          #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+  ci_policy_supplemental(partialBarAggregate->local_exact_bpm,
+      MirCiSupplementalKind::partial_bar_aggregate, partialBarAggregate);
+#endif
+  shadow.candidate_bpm = partialBarAggregate->local_exact_bpm;
             shadow.candidate_cluster_bpm = partialBarAggregate->coarse_bpm;
             shadow.candidate_base_score = partialBarAggregate->score_sum;
             shadow.candidate_support =
@@ -4748,7 +5436,11 @@ void set_mir_policy_candidate_resolution(
       if (mir_policy_partial_bar_dominant_octave_release(
               partialBarAggregate, measured, priorCenterBpm,
               priorSpreadBpm, routeMatched, genericRoute)) {
-        shadow.candidate_bpm = partialBarAggregate->local_exact_bpm;
+      #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+  ci_policy_supplemental(partialBarAggregate->local_exact_bpm,
+      MirCiSupplementalKind::partial_bar_aggregate, partialBarAggregate);
+#endif
+  shadow.candidate_bpm = partialBarAggregate->local_exact_bpm;
         shadow.candidate_cluster_bpm = partialBarAggregate->coarse_bpm;
         shadow.candidate_base_score = partialBarAggregate->score_sum;
         shadow.candidate_support =
@@ -4802,7 +5494,11 @@ void set_mir_policy_candidate_resolution(
     if (std::strcmp(shadow.reason, "writer_override_gate_veto") == 0 &&
         mir_policy_partial_bar_exact_half_recovery(
             partialBarAggregate, shadow.current_bpm)) {
-      shadow.candidate_bpm = partialBarAggregate->local_exact_bpm;
+    #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+  ci_policy_supplemental(partialBarAggregate->local_exact_bpm,
+      MirCiSupplementalKind::partial_bar_aggregate, partialBarAggregate);
+#endif
+  shadow.candidate_bpm = partialBarAggregate->local_exact_bpm;
       shadow.candidate_cluster_bpm = partialBarAggregate->coarse_bpm;
       shadow.candidate_base_score = partialBarAggregate->score_sum;
       shadow.candidate_support =
@@ -4828,6 +5524,9 @@ void set_mir_policy_candidate_resolution(
         shadow.family_conflict_review_hold_candidate;
     shadow.output_would_write =
         !shadow.family_conflict_review_hold_candidate;
+    #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+    ci_policy_branch("current_release_08");
+    #endif
     return true;
   }
 
@@ -4849,7 +5548,11 @@ void set_mir_policy_candidate_resolution(
       materialRiskProbe != nullptr &&
       is_mir_policy_material_risk_local_exact_release_candidate(
           *materialRiskProbe)) {
-    shadow.candidate_bpm = materialRiskProbe->best_bpm;
+  #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+  ci_policy_supplemental(materialRiskProbe->best_bpm,
+      MirCiSupplementalKind::material_risk, materialRiskProbe);
+#endif
+  shadow.candidate_bpm = materialRiskProbe->best_bpm;
     shadow.candidate_cluster_bpm = materialRiskProbe->best_anchor_bpm;
     shadow.candidate_base_score = materialRiskProbe->best_score;
     shadow.candidate_local_exact_score = materialRiskProbe->best_score;
@@ -4873,6 +5576,9 @@ void set_mir_policy_candidate_resolution(
     shadow.action = "review_hold_promotion";
     shadow.decision_class = "review_hold_promotion_candidate";
     shadow.reason = "measured_material_risk_local_exact_release";
+    #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+    ci_policy_branch("hold_resolution_01");
+    #endif
     return true;
   }
 
@@ -4891,6 +5597,9 @@ void set_mir_policy_candidate_resolution(
     shadow.action = "writer_override";
     shadow.decision_class = "measured_recovery_candidate";
     shadow.reason = "measured_material_risk_same_pulse_release";
+    #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+    ci_policy_branch("hold_resolution_02");
+    #endif
     return true;
   }
 
@@ -4920,6 +5629,9 @@ void set_mir_policy_candidate_resolution(
       shadow.action = "writer_override";
       shadow.decision_class = "measured_recovery_candidate";
       shadow.reason = "measured_material_risk_low_pulse_release";
+      #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+      ci_policy_branch("hold_resolution_03");
+      #endif
       return true;
     }
   }
@@ -4947,6 +5659,9 @@ void set_mir_policy_candidate_resolution(
       shadow.action = "writer_override";
       shadow.decision_class = "measured_recovery_candidate";
       shadow.reason = sparseReleaseReason;
+      #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+      ci_policy_branch("hold_resolution_04");
+      #endif
       return true;
     }
   }
@@ -4977,6 +5692,9 @@ void set_mir_policy_candidate_resolution(
         shadow.action = "writer_override";
         shadow.decision_class = "measured_recovery_candidate";
         shadow.reason = recoveryReason;
+        #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+        ci_policy_branch("hold_resolution_05");
+        #endif
         return true;
       }
     }
@@ -4993,6 +5711,9 @@ void set_mir_policy_candidate_resolution(
       shadow.action = "writer_override";
       shadow.decision_class = "measured_recovery_candidate";
       shadow.reason = "measured_sparse_current_direct_release_gate";
+      #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+      ci_policy_branch("hold_resolution_06");
+      #endif
       return true;
     }
     if (mir_policy_protected_near_measured_release(
@@ -5005,6 +5726,9 @@ void set_mir_policy_candidate_resolution(
       shadow.action = "writer_override";
       shadow.decision_class = "measured_recovery_candidate";
       shadow.reason = "measured_protected_near_release_gate";
+      #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+      ci_policy_branch("hold_resolution_07");
+      #endif
       return true;
     }
     if (mir_policy_protected_half_alias_current_release(
@@ -5017,6 +5741,9 @@ void set_mir_policy_candidate_resolution(
       shadow.action = "writer_override";
       shadow.decision_class = "measured_recovery_candidate";
       shadow.reason = "measured_protected_half_alias_current_release_gate";
+      #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+      ci_policy_branch("hold_resolution_08");
+      #endif
       return true;
     }
     if (mir_policy_protected_strong_measured_direct_release(
@@ -5029,6 +5756,9 @@ void set_mir_policy_candidate_resolution(
       shadow.action = "writer_override";
       shadow.decision_class = "measured_recovery_candidate";
       shadow.reason = "measured_protected_strong_direct_release_gate";
+      #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+      ci_policy_branch("hold_resolution_09");
+      #endif
       return true;
     }
   }
@@ -5045,6 +5775,9 @@ void set_mir_policy_candidate_resolution(
     shadow.action = "writer_override";
     shadow.decision_class = "measured_recovery_candidate";
     shadow.reason = "measured_high_family_conflict_fullboard_release";
+    #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+    ci_policy_branch("hold_resolution_10");
+    #endif
     return true;
   }
 
@@ -5061,6 +5794,9 @@ void set_mir_policy_candidate_resolution(
       shadow.action = "writer_override";
       shadow.decision_class = "measured_recovery_candidate";
       shadow.reason = "measured_release_ready_high_family_winner";
+      #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+      ci_policy_branch("hold_resolution_11");
+      #endif
       return true;
     }
   }
@@ -5093,6 +5829,9 @@ void set_mir_policy_candidate_resolution(
     shadow.reason = protectedCurrentExactRelease
                         ? "measured_protected_current_release_gate"
                         : "measured_protected_direct_release_gate";
+    #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+    ci_policy_branch("hold_resolution_12");
+    #endif
     return true;
   }
 
@@ -5107,6 +5846,9 @@ void set_mir_policy_candidate_resolution(
       shadow.action = "writer_override";
       shadow.decision_class = "measured_recovery_candidate";
       shadow.reason = "measured_release_ready_sparse_family";
+      #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+      ci_policy_branch("hold_resolution_13");
+      #endif
       return true;
     }
   }
@@ -5124,6 +5866,9 @@ void set_mir_policy_candidate_resolution(
       shadow.action = "writer_override";
       shadow.decision_class = "measured_recovery_candidate";
       shadow.reason = "measured_release_ready_material_risk_winner";
+      #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+      ci_policy_branch("hold_resolution_14");
+      #endif
       return true;
     }
   }
@@ -5152,6 +5897,9 @@ void set_mir_policy_candidate_resolution(
       shadow.action = "writer_override";
       shadow.decision_class = "measured_recovery_candidate";
       shadow.reason = lowPulseReason;
+      #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+      ci_policy_branch("hold_resolution_15");
+      #endif
       return true;
     }
   }
@@ -5189,6 +5937,9 @@ void set_mir_policy_candidate_resolution(
         shadow.action = "review_hold_promotion";
         shadow.decision_class = "review_hold_promotion_candidate";
         shadow.reason = "frozen_soft_center_review_promotion_gate";
+        #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+        ci_policy_branch("hold_resolution_16");
+        #endif
         return true;
       }
     }
@@ -5198,6 +5949,9 @@ void set_mir_policy_candidate_resolution(
     shadow.action = "keep_review_hold";
     shadow.decision_class = "protected_review_hold";
     shadow.reason = "review_hold_promotion_gate_veto";
+    #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+    ci_policy_branch("hold_resolution_17");
+    #endif
     return true;
   }
 
@@ -5232,12 +5986,28 @@ compute_mir_policy_decision(
     bool routeMatched,
     bool genericRoute,
     bool enabled) {
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+  g_ci_policy_board = candidates;
+  g_ci_policy_source = {};
+  g_ci_policy_stage_count = 0;
+  g_ci_policy_stage_complete = true;
+  g_ci_policy_branch_token = nullptr;
+#endif
   // Ordered policy stages. Their sequence is part of the release contract.
   MirPolicyQualificationStage qualification = qualify_mir_policy_board(
       candidates, current, priorCenterBpm, priorSpreadBpm, routeMatched,
       genericRoute, enabled);
   auto& shadow = qualification.decision;
-  if (!qualification.ready) return shadow;
+  if (!qualification.ready) {
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+    ci_policy_branch(!enabled ? "qualification_disabled" : "qualification_empty");
+    ci_policy_stage("qualification_terminal");
+#endif
+    return shadow;
+  }
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+  ci_policy_stage("qualification_ready");
+#endif
   const MirPolicyMeasuredCandidate& measured = *qualification.measured;
   MirPolicyReleaseFeatureCache releaseFeatureCache(
       candidates, priorCenterBpm, priorSpreadBpm);
@@ -5246,15 +6016,31 @@ compute_mir_policy_decision(
           shadow, candidates, releaseFeatureCache, current, primaryFamily,
           partialBarAggregate, measured, priorCenterBpm, priorSpreadBpm,
           routeMatched, genericRoute)) {
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+    ci_policy_stage("current_release_terminal");
+#endif
     return shadow;
   }
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+  ci_policy_stage("current_release_continue");
+#endif
   if (try_apply_mir_policy_hold_resolution_stage(
           shadow, candidates, releaseFeatureCache, current, materialRiskProbe,
           measured, priorCenterBpm, priorSpreadBpm, routeMatched,
           genericRoute)) {
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+    ci_policy_stage("hold_resolution_terminal");
+#endif
     return shadow;
   }
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+  ci_policy_stage("hold_resolution_continue");
+#endif
   apply_mir_policy_default_resolution_stage(shadow, current);
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+  ci_policy_branch("default_resolution");
+  ci_policy_stage("default_resolution_terminal");
+#endif
   return shadow;
 }
 
@@ -5358,6 +6144,10 @@ bool try_apply_mir_policy_partial_bar_topk_exact_release(
   }
   const double totalSegments =
       static_cast<double>(selected->total_segment_count);
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+  ci_policy_supplemental(selected->local_exact_bpm,
+      MirCiSupplementalKind::partial_bar_topk, selected);
+#endif
   decision.candidate_bpm = selected->local_exact_bpm;
   decision.candidate_cluster_bpm = selected->coarse_bpm;
   decision.candidate_base_score = selected->score_sum;
