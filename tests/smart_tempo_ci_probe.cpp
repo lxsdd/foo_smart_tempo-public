@@ -17,6 +17,7 @@
 #include <span>
 #include <cwchar>
 #include <cstring>
+#include <limits>
 #include <string>
 #include <string_view>
 
@@ -741,8 +742,110 @@ bool native_raw_duplicate_identity_contract() {
            terminalPos == clusterPos + 1;
 }
 
+// Exercises the actual production RAW eligibility fence in the original
+// foobar host. These are disposable numeric boards, NOT private BPM references
+// or evidence of decoded-audio RAW-lane reachability.
+bool native_raw_audio_evidence_gate_contract() {
+    using namespace smart_tempo;
+    using namespace smart_tempo::mir_pipeline;
+    const auto makeMeasured = [] {
+        MirRawCandidate raw{};
+        raw.bpm = 129.0;
+        raw.alias_bit = static_cast<uint16_t>(MirAlias::direct);
+        raw.alias_class = "direct";
+        raw.rows = 1;
+        raw.score_sum = 2.0;
+        raw.best_combined_score = .40;
+        raw.synthetic_support = .60;
+        return raw;
+    };
+    MirRoutingContext route{};
+    route.source_genres = "Acapella 220 BPM";
+    route.matched_token = "Acapella 220 BPM";
+    route.route_matched = true;
+    const HodgkinsonTatumProbeResult mir{};
+    const HodgkinsonMaterialRiskEvidence risk{};
+    const auto run = [&](const MirCandidateBoard& board) {
+        return compute_mir_primary_selection(
+            board, mir, risk, &route, 111.0, 157.0, true);
+    };
+    const auto checkSingle = [&](const MirRawCandidate& raw, bool allowed) {
+        MirCandidateBoard board{};
+        board.segment_count = 10;
+        board.raw_candidates.push_back(raw);
+        const auto result = run(board);
+        return allowed
+            ? result.candidate_count == 1 && result.candidate &&
+              result.selected_bpm == 129.0 && result.review_hold &&
+              !result.auto_candidate
+            : result.candidate_count == 0 && !result.candidate &&
+              !result.auto_candidate && result.decision_class != nullptr &&
+              std::string_view(result.decision_class) == "no_candidate";
+    };
+    const auto measured = makeMeasured();
+    if (!checkSingle(measured, true)) return false;
+    auto pulse = measured;
+    pulse.rows = 0;
+    pulse.score_sum = 0.0;
+    pulse.best_combined_score = 0.0;
+    pulse.pulse_score = .25;
+    if (!checkSingle(pulse, true)) return false;
+    auto continuous = measured;
+    continuous.rows = 0;
+    continuous.score_sum = 0.0;
+    continuous.best_combined_score = 0.0;
+    continuous.continuous_score = .30;
+    if (!checkSingle(continuous, true)) return false;
+    auto noAudio = measured;
+    noAudio.rows = 0;
+    noAudio.score_sum = 0.0;
+    noAudio.best_combined_score = 0.0;
+    noAudio.synthetic_support = 1.0; // forged support is not an audio measurement
+    if (!checkSingle(noAudio, false)) return false;
+    auto badAlias = measured;
+    badAlias.alias_class = "unknown";
+    if (!checkSingle(badAlias, false)) return false;
+    auto badRail = measured;
+    badRail.bpm = 221.0;
+    if (!checkSingle(badRail, false)) return false;
+    auto badNan = measured;
+    badNan.synthetic_support = std::numeric_limits<double>::quiet_NaN();
+    if (!checkSingle(badNan, false)) return false;
+    auto badNegative = measured;
+    badNegative.score_sum = -1.0;
+    if (!checkSingle(badNegative, false)) return false;
+
+    // Poison with apparent high direct support must not steer the lane,
+    // survive RAW fallback or cause an automatic writer candidate.
+    MirCandidateBoard mixed{};
+    mixed.segment_count = 10;
+    noAudio.bpm = 180.0;
+    mixed.raw_candidates.push_back(noAudio);
+    mixed.raw_candidates.push_back(measured);
+    const auto result = run(mixed);
+    if (result.candidate_count != 1 || result.selected_bpm != 129.0 ||
+        result.lane_best_support != .60 ||
+        result.lane_high_direct_support != 0.0 ||
+        !result.review_hold || result.auto_candidate ||
+        !mir_ci_primary_selector_trace_complete()) return false;
+    bool veto = false, validRank = false;
+    for (const auto& event : mir_ci_primary_selector_events()) {
+        if (std::strcmp(event.reason, "raw_audio_evidence_veto") == 0) {
+            if (veto || event.source_index != 0 || !event.raw ||
+                event.included) return false;
+            veto = true;
+        }
+        if (std::strcmp(event.reason, "raw_rank_scored") == 0) {
+            if (event.source_index != 1 || !event.raw) return false;
+            validRank = true;
+        }
+    }
+    return veto && validRank;
+}
+
 bool write_native_raw_fallback_marker() {
-    if (!native_raw_fallback_contract(0) ||
+    if (!native_raw_audio_evidence_gate_contract() ||
+        !native_raw_fallback_contract(0) ||
         !native_raw_fallback_contract(1) ||
         !native_raw_fallback_contract(2) ||
         !native_raw_fallback_contract(3) ||
