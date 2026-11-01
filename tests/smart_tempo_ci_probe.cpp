@@ -843,8 +843,128 @@ bool native_raw_audio_evidence_gate_contract() {
     return veto && validRank;
 }
 
+// Ingestion is a production entry point: a malformed audio witness must
+// neither create an eligible RAW object nor poison an existing valid one.
+// All data below are disposable numeric synthetic values, not owner BPMs.
+bool native_raw_ingest_sanitization_contract() {
+    using namespace smart_tempo;
+    using namespace smart_tempo::mir_pipeline;
+    MirCandidateBoard board{};
+    initialize_mir_candidate_board(board, 2);
+    HodgkinsonFullMirSegmentCandidate top{};
+    top.candidate_bpm = 129.0;
+    top.segment_index = 0;
+    top.combined_score = .80;
+    top.quantization_score = .40;
+    top.meter_score = .30;
+    add_mir_topk_candidate(board, top);
+    const auto findDirect = [&]() -> const MirRawCandidate* {
+        for (const auto& row : board.raw_candidates)
+            if (row.bpm == 129.0 && row.alias_class != nullptr &&
+                std::strcmp(row.alias_class, "direct") == 0)
+                return &row;
+        return nullptr;
+    };
+    const auto* direct = findDirect();
+    if (direct == nullptr || direct->rows != 1 ||
+        direct->score_sum != .80 || direct->quant_sum != .40 ||
+        direct->meter_sum != .30) return false;
+    const auto topCount = board.raw_candidates.size();
+    const auto stableTop = [&] {
+        const auto* row = findDirect();
+        return board.raw_candidates.size() == topCount && row != nullptr &&
+            row->rows == 1 && row->score_sum == .80 &&
+            row->quant_sum == .40 && row->meter_sum == .30;
+    };
+    auto badTop = top;
+    badTop.combined_score = std::numeric_limits<double>::quiet_NaN();
+    add_mir_topk_candidate(board, badTop);
+    badTop = top;
+    badTop.quantization_score = std::numeric_limits<double>::infinity();
+    add_mir_topk_candidate(board, badTop);
+    badTop = top;
+    badTop.meter_score = -.1;
+    add_mir_topk_candidate(board, badTop);
+    badTop = top;
+    badTop.combined_score = badTop.quantization_score = badTop.meter_score = 0.0;
+    add_mir_topk_candidate(board, badTop);
+    if (!stableTop()) return false;
+
+    HodgkinsonAliasPulseEvidence pulse{};
+    pulse.alias_bpm = 129.0;
+    pulse.alias_class = "direct";
+    pulse.pulse_score = .25;
+    pulse.section_support = .45;
+    pulse.phase_vs = .20;
+    pulse.axial_phase_vs = .15;
+    add_mir_alias_pulse_evidence(board, pulse);
+    if (findDirect() == nullptr || findDirect()->pulse_score != .25) return false;
+    auto badPulse = pulse;
+    badPulse.pulse_score = std::numeric_limits<double>::quiet_NaN();
+    add_mir_alias_pulse_evidence(board, badPulse);
+    badPulse = pulse;
+    badPulse.section_support = std::numeric_limits<double>::infinity();
+    add_mir_alias_pulse_evidence(board, badPulse);
+    badPulse = pulse;
+    badPulse.phase_vs = -.2;
+    add_mir_alias_pulse_evidence(board, badPulse);
+    badPulse = pulse;
+    badPulse.alias_class = nullptr;
+    add_mir_alias_pulse_evidence(board, badPulse);
+    badPulse = pulse;
+    badPulse.alias_class = "unknown";
+    add_mir_alias_pulse_evidence(board, badPulse);
+    if (!stableTop() || findDirect()->pulse_score != .25 ||
+        findDirect()->pulse_section_support != .45) return false;
+
+    HodgkinsonContinuousRefinementEvidence continuous{};
+    continuous.best_bpm = 129.0;
+    continuous.alias_class = "direct";
+    continuous.best_score = .50;
+    continuous.score_ratio = 1.25;
+    continuous.section_support = .50;
+    continuous.section_stability = .60;
+    add_mir_continuous_refinement_evidence(board, continuous);
+    if (findDirect() == nullptr || findDirect()->continuous_score != .50 ||
+        findDirect()->rows != 2) return false;
+    const auto validScore = findDirect()->score_sum;
+    auto badContinuous = continuous;
+    badContinuous.best_score = std::numeric_limits<double>::quiet_NaN();
+    add_mir_continuous_refinement_evidence(board, badContinuous);
+    badContinuous = continuous;
+    badContinuous.score_ratio = std::numeric_limits<double>::infinity();
+    add_mir_continuous_refinement_evidence(board, badContinuous);
+    badContinuous = continuous;
+    badContinuous.section_stability = -.2;
+    add_mir_continuous_refinement_evidence(board, badContinuous);
+    badContinuous = continuous;
+    badContinuous.alias_class = nullptr;
+    add_mir_continuous_refinement_evidence(board, badContinuous);
+    badContinuous = continuous;
+    badContinuous.alias_class = "unknown";
+    add_mir_continuous_refinement_evidence(board, badContinuous);
+    if (board.raw_candidates.size() != topCount ||
+        findDirect()->continuous_score != .50 ||
+        findDirect()->score_sum != validScore ||
+        findDirect()->rows != 2 ||
+        findDirect()->pulse_score != .25) return false;
+
+    // Poison first, valid second: malformed evidence cannot seed an
+    // empty board, and the subsequent real measurement remains eligible.
+    MirCandidateBoard clean{};
+    initialize_mir_candidate_board(clean, 2);
+    add_mir_topk_candidate(clean, badTop);
+    add_mir_alias_pulse_evidence(clean, badPulse);
+    add_mir_continuous_refinement_evidence(clean, badContinuous);
+    if (!clean.raw_candidates.empty()) return false;
+    add_mir_topk_candidate(clean, top);
+    return !clean.raw_candidates.empty() &&
+           clean.raw_candidates.size() == topCount;
+}
+
 bool write_native_raw_fallback_marker() {
-    if (!native_raw_audio_evidence_gate_contract() ||
+    if (!native_raw_ingest_sanitization_contract() ||
+        !native_raw_audio_evidence_gate_contract() ||
         !native_raw_fallback_contract(0) ||
         !native_raw_fallback_contract(1) ||
         !native_raw_fallback_contract(2) ||
