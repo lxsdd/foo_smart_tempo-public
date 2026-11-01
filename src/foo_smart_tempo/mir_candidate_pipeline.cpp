@@ -164,19 +164,25 @@ constexpr std::array<MirAliasOption, 11> kMirAliases{{
 // invalid source cannot be resurrected by an alias/support fallback.
 [[nodiscard]] bool mir_raw_audio_evidence_eligible(
     const MirRawCandidate& raw) noexcept {
-  if (!std::isfinite(raw.bpm) || raw.bpm < kMirProductionMinBpm ||
-      raw.bpm > kMirProductionMaxBpm || raw.alias_class == nullptr) {
+  // Out-of-policy-rail but measured positive BPMs remain in the board:
+  // the existing downstream rail/fallback logic must decide their fate.
+  if (!std::isfinite(raw.bpm) || raw.bpm <= 0.0 ||
+      raw.alias_class == nullptr) {
     return false;
   }
-  bool recognizedAlias = false;
+  uint16_t knownAliasBits = 0;
+  bool recognizedAliasClass = false;
   for (const auto& alias : kMirAliases) {
-    if (raw.alias_bit == static_cast<uint16_t>(alias.bit) &&
-        std::strcmp(raw.alias_class, alias.name) == 0) {
-      recognizedAlias = true;
-      break;
-    }
+    knownAliasBits |= static_cast<uint16_t>(alias.bit);
+    recognizedAliasClass =
+        recognizedAliasClass ||
+        std::strcmp(raw.alias_class, alias.name) == 0;
   }
-  if (!recognizedAlias) {
+  // A collapsed/fabricated multi-alias witness can carry several known bits.
+  // Reject unknown classes and unknown bits, but leave exact alias and
+  // downstream policy rail eligibility to their existing selectors.
+  if (!recognizedAliasClass || raw.alias_bit == 0 ||
+      (raw.alias_bit & static_cast<uint16_t>(~knownAliasBits)) != 0) {
     return false;
   }
   const std::array<double, 16> measurements{{
