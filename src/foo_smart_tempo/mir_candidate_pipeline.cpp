@@ -371,12 +371,24 @@ MirRawCandidate& upsert_mir_raw_candidate(
   return board.raw_candidates.back();
 }
 
+// Reject a malformed measurement BEFORE upsert: otherwise a NaN/negative
+// score can poison a previously valid audio candidate sharing this alias/BPM.
+[[nodiscard]] bool mir_finite_nonnegative(double value) noexcept {
+  return std::isfinite(value) && value >= 0.0;
+}
+
 void add_mir_topk_candidate(
     MirCandidateBoard& board,
     const smart_tempo::HodgkinsonFullMirSegmentCandidate& candidate) {
   if (board.segment_count == 0 || !(candidate.candidate_bpm > 0.0) ||
       !std::isfinite(candidate.candidate_bpm) ||
-      candidate.segment_index >= board.segment_count) {
+      candidate.segment_index >= board.segment_count ||
+      !mir_finite_nonnegative(candidate.combined_score) ||
+      !mir_finite_nonnegative(candidate.quantization_score) ||
+      !mir_finite_nonnegative(candidate.meter_score) ||
+      (candidate.combined_score == 0.0 &&
+       candidate.quantization_score == 0.0 &&
+       candidate.meter_score == 0.0)) {
     return;
   }
   for (const auto& alias : kMirAliases) {
@@ -417,8 +429,15 @@ void add_mir_topk_candidate(
 void add_mir_alias_pulse_evidence(
     MirCandidateBoard& board,
     const smart_tempo::HodgkinsonAliasPulseEvidence& evidence) {
+  // Phase and support values are part of the same measured witness. Reject
+  // malformed rows atomically rather than contaminating a valid RAW object.
   if (!(evidence.alias_bpm >= 40.0 && evidence.alias_bpm <= 220.0) ||
-      !std::isfinite(evidence.alias_bpm)) {
+      !std::isfinite(evidence.alias_bpm) || evidence.alias_class == nullptr ||
+      !(evidence.pulse_score > 0.0) ||
+      !mir_finite_nonnegative(evidence.pulse_score) ||
+      !mir_finite_nonnegative(evidence.section_support) ||
+      !mir_finite_nonnegative(evidence.phase_vs) ||
+      !mir_finite_nonnegative(evidence.axial_phase_vs)) {
     return;
   }
   uint16_t aliasBit = 0;
@@ -428,6 +447,7 @@ void add_mir_alias_pulse_evidence(
       break;
     }
   }
+  if (aliasBit == 0) return;
   auto& raw = upsert_mir_raw_candidate(
       board, evidence.alias_bpm, evidence.alias_class, aliasBit);
 #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
@@ -445,7 +465,12 @@ void add_mir_continuous_refinement_evidence(
     MirCandidateBoard& board,
     const smart_tempo::HodgkinsonContinuousRefinementEvidence& evidence) {
   if (!(evidence.best_bpm >= 40.0 && evidence.best_bpm <= 220.0) ||
-      !std::isfinite(evidence.best_bpm)) {
+      !std::isfinite(evidence.best_bpm) || evidence.alias_class == nullptr ||
+      !(evidence.best_score > 0.0) ||
+      !mir_finite_nonnegative(evidence.best_score) ||
+      !mir_finite_nonnegative(evidence.score_ratio) ||
+      !mir_finite_nonnegative(evidence.section_support) ||
+      !mir_finite_nonnegative(evidence.section_stability)) {
     return;
   }
   uint16_t aliasBit = 0;
@@ -455,6 +480,7 @@ void add_mir_continuous_refinement_evidence(
       break;
     }
   }
+  if (aliasBit == 0) return;
   auto& raw = upsert_mir_raw_candidate(
       board, evidence.best_bpm, evidence.alias_class, aliasBit);
 #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
