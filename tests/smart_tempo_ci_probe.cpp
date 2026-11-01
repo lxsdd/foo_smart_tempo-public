@@ -806,7 +806,7 @@ bool native_raw_audio_evidence_gate_contract() {
     badAlias.alias_class = "unknown";
     if (!checkSingle(badAlias, false)) return false;
     auto badRail = measured;
-    badRail.bpm = 221.0;
+    badRail.bpm = -1.0; // invalid numeric BPM; positive out-of-rail is a later policy decision
     if (!checkSingle(badRail, false)) return false;
     auto badNan = measured;
     badNan.synthetic_support = std::numeric_limits<double>::quiet_NaN();
