@@ -171,17 +171,18 @@ constexpr std::array<MirAliasOption, 11> kMirAliases{{
     return false;
   }
   uint16_t knownAliasBits = 0;
-  bool recognizedAliasClass = false;
+  uint16_t classAliasBit = 0;
   for (const auto& alias : kMirAliases) {
-    knownAliasBits |= static_cast<uint16_t>(alias.bit);
-    recognizedAliasClass =
-        recognizedAliasClass ||
-        std::strcmp(raw.alias_class, alias.name) == 0;
+    const uint16_t bit = static_cast<uint16_t>(alias.bit);
+    knownAliasBits |= bit;
+    if (std::strcmp(raw.alias_class, alias.name) == 0) {
+      classAliasBit = bit;
+    }
   }
   // A collapsed/fabricated multi-alias witness can carry several known bits.
   // Reject unknown classes and unknown bits, but leave exact alias and
   // downstream policy rail eligibility to their existing selectors.
-  if (!recognizedAliasClass || raw.alias_bit == 0 ||
+  if (classAliasBit == 0 || (raw.alias_bit & classAliasBit) == 0 ||
       (raw.alias_bit & static_cast<uint16_t>(~knownAliasBits)) != 0) {
     return false;
   }
@@ -377,6 +378,12 @@ MirRawCandidate& upsert_mir_raw_candidate(
   return std::isfinite(value) && value >= 0.0;
 }
 
+// Phase-vector strength, section coverage and section stability are measured
+// fractions. An out-of-range finite diagnostic must not become RAW evidence.
+[[nodiscard]] bool mir_unit_interval(double value) noexcept {
+  return mir_finite_nonnegative(value) && value <= 1.0;
+}
+
 // A single decoded-audio row can fan out to several aliases. Preflight every
 // existing destination BEFORE mutating any of them: individually finite
 // measurements can overflow accumulated evidence or counters on replay.
@@ -470,14 +477,14 @@ void add_mir_alias_pulse_evidence(
     const smart_tempo::HodgkinsonAliasPulseEvidence& evidence) {
   // Phase and support values are part of the same measured witness. Reject
   // malformed rows atomically rather than contaminating a valid RAW object.
-  if (board.segment_count == 0 ||
+  if (board.segment_count == 0 || !evidence.route_valid ||
       !(evidence.alias_bpm >= 40.0 && evidence.alias_bpm <= 220.0) ||
       !std::isfinite(evidence.alias_bpm) || evidence.alias_class == nullptr ||
       !(evidence.pulse_score > 0.0) ||
-      !mir_finite_nonnegative(evidence.pulse_score) ||
-      !mir_finite_nonnegative(evidence.section_support) ||
-      !mir_finite_nonnegative(evidence.phase_vs) ||
-      !mir_finite_nonnegative(evidence.axial_phase_vs)) {
+      !mir_unit_interval(evidence.pulse_score) ||
+      !mir_unit_interval(evidence.section_support) ||
+      !mir_unit_interval(evidence.phase_vs) ||
+      !mir_unit_interval(evidence.axial_phase_vs)) {
     return;
   }
   uint16_t aliasBit = 0;
@@ -508,14 +515,14 @@ void add_mir_alias_pulse_evidence(
 void add_mir_continuous_refinement_evidence(
     MirCandidateBoard& board,
     const smart_tempo::HodgkinsonContinuousRefinementEvidence& evidence) {
-  if (board.segment_count == 0 ||
+  if (board.segment_count == 0 || !evidence.route_valid ||
       !(evidence.best_bpm >= 40.0 && evidence.best_bpm <= 220.0) ||
       !std::isfinite(evidence.best_bpm) || evidence.alias_class == nullptr ||
       !(evidence.best_score > 0.0) ||
       !mir_finite_nonnegative(evidence.best_score) ||
       !mir_finite_nonnegative(evidence.score_ratio) ||
-      !mir_finite_nonnegative(evidence.section_support) ||
-      !mir_finite_nonnegative(evidence.section_stability)) {
+      !mir_unit_interval(evidence.section_support) ||
+      !mir_unit_interval(evidence.section_stability)) {
     return;
   }
   uint16_t aliasBit = 0;
