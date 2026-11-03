@@ -180,11 +180,20 @@ function Run-Case([string]$installer,[string]$root,[string]$inputFile,[string[]]
     while ([DateTime]::UtcNow -lt $until) {
       $hostProcess.Refresh()
       if ($hostProcess.HasExited) { throw 'foobar crashed during analysis' }
+      $failureMarker=$inputFile+'.native-probe-failed'
+      if (Test-Path -LiteralPath $failureMarker -PathType Leaf) {
+        $failure=(Get-Content -LiteralPath $failureMarker -Raw).Trim()
+        if ($failure -notmatch '^[A-Z_]{3,24}$') { throw 'Malformed CI native probe failure marker' }
+        throw ("Original host native probe failed before dialog: {0}" -f $failure)
+      }
       $dialog=[STUI]::Find($hostProcess.Id,'DIAGNOSTIC / NO WRITE')
       if ($dialog -ne [IntPtr]::Zero) { break }
       Start-Sleep -Milliseconds 700
     }
     if ($dialog -eq [IntPtr]::Zero) {
+      $armed=Test-Path -LiteralPath ($inputFile+'.native-probe-armed') -PathType Leaf
+      $fired=Test-Path -LiteralPath ($inputFile+'.native-probe-fired') -PathType Leaf
+      Write-Host ("HOST_NATIVE_PROBE_LIVENESS_{0}: ARMED={1} FIRED={2}" -f $label,$armed,$fired)
       Write-Host ("HOST_WINDOWS_AT_TIMEOUT_{0}: {1}" -f $label,[STUI]::Titles($hostProcess.Id))
       throw "CI SDK probe did not reach diagnostic results for $label"
     }

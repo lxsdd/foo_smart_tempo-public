@@ -26,6 +26,19 @@ namespace {
 UINT_PTR g_ci_timer = 0;
 std::wstring g_ci_fixture;
 
+// Diagnostic markers contain only fixed CI status labels, are written solely
+// in validated RUNNER_TEMP, and never mean that a native contract passed.
+void write_ci_status(const wchar_t* suffix, const char* message) {
+    if (g_ci_fixture.empty()) return;
+    const std::wstring path = g_ci_fixture + suffix;
+    const HANDLE file = ::CreateFileW(path.c_str(), GENERIC_WRITE, 0,
+        nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file == INVALID_HANDLE_VALUE) return;
+    DWORD written = 0;
+    ::WriteFile(file, message, static_cast<DWORD>(std::strlen(message)), &written, nullptr);
+    ::CloseHandle(file);
+}
+
 bool read_env(const wchar_t* key, std::wstring& out) {
     wchar_t value[32768] = {};
     DWORD len = ::GetEnvironmentVariableW(key, value, 32768);
@@ -1267,41 +1280,49 @@ void CALLBACK run_ci_probe(HWND, UINT, UINT_PTR timer, DWORD) {
     if (::FindWindowW(nullptr, L"Quick Appearance Setup") != nullptr) return;
     const std::wstring readyMarker = g_ci_fixture + L".ready";
     if (::GetFileAttributesW(readyMarker.c_str()) == INVALID_FILE_ATTRIBUTES) return;
+    write_ci_status(L".native-probe-fired", "FIRED");
     ::KillTimer(nullptr, timer);
     g_ci_timer = 0;
 
     try {
         if (!write_native_supplemental_marker()) {
+            write_ci_status(L".native-probe-failed", "SUPPLEMENTAL");
             FB2K_console_formatter() << "SMART_TEMPO_CI_NATIVE_SUPPLEMENTAL=FAIL";
             return;
         }
         FB2K_console_formatter() << "SMART_TEMPO_CI_NATIVE_SUPPLEMENTAL=PASS";
         if (!write_native_low_nested_marker()) {
+            write_ci_status(L".native-probe-failed", "LOW_NESTED");
             FB2K_console_formatter() << "SMART_TEMPO_CI_NATIVE_LOW_NESTED=FAIL";
             return;
         }
         FB2K_console_formatter() << "SMART_TEMPO_CI_NATIVE_LOW_NESTED=PASS";
         if (!write_native_low_upper_marker()) {
+            write_ci_status(L".native-probe-failed", "LOW_UPPER");
             FB2K_console_formatter() << "SMART_TEMPO_CI_NATIVE_LOW_UPPER=FAIL";
             return;
         }
         FB2K_console_formatter() << "SMART_TEMPO_CI_NATIVE_LOW_UPPER=PASS";
         if (!write_native_rail_marker()) {
+            write_ci_status(L".native-probe-failed", "RAIL");
             FB2K_console_formatter() << "SMART_TEMPO_CI_NATIVE_RAIL=FAIL";
             return;
         }
         FB2K_console_formatter() << "SMART_TEMPO_CI_NATIVE_RAIL=PASS";
         if (!write_native_raw_fallback_marker()) {
+            write_ci_status(L".native-probe-failed", "RAW_FALLBACK");
             FB2K_console_formatter() << "SMART_TEMPO_CI_NATIVE_RAW_FALLBACK=FAIL";
             return;
         }
         FB2K_console_formatter() << "SMART_TEMPO_CI_NATIVE_RAW_FALLBACK=PASS";
         if (!write_native_general_alt_marker()) {
+            write_ci_status(L".native-probe-failed", "GENERAL_ALT");
             FB2K_console_formatter() << "SMART_TEMPO_CI_NATIVE_GENERAL_ALT=FAIL";
             return;
         }
         FB2K_console_formatter() << "SMART_TEMPO_CI_NATIVE_GENERAL_ALT=PASS";
         if (!write_native_continuous_marker()) {
+            write_ci_status(L".native-probe-failed", "CONTINUOUS");
             FB2K_console_formatter() << "SMART_TEMPO_CI_NATIVE_CONTINUOUS=FAIL";
             return;
         }
@@ -1311,23 +1332,28 @@ void CALLBACK run_ci_probe(HWND, UINT, UINT_PTR timer, DWORD) {
         playlist_loader::g_path_to_handles_simple(path.get_ptr(), tracks, fb2k::noAbort);
         FB2K_console_formatter() << "SMART_TEMPO_CI_PROBE_HANDLES=" << static_cast<uint64_t>(tracks.get_count());
         if (tracks.get_count() == 0) {
+            write_ci_status(L".native-probe-failed", "NO_HANDLES");
             FB2K_console_formatter() << "SMART_TEMPO_CI_PROBE=FAIL_NO_HANDLES";
             return;
         }
         const auto state = metadb_io::get()->load_info_multi(
             tracks, metadb_io::load_info_force, core_api::get_main_window(), false);
         if (state != metadb_io::load_info_success) {
+            write_ci_status(L".native-probe-failed", "METADATA_READ");
             FB2K_console_formatter() << "SMART_TEMPO_CI_PROBE=FAIL_METADATA_READ";
             return;
         }
         const bool dispatched = menu_helpers::run_command_context(
             guid_batch_dry_run_bpm, pfc::guid_null, tracks);
+        if (!dispatched) write_ci_status(L".native-probe-failed", "MENU_DISPATCH");
         FB2K_console_formatter()
             << (dispatched ? "SMART_TEMPO_CI_PROBE=DISPATCHED"
                            : "SMART_TEMPO_CI_PROBE=FAIL_MENU_DISPATCH");
     } catch (const std::exception& e) {
+        write_ci_status(L".native-probe-failed", "EXCEPTION");
         FB2K_console_formatter() << "SMART_TEMPO_CI_PROBE=FAIL_EXCEPTION " << e.what();
     } catch (...) {
+        write_ci_status(L".native-probe-failed", "UNKNOWN");
         FB2K_console_formatter() << "SMART_TEMPO_CI_PROBE=FAIL_UNKNOWN";
     }
 }
@@ -1349,8 +1375,10 @@ public:
         g_ci_fixture = std::move(fixture);
         g_ci_timer = ::SetTimer(nullptr, 0, 750, &run_ci_probe);
         if (g_ci_timer == 0) {
+            write_ci_status(L".native-probe-failed", "TIMER");
             FB2K_console_formatter() << "SMART_TEMPO_CI_PROBE=FAIL_TIMER";
         } else {
+            write_ci_status(L".native-probe-armed", "ARMED");
             FB2K_console_formatter() << "SMART_TEMPO_CI_PROBE=ARMED";
         }
     }
