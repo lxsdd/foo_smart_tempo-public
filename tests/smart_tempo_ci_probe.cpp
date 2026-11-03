@@ -266,7 +266,11 @@ bool native_low_nested_rescue_contract(bool twoThirdsAlias,
                     ? MirAlias::two_thirds : MirAlias::direct)
                 : static_cast<uint16_t>(MirAlias::half) |
                     static_cast<uint16_t>(MirAlias::three_quarters);
-        candidate.alias_class = "direct";
+        // Keep the CI-fabricated class witness consistent with the alias
+        // bitmask. Production rejects invalid bit/class pairs by design.
+        candidate.alias_class = bpm == 60.0 ? "direct"
+            : bpm == 80.0 ? (twoThirdsAlias ? "two_thirds" : "direct")
+            : "half"; // 71 BPM has half | three_quarters, both valid.
         candidate.synthetic_support = bpm == 60.0 ? .65 : bpm == 80.0 ? .95 : .70;
         candidate.synthetic_winner_support = .20;
         candidate.best_combined_score = .20;
