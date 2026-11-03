@@ -247,6 +247,13 @@ bool native_low_nested_rescue_contract(bool twoThirdsAlias,
                                        std::size_t expectedEpochs) {
     using namespace smart_tempo;
     using namespace smart_tempo::mir_pipeline;
+    // Preserve every original comparator and negative control; record only
+    // a constant CI-only diagnostic label on failure, not a fake PASS.
+    const auto reject = [&](const char* positive, const char* negative) {
+        write_ci_status(L".native-probe-failed",
+                        twoThirdsAlias ? positive : negative);
+        return false;
+    };
     MirCandidateBoard board{};
     board.segment_count = 10;
     for (double bpm : {60.0, 80.0, 71.0}) {
@@ -280,7 +287,7 @@ bool native_low_nested_rescue_contract(bool twoThirdsAlias,
     if (std::string_view(result.lane) != "low_pulse_context" ||
         std::string_view(result.lane_variant) != "low_pulse_targeted_rescue_v4" ||
         result.selected_bpm != expectedBpm ||
-        !mir_ci_primary_selector_trace_complete()) return false;
+        !mir_ci_primary_selector_trace_complete()) return reject("LOW_POS_OUTCOME", "LOW_NEG_OUTCOME");
 
     // Adjacent source-indexed rank/compare witnesses for every *actual*
     // invocation of bestBy. Each new pool must reset its incumbent.
@@ -293,31 +300,31 @@ bool native_low_nested_rescue_contract(bool twoThirdsAlias,
         if (std::strcmp(event.reason, "low_rank_scored") == 0) {
             if (pendingRank || !event.has_low_pool_epoch ||
                 event.low_pool_epoch < 1 || event.low_pool_epoch > expectedEpochs ||
-                event.raw || event.source_index >= 3) return false;
+                event.raw || event.source_index >= 3) return reject("LOW_POS_RANK", "LOW_NEG_RANK");
             pendingRank = true;
             rankIndex = event.source_index;
             ++ranks[event.low_pool_epoch];
-            if (event.low_pool_epoch > maxEpoch + 1) return false;
+            if (event.low_pool_epoch > maxEpoch + 1) return reject("LOW_POS_EPOCH", "LOW_NEG_EPOCH");
             maxEpoch = (std::max)(maxEpoch, event.low_pool_epoch);
         } else if (std::strcmp(event.reason, "low_compare_won") == 0 ||
                    std::strcmp(event.reason, "low_compare_lost") == 0) {
             if (!pendingRank || event.raw || !event.has_low_pool_epoch ||
                 event.low_pool_epoch < 1 || event.low_pool_epoch > maxEpoch ||
                 event.source_index != rankIndex || event.source_index >= 3)
-                return false;
+                return reject("LOW_POS_COMPARE", "LOW_NEG_COMPARE");
             pendingRank = false;
             const std::size_t ep = event.low_pool_epoch;
             ++comparisons[ep];
             if (std::strcmp(event.reason, "low_compare_won") == 0) {
                 ++wins[ep];
-                if (event.bpm != expectedWinners[ep]) return false;
+                if (event.bpm != expectedWinners[ep]) return reject("LOW_POS_WIN", "LOW_NEG_WIN");
             } else {
                 ++losses[ep];
             }
         } else if (std::strcmp(event.reason, "terminal_lane_choice") == 0) {
             if (event.raw || event.bpm != expectedBpm ||
                 event.source_index != (twoThirdsAlias ? 2u : 1u))
-                return false;
+                return reject("LOW_POS_TERM", "LOW_NEG_TERM");
             ++finalTerminals;
         }
     }
@@ -325,12 +332,17 @@ bool native_low_nested_rescue_contract(bool twoThirdsAlias,
         ranks[1] != 3 || ranks[2] != 2 ||
         wins[1] != 1 || wins[2] != 1 ||
         losses[1] != 2 || losses[2] != 1)
-        return false;
-    if (twoThirdsAlias)
-        return expectedEpochs == 3 && ranks[3] == 1 &&
-               comparisons[3] == 1 && wins[3] == 1 && losses[3] == 0;
-    return expectedEpochs == 2 && ranks[3] == 0 &&
-           comparisons[1] == 3 && comparisons[2] == 2;
+        return reject("LOW_POS_COUNTS", "LOW_NEG_COUNTS");
+    if (twoThirdsAlias) {
+        if (!(expectedEpochs == 3 && ranks[3] == 1 &&
+              comparisons[3] == 1 && wins[3] == 1 && losses[3] == 0))
+            return reject("LOW_POS_FINAL", "LOW_NEG_FINAL");
+        return true;
+    }
+    if (!(expectedEpochs == 2 && ranks[3] == 0 &&
+          comparisons[1] == 3 && comparisons[2] == 2))
+        return reject("LOW_POS_FINAL", "LOW_NEG_FINAL");
+    return true;
 }
 
 bool write_native_low_nested_marker() {
