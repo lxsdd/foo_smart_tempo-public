@@ -1,0 +1,1134 @@
+#pragma once
+#ifndef SMART_TEMPO_CI_ORACLE_PROBE
+#error "CI-only Smart Tempo pipeline observer must not be included in production"
+#endif
+
+// Public, disposable, synthetic-host tracing ONLY. No file names, audio,
+// genres, tags, aliases as free text, or owner data are serialized.
+// This is an observational pool-lineage trace, NOT a claim that every
+// collapsed candidate passed every selector's internal eligibility gate.
+#include <Windows.h>
+#include "ci_fixture_allowlist.h"
+#include <Psapi.h>
+#pragma comment(lib, "Psapi.lib")
+#include <algorithm>
+#include <chrono>
+#include <cmath>
+#include <cstddef>
+#include <cstdint>
+#include <cwchar>
+#include <cstdio>
+#include <cstring>
+#include <span>
+#include <string>
+#include <utility>
+#include <vector>
+
+namespace smart_tempo::ci_pipeline_trace {
+inline std::wstring env(const wchar_t* name) {
+  wchar_t buffer[32768] = {};
+  const DWORD n = GetEnvironmentVariableW(name, buffer, 32768);
+  return n > 0 && n < 32768 ? std::wstring(buffer, n) : L"";
+}
+
+inline std::wstring permitted_fixture() {
+  if (env(L"GITHUB_ACTIONS") != L"true") return {};
+  std::wstring root = env(L"RUNNER_TEMP");
+  const std::wstring fixture = env(L"SMART_TEMPO_CI_FIXTURE");
+  if (root.empty() || root.back() == L'/' || root.back() == L'\\' ||
+      fixture.empty()) return {};
+  root += L"\\";
+  if (fixture.size() <= root.size() ||
+      _wcsnicmp(root.c_str(), fixture.c_str(), root.size()) != 0) return {};
+  if (!smart_tempo::ci_fixture::permitted(fixture, root)) return {};
+  return fixture;
+}
+
+// Alias expansion can legitimately produce BPM outside the production rail.
+// Only final accepted BPM is constrained by the 40..220 production decision.
+inline bool finite_bpm(double bpm) { return std::isfinite(bpm) && bpm >= 0.0 && bpm <= 2000.0; }
+inline std::string safe_num(double value) {
+  // Callers must validate all numeric evidence, never silently map NaN to 0.
+  return std::to_string(value);
+}
+inline std::string ci_run_id() {
+  const auto run = env(L"GITHUB_RUN_ID");
+  if (run.empty() || run.size() > 32) return {};
+  uint64_t hash = UINT64_C(14695981039346656037);
+  for (wchar_t c : run) {
+    if (c < L'0' || c > L'9') return {};
+    hash = (hash ^ static_cast<uint64_t>(c)) * UINT64_C(1099511628211);
+  }
+  hash = (hash ^ GetCurrentProcessId()) * UINT64_C(1099511628211);
+  hash = (hash ^ GetCurrentThreadId()) * UINT64_C(1099511628211);
+  char digits[17] = {};
+  std::snprintf(digits, sizeof(digits), "%016llx",
+                static_cast<unsigned long long>(hash));
+  return std::string(digits);
+}
+
+// Only actual decoded source/analysis frames, never audio samples or paths.
+// Captured in the CI-only analyzer loop after resampler flush.
+struct WindowObservation {
+  std::size_t pass_index = 0;
+  std::size_t pass_total = 0;
+  double start_sec = 0.0;
+  std::size_t requested_frames = 0;
+  std::size_t decoded_frames = 0;
+  std::size_t analysis_frames = 0;
+  unsigned source_rate_hz = 0;
+  unsigned analysis_rate_hz = 0;
+  // CI-only numeric planned pass and actual seek-call receipt.
+  double known_length_sec = 0.0;
+  double planned_window_sec = 0.0;
+  double offset_pct = 0.0;
+  double seek_target_sec = 0.0;
+  unsigned can_seek = 0;
+  unsigned seek_invoked = 0;
+  unsigned seek_returned = 0;
+};
+
+// The native MIR evaluator's own first-return reason per actually executed
+// segment. No waveform, metadata, filename or reference BPM is retained.
+struct MirSegmentObservation {
+  std::size_t segment_index = 0;
+  std::size_t odf_peak_count = 0;
+  std::size_t top_k_count = 0;
+  double bpm = 0.0;
+  double score = 0.0;
+  bool candidate = false;
+  bool aggregated = false;
+  const char* reason = "not_evaluated";
+};
+inline bool permitted_mir_segment_reason(const char* reason) noexcept {
+  if (!reason) return false;
+  constexpr const char* known[] = {
+      "invalid_input", "insufficient_odf", "insufficient_onsets",
+      "single_event", "no_loop_hypotheses", "ambiguous_tatum_fit",
+      "missing_bar_division", "audacity_mir_full",
+      "audacity_mir_full_below_threshold"};
+  for (const auto* item : known)
+    if (std::strcmp(item, reason) == 0) return true;
+  return false;
+}
+// Real native MIR source-supply, numeric and CI-only.
+struct MirSourceSupplyObservation {
+  std::vector<MirSegmentObservation> segments;
+  std::size_t segments_evaluated = 0;
+  std::size_t segment_results = 0;
+  std::size_t topk_rows_seen = 0;
+  std::size_t topk_add_calls = 0;
+  std::size_t topk_new_raw = 0;
+  std::size_t family_rank_rows = 0;
+  std::size_t alias_add_calls = 0;
+  std::size_t alias_new_raw = 0;
+  std::size_t continuous_add_calls = 0;
+  std::size_t continuous_new_raw = 0;
+};
+
+// Process-scoped measurements, not attributed per-thread CPU/RSS.
+struct ProcessResourceObservation {
+  bool valid = false;
+  double wall_seconds = 0.0;
+  double process_cpu_seconds = 0.0;
+  std::size_t process_peak_rss_before = 0;
+  std::size_t process_peak_rss_after = 0;
+  std::size_t process_working_set_after = 0;
+};
+struct ProcessResourceStart {
+  std::chrono::steady_clock::time_point started{};
+  uint64_t process_cpu_ticks = 0;
+  std::size_t peak_rss_bytes = 0;
+  bool valid = false;
+};
+inline uint64_t process_cpu_filetime(const FILETIME& a, const FILETIME& b) noexcept {
+  ULARGE_INTEGER x{}, y{};
+  x.LowPart = a.dwLowDateTime; x.HighPart = a.dwHighDateTime;
+  y.LowPart = b.dwLowDateTime; y.HighPart = b.dwHighDateTime;
+  return x.QuadPart + y.QuadPart;
+}
+inline ProcessResourceStart begin_process_resource_observation() noexcept {
+  ProcessResourceStart out;
+  out.started = std::chrono::steady_clock::now();
+  FILETIME created{}, exited{}, kernel{}, user{};
+  PROCESS_MEMORY_COUNTERS counters{};
+  counters.cb = sizeof(counters);
+  if (!GetProcessTimes(GetCurrentProcess(), &created, &exited, &kernel, &user) ||
+      !GetProcessMemoryInfo(GetCurrentProcess(), &counters, sizeof(counters)))
+    return out;
+  out.process_cpu_ticks = process_cpu_filetime(kernel, user);
+  out.peak_rss_bytes = counters.PeakWorkingSetSize;
+  out.valid = true;
+  return out;
+}
+inline ProcessResourceObservation end_process_resource_observation(
+    const ProcessResourceStart& start) noexcept {
+  ProcessResourceObservation out;
+  if (!start.valid) return out;
+  const auto ended = std::chrono::steady_clock::now();
+  FILETIME created{}, exited{}, kernel{}, user{};
+  PROCESS_MEMORY_COUNTERS counters{};
+  counters.cb = sizeof(counters);
+  if (!GetProcessTimes(GetCurrentProcess(), &created, &exited, &kernel, &user) ||
+      !GetProcessMemoryInfo(GetCurrentProcess(), &counters, sizeof(counters)))
+    return out;
+  const uint64_t ticks = process_cpu_filetime(kernel, user);
+  if (ticks < start.process_cpu_ticks ||
+      counters.PeakWorkingSetSize < start.peak_rss_bytes ||
+      counters.PeakWorkingSetSize < counters.WorkingSetSize)
+    return out;
+  out.wall_seconds = std::chrono::duration<double>(ended-start.started).count();
+  out.process_cpu_seconds =
+      static_cast<double>(ticks-start.process_cpu_ticks) / 10000000.0;
+  out.process_peak_rss_before = start.peak_rss_bytes;
+  out.process_peak_rss_after = counters.PeakWorkingSetSize;
+  out.process_working_set_after = counters.WorkingSetSize;
+  out.valid = std::isfinite(out.wall_seconds) && out.wall_seconds > 0.0 &&
+              std::isfinite(out.process_cpu_seconds) &&
+              out.process_cpu_seconds >= 0.0;
+  return out;
+}
+
+struct EventWriter {
+  std::string run_id;
+  explicit EventWriter(std::string id) : run_id(std::move(id)) {}
+  std::string lines;
+  std::size_t sequence = 0;
+  std::size_t next_id = 0;
+  std::string create_id() { return "c" + std::to_string(next_id++); }
+  void push(const char* stage, const char* outcome, const char* reason,
+            const std::string& id, const std::vector<std::string>& parents,
+            double bpm, double score, double support) {
+    lines += "{\"schema\":\"smart_tempo_source_decision_trace_v1\",";
+    lines += "\"analysis_id\":\"" + run_id + "\",\"sequence\":" + std::to_string(sequence++);
+    lines += ",\"stage\":\"" + std::string(stage) + "\",\"outcome\":\"" +
+             std::string(outcome) + "\",\"reason_code\":\"" + std::string(reason) + "\"";
+    lines += ",\"candidate_id\":" + (id.empty() ? "null" : "\"" + id + "\"");
+    lines += ",\"parent_candidate_ids\":[";
+    for (std::size_t i = 0; i < parents.size(); ++i) {
+      if (i) lines += ",";
+      lines += "\"" + parents[i] + "\"";
+    }
+    lines += "],\"metrics\":{\"bpm\":" + safe_num(bpm);
+    lines += ",\"score\":" + safe_num(score);
+    lines += ",\"support\":" + safe_num(support) + "}}\n";
+  }
+  void push_resource(const ProcessResourceObservation& r) {
+    push("resource_usage", "observed", "process_resource_snapshot",
+         "", {}, 0.0, 0.0, 0.0);
+    lines.insert(lines.size() - 3,
+        ",\"wall_seconds\":" + safe_num(r.wall_seconds) +
+        ",\"process_cpu_seconds\":" + safe_num(r.process_cpu_seconds) +
+        ",\"process_peak_rss_before_bytes\":" + std::to_string(r.process_peak_rss_before) +
+        ",\"process_peak_rss_after_bytes\":" + std::to_string(r.process_peak_rss_after) +
+        ",\"process_working_set_after_bytes\":" + std::to_string(r.process_working_set_after));
+  }
+  void push_window(const WindowObservation& w) {
+    push("decode_window", "observed", "actual_decoded_extent",
+         "", {}, 0.0, 0.0, 0.0);
+    // Extend the just-emitted numeric-only metrics object, before its two
+    // closing braces and newline. The writer never serializes identifiers.
+    lines.insert(lines.size() - 3,
+        ",\"pass_index\":" + std::to_string(w.pass_index) +
+        ",\"pass_total\":" + std::to_string(w.pass_total) +
+        ",\"start_sec\":" + safe_num(w.start_sec) +
+        ",\"requested_frames\":" + std::to_string(w.requested_frames) +
+        ",\"decoded_frames\":" + std::to_string(w.decoded_frames) +
+        ",\"analysis_frames\":" + std::to_string(w.analysis_frames) +
+        ",\"source_rate_hz\":" + std::to_string(w.source_rate_hz) +
+        ",\"analysis_rate_hz\":" + std::to_string(w.analysis_rate_hz) +
+        ",\"known_length_sec\":" + safe_num(w.known_length_sec) +
+        ",\"planned_window_sec\":" + safe_num(w.planned_window_sec) +
+        ",\"offset_pct\":" + safe_num(w.offset_pct) +
+        ",\"seek_target_sec\":" + safe_num(w.seek_target_sec) +
+        ",\"can_seek\":" + std::to_string(w.can_seek) +
+        ",\"seek_invoked\":" + std::to_string(w.seek_invoked) +
+        ",\"seek_returned\":" + std::to_string(w.seek_returned));
+  }
+};
+
+#include "ci_manual_export_trace.h"
+
+// CI-only failure witness: a bounded numeric source-line code, never media,
+// paths, BPM values or raw diagnostic text. CREATE_NEW prevents stale masking.
+inline bool trace_reject(const std::wstring& fixture, unsigned line) {
+  if (fixture.empty()) return false;
+  const std::wstring output = fixture + L".pipeline.reject";
+  HANDLE h = CreateFileW(output.c_str(), GENERIC_WRITE, 0, nullptr,
+                         CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
+  if (h != INVALID_HANDLE_VALUE) {
+    const std::string marker = "SMART_TEMPO_CI_TRACE_REJECT_LINE=" +
+                               std::to_string(line) + "\n";
+    DWORD wrote = 0;
+    (void)WriteFile(h, marker.data(), static_cast<DWORD>(marker.size()),
+                    &wrote, nullptr);
+    CloseHandle(h);
+  }
+  return false;
+}
+
+inline bool record(
+    const mir_pipeline::MirCandidateBoard& board,
+    const std::vector<WindowObservation>& windows,
+    const std::vector<mir_pipeline::MirCandidate>& collapsed,
+    const std::vector<mir_pipeline::MirPolicyMeasuredCandidate>& fullboard,
+    std::span<const mir_pipeline::MirCiSelectorEvent> selectorEvents,
+    mir_pipeline::MirCiPolicyPointerSource policyPointer,
+    const MirPrimarySelection& primary,
+    const MirPolicyDecision& policy,
+    double final_bpm, bool withheld, bool same_run_measured_witness,
+    const char* applied_writer_reason, bool policy_runtime_enabled,
+    std::span<const IBpmAnalyzer::MeasuredBpmCandidate> manual,
+    bool manual_requested,
+    const ProcessResourceObservation& resource,
+    const MirSourceSupplyObservation& supply,
+    const smart_tempo::HodgkinsonMaterialRiskLocalExactProbe* risk,
+    const smart_tempo::HodgkinsonPartialBarAggregateShadow* partial,
+    std::span<const smart_tempo::HodgkinsonPartialBarTopKExactCandidate> topK) {
+  const std::wstring fixture = permitted_fixture();
+  const auto run_id = ci_run_id();
+  const auto reject = [&](unsigned line) { return trace_reject(fixture, line); };
+  if (fixture.empty() || run_id.empty() || !resource.valid ||
+      !std::isfinite(resource.wall_seconds) || resource.wall_seconds <= 0.0 ||
+      resource.wall_seconds > 7200.0 ||
+      !std::isfinite(resource.process_cpu_seconds) || resource.process_cpu_seconds < 0.0 ||
+      resource.process_cpu_seconds > resource.wall_seconds * 256.0 + 1.0 ||
+      resource.process_peak_rss_before == 0 ||
+      resource.process_peak_rss_after < resource.process_peak_rss_before ||
+      resource.process_peak_rss_after < resource.process_working_set_after ||
+      !finite_bpm(final_bpm) || final_bpm > 220.0 ||
+      (!withheld && final_bpm > 0.0 && !same_run_measured_witness))
+    return reject(__LINE__);
+  if (windows.empty() || windows.size() > 128 ||
+      board.raw_candidates.size() > 4096 || collapsed.size() > 4096 ||
+      selectorEvents.size() > 4096 || fullboard.size() > 4096 ||
+      !mir_pipeline::mir_ci_policy_rail_trace_complete() ||
+      mir_pipeline::mir_ci_policy_rail_events().size() != collapsed.size() ||
+      collapsed.size() != primary.candidate_count)
+    return reject(__LINE__);
+  if (supply.segments_evaluated > windows.size() ||
+      supply.segments.size() != supply.segments_evaluated ||
+      supply.segment_results > supply.segments_evaluated ||
+      supply.topk_add_calls > supply.topk_rows_seen ||
+      supply.topk_new_raw > supply.topk_add_calls * 16 ||
+      supply.alias_new_raw > supply.alias_add_calls ||
+      supply.continuous_new_raw > supply.continuous_add_calls ||
+      supply.family_rank_rows > 128 ||
+      supply.topk_new_raw + supply.alias_new_raw + supply.continuous_new_raw !=
+          board.raw_candidates.size() ||
+      (supply.family_rank_rows == 0 &&
+       (supply.alias_add_calls || supply.continuous_add_calls)))
+    return reject(__LINE__);
+  // The final diagnostic reason is read only AFTER the production writer
+  // invariant. Never serialize arbitrary diagnostics or metadata.
+  if (!applied_writer_reason) return reject(__LINE__);
+  constexpr const char* allowed_writer_reasons[] = {
+      "mir_primary", "mir_review_hold", "mir_no_candidate",
+      "mir_writer_override", "mir_review_hold_release",
+      "mir_local_exact_upgrade", "mir_writer_invariant_hold"};
+  bool writer_reason_known = false;
+  for (const auto* known : allowed_writer_reasons)
+    writer_reason_known |= std::strcmp(applied_writer_reason, known) == 0;
+  if (!writer_reason_known) return reject(__LINE__);
+  EventWriter out(run_id);
+  std::vector<std::string> raw_ids, cluster_ids, policy_ids;
+  raw_ids.reserve(board.raw_candidates.size());
+  cluster_ids.reserve(collapsed.size());
+  policy_ids.reserve(fullboard.size());
+  // Fail closed on missing, reordered or physically impossible decoder extents.
+  // Actual decoded frames may be shorter than requested at end-of-file.
+  const std::size_t declaredPasses = windows.front().pass_total;
+  const auto& firstWindow = windows.front();
+  for (std::size_t i = 0; i < windows.size(); ++i) {
+    const auto& w = windows[i];
+    if (w.pass_index != i || w.pass_total != declaredPasses ||
+        declaredPasses == 0 || declaredPasses > 128 ||
+        !std::isfinite(w.start_sec) || w.start_sec < 0.0 ||
+        w.start_sec > 86400.0 ||
+        w.source_rate_hz < 8000 || w.source_rate_hz > 384000 ||
+        w.analysis_rate_hz < 8000 || w.analysis_rate_hz > 48000 ||
+        w.analysis_rate_hz > w.source_rate_hz ||
+        w.source_rate_hz != firstWindow.source_rate_hz ||
+        w.analysis_rate_hz != firstWindow.analysis_rate_hz ||
+        w.requested_frames != firstWindow.requested_frames ||
+        !std::isfinite(w.known_length_sec) || w.known_length_sec < 0.0 ||
+        w.known_length_sec > 86400.0 ||
+        !std::isfinite(w.planned_window_sec) || w.planned_window_sec <= 0.0 ||
+        w.planned_window_sec > 600.0 ||
+        !std::isfinite(w.offset_pct) || w.offset_pct < 0.0 ||
+        w.offset_pct > 80.0 ||
+        !std::isfinite(w.seek_target_sec) || w.seek_target_sec < 0.0 ||
+        w.seek_target_sec > 86400.0 ||
+        w.can_seek > 1 || w.seek_invoked > 1 || w.seek_returned > 1 ||
+        w.seek_invoked != w.can_seek || w.seek_returned != w.seek_invoked ||
+        (w.can_seek == 0 && declaredPasses != 1) ||
+        std::abs(w.seek_target_sec -
+                 (w.seek_invoked ? w.start_sec : 0.0)) > 0.000001 ||
+        std::abs(w.planned_window_sec -
+                 firstWindow.planned_window_sec) > 0.000001 ||
+        std::abs(w.known_length_sec -
+                 firstWindow.known_length_sec) > 0.000001 ||
+        w.analysis_rate_hz != (std::min)(w.source_rate_hz, 48000u) ||
+        w.requested_frames == 0 ||
+        w.requested_frames > static_cast<std::size_t>(w.source_rate_hz) * 600 ||
+        w.decoded_frames == 0 || w.decoded_frames > w.requested_frames ||
+        w.analysis_frames == 0 ||
+        (w.analysis_rate_hz == w.source_rate_hz &&
+         w.analysis_frames != w.decoded_frames) ||
+        (w.analysis_rate_hz < w.source_rate_hz &&
+         std::abs(static_cast<double>(w.analysis_frames) / w.analysis_rate_hz -
+                  static_cast<double>(w.decoded_frames) / w.source_rate_hz) > 0.25) ||
+        static_cast<double>(w.analysis_frames) / w.analysis_rate_hz >
+            static_cast<double>(w.decoded_frames) / w.source_rate_hz + 0.10 ||
+        (i > 0 && w.start_sec < windows[i - 1].start_sec))
+      return reject(__LINE__);
+    out.push_window(w);
+  }
+  std::size_t segmentTopK = 0, segmentResults = 0;
+  std::size_t previousSegment = 0;
+  for (std::size_t i = 0; i < supply.segments.size(); ++i) {
+    const auto& s = supply.segments[i];
+    const bool late = std::strcmp(s.reason ? s.reason : "", "audacity_mir_full") == 0 ||
+        std::strcmp(s.reason ? s.reason : "", "audacity_mir_full_below_threshold") == 0;
+    if (!permitted_mir_segment_reason(s.reason) ||
+        s.segment_index >= windows.size() ||
+        (i && s.segment_index <= previousSegment) ||
+        !finite_bpm(s.bpm) || !std::isfinite(s.score) ||
+        s.score < 0.0 || s.score > 1.0 ||
+        s.odf_peak_count > 10000000 || s.top_k_count > 5 ||
+        (!late && (s.bpm != 0.0 || s.score != 0.0 ||
+                   s.top_k_count != 0 || s.candidate || s.aggregated)) ||
+        (late && (s.odf_peak_count < 3 ||
+                  s.candidate != (std::strcmp(s.reason, "audacity_mir_full") == 0) ||
+                  s.aggregated != (s.bpm > 0.0 || s.score > 0.0))) ||
+        (std::strcmp(s.reason, "insufficient_onsets") == 0 &&
+         s.odf_peak_count >= 3))
+      return reject(__LINE__);
+    previousSegment = s.segment_index;
+    segmentTopK += s.top_k_count;
+    segmentResults += s.aggregated ? 1 : 0;
+    out.push("mir_segment", "observed", s.reason, "", {},
+             s.bpm, s.score, 0.0);
+    out.lines.insert(out.lines.size() - 3,
+        ",\"segment_index\":" + std::to_string(s.segment_index) +
+        ",\"odf_peak_count\":" + std::to_string(s.odf_peak_count) +
+        ",\"top_k_count\":" + std::to_string(s.top_k_count) +
+        ",\"candidate\":" + std::to_string(s.candidate ? 1 : 0) +
+        ",\"aggregated\":" + std::to_string(s.aggregated ? 1 : 0));
+  }
+  if (segmentTopK != supply.topk_rows_seen ||
+      segmentResults != supply.segment_results) return reject(__LINE__);
+  for (const auto& raw : board.raw_candidates) {
+    if (!finite_bpm(raw.bpm) || raw.bpm == 0.0 ||
+        !std::isfinite(raw.score_sum) || !std::isfinite(raw.synthetic_support))
+      return reject(__LINE__);
+    const auto id = out.create_id();
+    raw_ids.push_back(id);
+    const char* source = nullptr;
+    switch (raw.ci_source_mask) {
+      case 1: source = "raw_topk"; break;
+      case 2: source = "raw_pulse_alias"; break;
+      case 3: source = "raw_topk_pulse_alias"; break;
+      case 4: source = "raw_continuous"; break;
+      case 5: source = "raw_topk_continuous"; break;
+      case 6: source = "raw_pulse_alias_continuous"; break;
+      case 7: source = "raw_all_sources"; break;
+      default: return reject(__LINE__);
+    }
+    out.push("candidate_create", "observed", source, id, {},
+             raw.bpm, raw.score_sum, raw.synthetic_support);
+  }
+  // Reproduce the ACTUAL first-match collapse partition, not a many-to-many
+  // near-BPM join. A raw BPM can lie within 0.001 of TWO cluster centers,
+  // but collapse_mir_candidates assigns it only to the first matching one.
+  std::vector<std::vector<std::size_t>> raw_cluster_sources(collapsed.size());
+  for (std::size_t raw_index = 0; raw_index < board.raw_candidates.size();
+       ++raw_index) {
+    std::size_t assigned = collapsed.size();
+    for (std::size_t cluster_index = 0; cluster_index < collapsed.size();
+         ++cluster_index) {
+      if (std::abs(board.raw_candidates[raw_index].bpm -
+                   collapsed[cluster_index].bpm) < 0.001) {
+        assigned = cluster_index;
+        break;
+      }
+    }
+    if (assigned == collapsed.size()) return reject(__LINE__);
+    raw_cluster_sources[assigned].push_back(raw_index);
+  }
+  for (std::size_t cluster_index = 0; cluster_index < collapsed.size();
+       ++cluster_index) {
+    const auto& cluster = collapsed[cluster_index];
+    if (!finite_bpm(cluster.bpm) || cluster.bpm == 0.0 ||
+        !std::isfinite(cluster.score_sum) || !std::isfinite(cluster.support) ||
+        !std::isfinite(cluster.best_combined_score))
+      return reject(__LINE__);
+    const auto& sources = raw_cluster_sources[cluster_index];
+    if (sources.empty() || sources.size() > 128 ||
+        board.raw_candidates[sources.front()].bpm != cluster.bpm)
+      return reject(__LINE__);
+    std::vector<std::string> parents;
+    parents.reserve(sources.size());
+    for (const auto raw_index : sources)
+      parents.push_back(raw_ids[raw_index]);
+    const auto id = out.create_id();
+    cluster_ids.push_back(id);
+    out.push("candidate_transform", "observed", "cluster_from_raw", id,
+             parents, cluster.bpm, cluster.score_sum, cluster.support);
+    out.push("primary_eligibility", "observed", "pool_only_gate_unresolved",
+             id, {}, cluster.bpm, cluster.best_combined_score, cluster.support);
+  }
+  // Original CI-only Policy FullBoard rail verdict for every collapsed source.
+  // Source-index order is authoritative; numerical BPM-nearest joins are not.
+  const auto railEvents = mir_pipeline::mir_ci_policy_rail_events();
+  for (std::size_t i = 0; i < collapsed.size(); ++i) {
+    const auto& gate = railEvents[i];
+    if (gate.source_index != i ||
+        !finite_bpm(gate.source_bpm) || !finite_bpm(gate.resolved_bpm) ||
+        std::abs(gate.source_bpm - collapsed[i].bpm) >= 0.001 ||
+        gate.included != (gate.resolved_bpm >= 40.0 && gate.resolved_bpm <= 220.0))
+      return reject(__LINE__);
+    out.push("policy_filter", gate.included ? "included" : "excluded",
+             gate.included ? "policy_rail_allowed" : "policy_rail_decisive_veto",
+             cluster_ids[i], {}, gate.source_bpm, gate.resolved_bpm, 0.0);
+  }
+  // FullBoard is a filtered/reordered exact-BPM transform of collapsed
+  // candidates. Each surviving source must occur at most once, even when
+  // multiple transformed BPMs are numerically equal.
+  std::vector<uint8_t> fullboard_source_seen(collapsed.size(), 0);
+  std::vector<std::size_t> fullboard_cluster_index;
+  fullboard_cluster_index.reserve(fullboard.size());
+  for (const auto& candidate : fullboard) {
+    if (!finite_bpm(candidate.bpm) || candidate.bpm == 0.0 ||
+        !std::isfinite(candidate.local_exact_score) ||
+        !std::isfinite(candidate.candidate.support))
+      return reject(__LINE__);
+    std::vector<std::string> parents;
+    std::size_t cluster_source_index = collapsed.size();
+    for (std::size_t i = 0; i < collapsed.size(); ++i) {
+      if (std::abs(collapsed[i].bpm - candidate.cluster_bpm) < 0.001) {
+        cluster_source_index = i;
+        if (fullboard_source_seen[i] != 0) return reject(__LINE__);
+        fullboard_source_seen[i] = 1;
+        parents.push_back(cluster_ids[i]);
+      }
+    }
+    if (parents.size() != 1 || cluster_source_index == collapsed.size()) return reject(__LINE__);
+    fullboard_cluster_index.push_back(cluster_source_index);
+    const auto id = out.create_id();
+    policy_ids.push_back(id);
+    out.push("policy_eligibility", "included",
+             parents.empty() ? "full_board_origin_unknown" : "full_board_member",
+             id, parents, candidate.bpm,
+             candidate.local_exact_score, candidate.candidate.support);
+  }
+  // Exact selected supplemental object from the analysis-owned input objects.
+  std::vector<std::string> supplemental_id;
+  double supplemental_bpm = 0.0;
+  if (policyPointer.kind != mir_pipeline::MirCiSupplementalKind::none) {
+    if (!policyPointer.observed || policyPointer.in_fullboard ||
+        policyPointer.object == nullptr) return reject(__LINE__);
+    const char* source = nullptr;
+    double score = 0.0, support = 0.0;
+    if (policyPointer.kind == mir_pipeline::MirCiSupplementalKind::material_risk &&
+        risk != nullptr && policyPointer.object == risk) {
+      source = "material_risk_source";
+      supplemental_bpm = risk->best_bpm;
+      score = risk->best_score;
+    } else if (policyPointer.kind ==
+                   mir_pipeline::MirCiSupplementalKind::partial_bar_aggregate &&
+               partial != nullptr && policyPointer.object == partial) {
+      source = "partial_bar_aggregate_source";
+      supplemental_bpm = partial->local_exact_bpm;
+      score = partial->score_sum;
+    } else if (policyPointer.kind ==
+                   mir_pipeline::MirCiSupplementalKind::partial_bar_topk) {
+      for (const auto& candidate : topK) {
+        if (policyPointer.object != &candidate) continue;
+        source = "partial_bar_topk_source";
+        supplemental_bpm = candidate.local_exact_bpm;
+        score = candidate.local_exact_score;
+        support = candidate.score_ratio_to_top;
+        break;
+      }
+    }
+    if (!source || !finite_bpm(supplemental_bpm) ||
+        supplemental_bpm <= 0.0 || !std::isfinite(score) ||
+        !std::isfinite(support) ||
+        std::abs(supplemental_bpm - policyPointer.bpm) > 0.001)
+      return reject(__LINE__);
+    supplemental_id.push_back(out.create_id());
+    out.push("supplemental_candidate", "observed", source,
+             supplemental_id.front(), {}, supplemental_bpm, score, support);
+  } else if (policyPointer.object != nullptr) return reject(__LINE__);
+  // Executed selector checks, not a fabricated ranking over the merged
+  // manual-review pool. Provisional exclusions may be rescued by fallback.
+  for (const auto& item : selectorEvents) {
+    if (!finite_bpm(item.bpm) || item.bpm <= 0.0 ||
+        !std::isfinite(item.score)) return reject(__LINE__);
+    const std::size_t count = item.raw ? board.raw_candidates.size() : collapsed.size();
+    const auto& ids = item.raw ? raw_ids : cluster_ids;
+    if (item.source_index >= count) return reject(__LINE__);
+    const double actualBpm = item.raw
+        ? board.raw_candidates[item.source_index].bpm
+        : collapsed[item.source_index].bpm;
+    if (std::abs(actualBpm - item.bpm) >= 0.001) return reject(__LINE__);
+    // Source index is preserved from the ACTUAL executed selector vector:
+    // same-BPM alias rows no longer collapse onto the first matching raw ID.
+    const bool ranking = std::strcmp(item.reason, "raw_rank_scored") == 0 ||
+                         std::strcmp(item.reason, "harmonic_rank_scored") == 0 ||
+                         std::strcmp(item.reason, "low_rank_scored") == 0 ||
+                         std::strcmp(item.reason, "low_continuous_rank_scored") == 0 ||
+                         std::strcmp(item.reason, "general_baseline_rank_scored") == 0 ||
+                         std::strcmp(item.reason, "general_alt_rank_scored") == 0 ||
+                         std::strcmp(item.reason, "residual_high_rank_scored") == 0 ||
+                         std::strcmp(item.reason, "residual_harmonic_rank_scored") == 0 ||
+                         std::strcmp(item.reason, "harmonic_direct_rank_scored") == 0;
+    const bool terminal = std::strncmp(item.reason, "terminal_", 9) == 0;
+    const bool comparison = std::strstr(item.reason, "_compare_") != nullptr;
+    out.push(terminal ? "primary_terminal" :
+             ranking ? "primary_rank" :
+             comparison ? "primary_compare" : "candidate_filter",
+             terminal ? "selected" :
+                 item.included ? "included" : "excluded",
+             item.reason, ids[item.source_index], {}, item.bpm, item.score, 0.0);
+    // Only the two native tie-based comparator families carry four ordered
+    // tie fields. All fields are numeric and generated from executed C++.
+    const bool lowEpisodeExpected =
+        std::strcmp(item.reason, "low_rank_scored") == 0 ||
+        std::strcmp(item.reason, "low_compare_won") == 0 ||
+        std::strcmp(item.reason, "low_compare_lost") == 0;
+    if (item.has_low_pool_epoch != lowEpisodeExpected ||
+        (lowEpisodeExpected && (item.low_pool_epoch == 0 ||
+                                item.low_pool_epoch > 128)) ||
+        (!lowEpisodeExpected && item.low_pool_epoch != 0))
+      return reject(__LINE__);
+    if (lowEpisodeExpected)
+      out.lines.insert(out.lines.size() - 3,
+          ",\"low_pool_epoch\":" + std::to_string(item.low_pool_epoch));
+    const bool continuousTieExpected = comparison &&
+        std::strncmp(item.reason, "low_continuous_compare_",
+                     sizeof("low_continuous_compare_") - 1) == 0;
+    if (item.has_tie_metric_4 != continuousTieExpected ||
+        (!continuousTieExpected && item.tie_metric_4 != 0.0))
+      return reject(__LINE__);
+    const bool tieExpected = comparison &&
+        (std::strncmp(item.reason, "raw_compare_", 12) == 0 ||
+         std::strncmp(item.reason, "general_baseline_compare_", 25) == 0 ||
+         std::strncmp(item.reason, "residual_harmonic_compare_",
+                      sizeof("residual_harmonic_compare_") - 1) == 0 ||
+         std::strncmp(item.reason, "harmonic_direct_compare_",
+                      sizeof("harmonic_direct_compare_") - 1) == 0 ||
+         continuousTieExpected);
+    if (item.has_tie_metrics != tieExpected) return reject(__LINE__);
+    if (tieExpected) {
+      for (const double value : item.tie_metrics)
+        if (!std::isfinite(value)) return reject(__LINE__);
+      out.lines.insert(out.lines.size() - 3,
+          ",\"tie_0\":" + safe_num(item.tie_metrics[0]) +
+          ",\"tie_1\":" + safe_num(item.tie_metrics[1]) +
+          ",\"tie_2\":" + safe_num(item.tie_metrics[2]) +
+          ",\"tie_3\":" + safe_num(item.tie_metrics[3]));
+      if (continuousTieExpected) {
+        if (!std::isfinite(item.tie_metric_4)) return reject(__LINE__);
+        out.lines.insert(out.lines.size() - 3,
+            ",\"tie_4\":" + safe_num(item.tie_metric_4));
+      }
+    }
+  }
+  // Exact original raw-winning pointer to first-match collapsed object.
+  const mir_pipeline::MirCiSelectorEvent* rawBridge = nullptr;
+  const mir_pipeline::MirCiSelectorEvent* clusterBridge = nullptr;
+  std::size_t rawBridgePos = 0, clusterBridgePos = 0;
+  for (std::size_t j = 0; j < selectorEvents.size(); ++j) {
+    const auto& event = selectorEvents[j];
+    if (std::strcmp(event.reason, "raw_terminal_selected") == 0) {
+      if (rawBridge != nullptr) return reject(__LINE__);
+      rawBridge = &event;
+      rawBridgePos = j;
+    } else if (std::strcmp(event.reason, "raw_cluster_resolved") == 0) {
+      if (clusterBridge != nullptr) return reject(__LINE__);
+      clusterBridge = &event;
+      clusterBridgePos = j;
+    }
+  }
+  if ((rawBridge == nullptr) != (clusterBridge == nullptr))
+    return reject(__LINE__);
+  if (rawBridge != nullptr) {
+    if (!rawBridge->raw || clusterBridge->raw ||
+        !rawBridge->included || !clusterBridge->included ||
+        rawBridge->score != 0.0 || clusterBridge->score != 0.0 ||
+        rawBridgePos + 1 != clusterBridgePos ||
+        rawBridge->source_index >= board.raw_candidates.size() ||
+        clusterBridge->source_index >= collapsed.size() ||
+        std::abs(rawBridge->bpm - clusterBridge->bpm) >= 0.001)
+      return reject(__LINE__);
+    const auto& parents = raw_cluster_sources[clusterBridge->source_index];
+    if (std::find(parents.begin(), parents.end(), rawBridge->source_index) ==
+        parents.end()) return reject(__LINE__);
+    bool laneTerminalMatches = false;
+    for (std::size_t j = clusterBridgePos + 1; j < selectorEvents.size(); ++j)
+      if (std::strcmp(selectorEvents[j].reason, "terminal_lane_choice") == 0) {
+        if (laneTerminalMatches ||
+            selectorEvents[j].source_index != clusterBridge->source_index)
+          return reject(__LINE__);
+        laneTerminalMatches = true;
+      }
+    if (!laneTerminalMatches) return reject(__LINE__);
+  }
+  // Every collapsed candidate receives a purely observational disposition.
+  // A temporary filter veto may be reversed later: never label it terminal.
+  std::vector<uint8_t> primary_observation(collapsed.size(), 0);
+  std::size_t final_source_index = collapsed.size();
+  for (const auto& item : selectorEvents) {
+    if (item.raw || item.source_index >= collapsed.size()) continue;
+    if (std::strcmp(item.reason, "terminal_final_choice") == 0) {
+      if (final_source_index != collapsed.size()) return reject(__LINE__);
+      final_source_index = item.source_index;
+    } else if (std::strstr(item.reason, "_rank_scored") != nullptr) {
+      primary_observation[item.source_index] = 2;
+    } else if (primary_observation[item.source_index] < 1) {
+      primary_observation[item.source_index] = 1;
+    }
+  }
+  for (std::size_t i = 0; i < collapsed.size(); ++i) {
+    const char* reason = i == final_source_index
+        ? "selected_final_object"
+        : primary_observation[i] == 2 ? "ranked_not_final"
+        : primary_observation[i] == 1 ? "observed_not_ranked"
+        : "no_cluster_observation";
+    out.push("primary_disposition", "observed", reason, cluster_ids[i],
+             {}, collapsed[i].bpm, 0.0, 0.0);
+  }
+  // CI-only actual first EXCLUSION for each collapsed source object.
+  // This is intentionally not called a decisive veto: a later fallback,
+  // comparator or terminal selection can still admit the same source.
+  // The one-based selector-event index binds the emitted summary to the
+  // executed native event chronology (including raw-lane events).
+  for (std::size_t i = 0; i < collapsed.size(); ++i) {
+    const mir_pipeline::MirCiSelectorEvent* first = nullptr;
+    std::size_t first_position = 0;
+    for (std::size_t j = 0; j < selectorEvents.size(); ++j) {
+      const auto& event = selectorEvents[j];
+      const bool filter = std::strncmp(event.reason, "terminal_", 9) != 0 &&
+                          std::strstr(event.reason, "_rank_scored") == nullptr &&
+                          std::strstr(event.reason, "_compare_") == nullptr;
+      if (!event.raw && event.source_index == i && filter && !event.included) {
+        first = &event;
+        first_position = j + 1;
+        break;
+      }
+    }
+    out.push("primary_first_exclusion",
+             first != nullptr ? "excluded" : "observed",
+             first != nullptr ? first->reason : "no_native_exclusion_observed",
+             cluster_ids[i], {}, collapsed[i].bpm,
+             first != nullptr ? first->score : 0.0,
+             static_cast<double>(first_position));
+  }
+  // Per-cluster reconciliation of native BRANCH-LOCAL decisive gates with
+  // the final selected source. Residual rescue can still select a vetoed
+  // branch source; this is not global candidate eligibility.
+  for (std::size_t i = 0; i < collapsed.size(); ++i) {
+    const mir_pipeline::MirCiSelectorEvent* firstVeto = nullptr;
+    std::size_t vetoPosition = 0;
+    for (std::size_t j = 0; j < selectorEvents.size(); ++j) {
+      const auto& event = selectorEvents[j];
+      if (event.raw || event.source_index != i || event.included) continue;
+      if (std::strcmp(event.reason, "harmonic_rail_decisive_veto") != 0 &&
+          std::strcmp(event.reason, "general_rail_decisive_veto") != 0)
+        continue;
+      if (firstVeto != nullptr) return reject(__LINE__);
+      firstVeto = &event;
+      vetoPosition = j + 1;
+    }
+    const bool finallySelected = i == final_source_index;
+    out.push("primary_veto_resolution",
+             finallySelected ? "selected" :
+                 firstVeto != nullptr ? "excluded" : "observed",
+             firstVeto != nullptr ? firstVeto->reason :
+                 finallySelected ? "selected_without_native_decisive_veto" :
+                                   "no_native_decisive_veto_observed",
+             cluster_ids[i], {}, collapsed[i].bpm,
+             firstVeto != nullptr ? firstVeto->score : 0.0,
+             static_cast<double>(vetoPosition));
+  }
+  // Complete event-indexed native veto ledger across all executed branches.
+  // Vetoes are BRANCH-LOCAL; a later rescue can still select this source.
+  std::size_t vetoLedgerCount = 0;
+  for (std::size_t j = 0; j < selectorEvents.size(); ++j) {
+    const auto& event = selectorEvents[j];
+    if (event.included) continue;
+    const bool veto =
+        std::strcmp(event.reason, "raw_alias_decisive_veto") == 0 ||
+        std::strcmp(event.reason, "raw_support_decisive_veto") == 0 ||
+        std::strcmp(event.reason, "low_upper_branch_veto") == 0 ||
+        std::strcmp(event.reason, "low_continuous_branch_veto") == 0 ||
+        std::strcmp(event.reason, "harmonic_rail_decisive_veto") == 0 ||
+        std::strcmp(event.reason, "general_rail_decisive_veto") == 0;
+    if (!veto) continue;
+    const auto& ids = event.raw ? raw_ids : cluster_ids;
+    if (event.source_index >= ids.size()) return reject(__LINE__);
+    out.push("primary_veto_ledger", "excluded", event.reason,
+             ids[event.source_index], {}, event.bpm, event.score,
+             static_cast<double>(j + 1));
+    ++vetoLedgerCount;
+  }
+  if (!std::isfinite(primary.selected_local_exact_score) ||
+      !std::isfinite(primary.support) ||
+      !std::isfinite(policy.candidate_local_exact_score) ||
+      !std::isfinite(policy.candidate_support))
+    return reject(__LINE__);
+  // Exact executed final-selector event, not a set of numerically equal BPMs.
+  std::vector<std::string> primary_parent;
+  for (const auto& item : selectorEvents) {
+    if (std::strcmp(item.reason, "terminal_final_choice") == 0) {
+      if (item.raw || item.source_index >= cluster_ids.size() ||
+          !std::isfinite(item.bpm) || item.bpm <= 0.0)
+        return reject(__LINE__);
+      if (!primary_parent.empty()) return reject(__LINE__);
+      // Native terminal event identifies the selected CLUSTER object.
+      // The production local-exact step may subsequently refine its BPM
+      // by <=0.80 without changing that source identity.
+      const double clusterBpm = collapsed[item.source_index].bpm;
+      const bool sameCluster = std::abs(clusterBpm - item.bpm) < 0.001 &&
+          std::abs(primary.selected_cluster_bpm - clusterBpm) < 0.001;
+      const bool unchanged = std::abs(primary.selected_bpm - clusterBpm) < 0.001;
+      const bool exactRefinement =
+          std::isfinite(primary.selected_local_exact_bpm) &&
+          std::isfinite(primary.selected_local_exact_delta) &&
+          std::abs(primary.selected_local_exact_delta) <= 0.80 &&
+          std::abs(primary.selected_local_exact_bpm - clusterBpm -
+                   primary.selected_local_exact_delta) < 0.001 &&
+          std::abs(primary.selected_bpm - primary.selected_local_exact_bpm) < 0.001;
+      if (!sameCluster || !(unchanged || exactRefinement))
+        return reject(__LINE__);
+      primary_parent.push_back(cluster_ids[item.source_index]);
+    }
+  }
+  if (primary.selected_bpm > 0.0 && primary_parent.size() != 1)
+    return reject(__LINE__);
+  out.push("primary_select",
+           primary.review_hold ? "review_hold" :
+           primary.auto_candidate ? "selected" : "no_candidate",
+           primary.review_hold ? "primary_review_hold" :
+           primary.auto_candidate ? "primary_auto" : "primary_no_candidate",
+           "", primary_parent, primary.selected_bpm,
+           primary.selected_local_exact_score, primary.support);
+  // The terminal's cluster BPM and the post-selector locally measured BPM
+  // are separate, source-linked native values; never infer one from oracle.
+  out.lines.insert(out.lines.size() - 3,
+      ",\"cluster_bpm\":" + safe_num(primary.selected_cluster_bpm) +
+      ",\"local_exact_bpm\":" + safe_num(primary.selected_local_exact_bpm) +
+      ",\"local_exact_delta\":" + safe_num(primary.selected_local_exact_delta));
+  // Native Primary hold causes: actual flags and prioritized original reason.
+  // This is CI-only observation, not a Policy or manual-review inference.
+  constexpr const char* allowed_primary_reasons[] = {
+      "disabled", "empty_mir_primary_candidate_board",
+      "selector_returned_no_candidate", "material_risk_review_hold",
+      "high_family_conflict_review_hold", "soft_center_conflict_review_hold",
+      "sparse_or_acapella_review_hold", "measured_candidate_primary",
+      "invalid_primary_candidate"};
+  bool primary_reason_known = false;
+  for (const auto* known : allowed_primary_reasons)
+    primary_reason_known |= std::strcmp(primary.reason, known) == 0;
+  if (!primary_reason_known) return reject(__LINE__);
+  out.push("primary_hold",
+           primary.review_hold ? "review_hold" :
+           primary.auto_candidate ? "selected" : "no_candidate",
+           primary.reason, "", primary_parent, primary.selected_bpm,
+           primary.support, primary.winner_support);
+  out.lines.insert(out.lines.size() - 3,
+      ",\"enabled\":" + std::to_string(static_cast<int>(primary.enabled)) +
+      ",\"candidate\":" + std::to_string(static_cast<int>(primary.candidate)) +
+      ",\"auto_candidate\":" + std::to_string(static_cast<int>(primary.auto_candidate)) +
+      ",\"review_hold\":" + std::to_string(static_cast<int>(primary.review_hold)) +
+      ",\"route_valid\":" + std::to_string(static_cast<int>(primary.route_valid)) +
+      ",\"sparse_hold\":" + std::to_string(static_cast<int>(primary.sparse_acapella_review_hold)) +
+      ",\"material_hold\":" + std::to_string(static_cast<int>(primary.material_risk_review_hold)) +
+      ",\"high_family_hold\":" + std::to_string(static_cast<int>(primary.high_family_conflict_review_hold)) +
+      ",\"soft_center_hold\":" + std::to_string(static_cast<int>(primary.soft_center_conflict_review_hold)));
+  // Actual first-return chronology from the original ordered Policy helper.
+  // This records stage entry/exit, not hidden nested predicate eligibility.
+  const auto policyStages = mir_pipeline::mir_ci_policy_stage_path();
+  if (!mir_pipeline::mir_ci_policy_stage_path_complete() ||
+      policyStages.empty() || policyStages.size() > 4) return reject(__LINE__);
+  constexpr const char* kPolicyStageTokens[] = {
+      "qualification_terminal", "qualification_ready",
+      "current_release_terminal", "current_release_continue",
+      "hold_resolution_terminal", "hold_resolution_continue",
+      "default_resolution_terminal"};
+  for (const char* token : policyStages) {
+    bool allowed = false;
+    if (!token) return reject(__LINE__);
+    for (const char* known : kPolicyStageTokens)
+      allowed |= std::strcmp(token, known) == 0;
+    if (!allowed) return reject(__LINE__);
+    out.push("policy_stage_path", "observed", token, "", {},
+             0.0, 0.0, 0.0);
+  }
+  // Exact nested first-return branch, distinct from stage chronology.
+  const char* policyBranch = mir_pipeline::mir_ci_policy_branch_token();
+  if (policyBranch == nullptr) return reject(__LINE__);
+  out.push("policy_branch", "observed", policyBranch, "", {}, 0.0, 0.0, 0.0);
+  // BPM proximity to a FullBoard row is not native chosen-object identity.
+  // Report matching BPM multiplicity as a falsifiable *comparison*, not an
+  // assertion that Policy selected that candidate pointer.
+  std::vector<std::string> exact_policy_matches;
+  if (policy.output_bpm > 0.0) {
+    for (std::size_t i = 0; i < fullboard.size(); ++i) {
+      if (std::abs(fullboard[i].bpm - policy.output_bpm) <= 0.001)
+        exact_policy_matches.push_back(policy_ids[i]);
+    }
+  }
+  const char* policySource = policy.output_bpm <= 0.0 ? "policy_no_output" :
+      exact_policy_matches.size() == 1 ? "policy_one_same_bpm" :
+      exact_policy_matches.empty() ? "policy_no_fullboard_match" :
+                                     "policy_multiple_same_bpm";
+  if (exact_policy_matches.size() > 128) return reject(__LINE__);
+  out.push("policy_resolution", "observed", policySource, "",
+           exact_policy_matches.size() == 1 ? exact_policy_matches :
+                                             std::vector<std::string>{},
+           policy.output_bpm,
+           static_cast<double>(policy.writer_override_candidate),
+           static_cast<double>(policy.review_hold_promotion_candidate));
+  // Capture ACTUAL selected candidate reference when the native Policy
+  // selector passed a FullBoard object, retaining explicit uncertainty for
+  // supplemental TopK/partial-bar/micro-upgrade output changes.
+  std::vector<std::string> selected_policy_pointer;
+  const bool actualFullBoardObject =
+      policyPointer.observed && policyPointer.in_fullboard &&
+      policyPointer.index < fullboard.size() &&
+      std::isfinite(policyPointer.bpm) && policy.output_bpm > 0.0 &&
+      std::abs(policyPointer.bpm - policy.output_bpm) <= 0.001 &&
+      std::abs(fullboard[policyPointer.index].bpm - policyPointer.bpm) <= 0.001;
+  const bool actualSupplementalObject =
+      !supplemental_id.empty() && !actualFullBoardObject &&
+      policy.output_bpm > 0.0 &&
+      std::abs(policy.output_bpm - supplemental_bpm) <= 0.001;
+  if (actualFullBoardObject)
+    selected_policy_pointer.push_back(policy_ids[policyPointer.index]);
+  else if (actualSupplementalObject)
+    selected_policy_pointer = supplemental_id;
+  const char* pointerReason = policy.output_bpm <= 0.0
+                                 ? "pointer_no_output"
+                                 : actualFullBoardObject
+                                       ? "pointer_native_fullboard_consistent"
+                                       : actualSupplementalObject
+                                             ? "pointer_native_supplemental_consistent"
+                                       : policyPointer.observed
+                                             ? "pointer_supplemental_or_changed"
+                                             : "pointer_not_observed";
+  out.push("policy_pointer", "observed", pointerReason, "",
+           selected_policy_pointer, policy.output_bpm,
+           static_cast<double>(policyPointer.observed),
+           static_cast<double>(policyPointer.in_fullboard));
+  // Final native Policy reason/action AFTER measured invariant and partial-bar
+  // postprocessing. Only fixed reason tokens and numeric flags are emitted.
+  constexpr const char* kPolicyActions[] = {
+      "none", "keep_current", "keep_review_hold", "writer_override",
+      "review_hold_promotion", "family_conflict_review_hold",
+      "broad_route_conflict_review_hold", "invariant_review_hold"};
+  int policyActionCode = -1;
+  if (policy.action == nullptr || policy.reason == nullptr) return reject(__LINE__);
+  for (std::size_t i = 0; i < sizeof(kPolicyActions) / sizeof(kPolicyActions[0]); ++i)
+    if (std::strcmp(policy.action, kPolicyActions[i]) == 0)
+      policyActionCode = static_cast<int>(i);
+  const std::size_t policyReasonLength = std::strlen(policy.reason);
+  if (policyActionCode < 0 || policyReasonLength == 0 ||
+      policyReasonLength > 96) return reject(__LINE__);
+  for (std::size_t i = 0; i < policyReasonLength; ++i) {
+    const char c = policy.reason[i];
+    if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') ||
+          c == '_')) return reject(__LINE__);
+  }
+  out.push("policy_terminal",
+           policy.output_would_write ? "selected" :
+           policy.output_would_review_hold ? "review_hold" : "rejected",
+           policy.reason, "", selected_policy_pointer, policy.output_bpm,
+           static_cast<double>(policy.writer_override_candidate),
+           static_cast<double>(policy.review_hold_promotion_candidate));
+  out.lines.insert(out.lines.size() - 3,
+      ",\"action_code\":" + std::to_string(policyActionCode));
+  out.push("policy_change",
+           policy.output_would_write ? "selected" :
+           policy.output_would_review_hold ? "review_hold" : "rejected",
+           policy.writer_override_candidate ? "writer_override" :
+           policy.review_hold_promotion_candidate ? "hold_release" :
+           policy.output_would_write ? "keep_primary" : "no_policy_write",
+           "", selected_policy_pointer, policy.output_bpm,
+           policy.candidate_local_exact_score, policy.candidate_support);
+  // This is the ACTUAL applied analyzer writer branch, not the Policy
+  // helper's provisional output. Primary and selected Policy pointers are
+  // linked only when their exact native object and final BPM agree.
+  const bool applied_primary =
+      std::strcmp(applied_writer_reason, "mir_primary") == 0;
+  const bool applied_policy =
+      std::strcmp(applied_writer_reason, "mir_writer_override") == 0 ||
+      std::strcmp(applied_writer_reason, "mir_review_hold_release") == 0 ||
+      std::strcmp(applied_writer_reason, "mir_local_exact_upgrade") == 0;
+  std::vector<std::string> applied_writer_source;
+  if (!withheld && final_bpm > 0.0) {
+    if (applied_primary && primary_parent.size() == 1 &&
+        std::abs(primary.selected_bpm - final_bpm) <= 0.001)
+      applied_writer_source = primary_parent;
+    else if (applied_policy && selected_policy_pointer.size() == 1 &&
+             std::abs(policy.output_bpm - final_bpm) <= 0.001)
+      applied_writer_source = selected_policy_pointer;
+  }
+  out.push("writer_resolution",
+           withheld || final_bpm <= 0.0 ? "review_hold" : "selected",
+           applied_writer_reason, "", applied_writer_source, final_bpm,
+           static_cast<double>(policy_runtime_enabled),
+           static_cast<double>(policy.output_would_write));
+  std::size_t manual_source_count = 0;
+  if (!record_manual_export(out, fullboard, policy_ids, primary,
+                            primary_parent, risk, partial, topK, manual,
+                            manual_requested, manual_source_count))
+    return reject(__LINE__);
+  // Exact cross-stage OBSERVATION, not global eligibility or a writer change.
+  const std::size_t policy_source_index = actualFullBoardObject
+      ? fullboard_cluster_index[policyPointer.index] : collapsed.size();
+  for (std::size_t i = 0; i < collapsed.size(); ++i) {
+    std::size_t raw_vetos = 0, cluster_vetos = 0, first_veto_index = 0;
+    std::size_t raw_selector_events = 0, cluster_selector_events = 0;
+    std::size_t first_selector_index = 0, last_selector_index = 0;
+    std::size_t last_veto_index = 0;
+    for (std::size_t j = 0; j < selectorEvents.size(); ++j) {
+      const auto& event = selectorEvents[j];
+      const bool source_raw = event.raw &&
+          std::find(raw_cluster_sources[i].begin(), raw_cluster_sources[i].end(),
+                    event.source_index) != raw_cluster_sources[i].end();
+      const bool source_cluster = !event.raw && event.source_index == i;
+      if (!source_raw && !source_cluster) continue;
+      if (source_raw) ++raw_selector_events;
+      if (source_cluster) ++cluster_selector_events;
+      if (!first_selector_index) first_selector_index = j + 1;
+      last_selector_index = j + 1;
+      if (event.included) continue;
+      const bool raw_veto =
+          std::strcmp(event.reason, "raw_alias_decisive_veto") == 0 ||
+          std::strcmp(event.reason, "raw_support_decisive_veto") == 0;
+      const bool cluster_veto =
+          std::strcmp(event.reason, "low_upper_branch_veto") == 0 ||
+          std::strcmp(event.reason, "low_continuous_branch_veto") == 0 ||
+          std::strcmp(event.reason, "harmonic_rail_decisive_veto") == 0 ||
+          std::strcmp(event.reason, "general_rail_decisive_veto") == 0;
+      const bool matched_raw = source_raw && raw_veto;
+      const bool matched_cluster = source_cluster && cluster_veto;
+      if (!matched_raw && !matched_cluster) continue;
+      if (matched_raw) ++raw_vetos;
+      if (matched_cluster) ++cluster_vetos;
+      if (!first_veto_index) first_veto_index = j + 1;
+      last_veto_index = j + 1;
+    }
+    if (raw_vetos + cluster_vetos > 4096 || first_veto_index > 4096 ||
+        raw_selector_events + cluster_selector_events > 4096 ||
+        last_selector_index > 4096 || last_veto_index > 4096)
+      return reject(__LINE__);
+    unsigned flags = 0;
+    if (i == final_source_index) flags |= 1;
+    if (railEvents[i].included) flags |= 2;
+    if (fullboard_source_seen[i]) flags |= 4;
+    if (actualFullBoardObject && i == policy_source_index) flags |= 8;
+    if (applied_primary && applied_writer_source.size() == 1 &&
+        i == final_source_index) flags |= 16;
+    if (applied_policy && actualFullBoardObject &&
+        applied_writer_source.size() == 1 &&
+        i == policy_source_index) flags |= 32;
+    if (primary_observation[i] == 2) flags |= 64;
+    if (primary_observation[i] >= 1) flags |= 128;
+    if (cluster_vetos) flags |= 256;
+    if (raw_vetos) flags |= 512;
+    out.push("candidate_fate", "observed",
+             "cross_stage_observation_not_global_eligibility",
+             cluster_ids[i], {}, collapsed[i].bpm,
+             static_cast<double>(flags),
+             static_cast<double>(raw_vetos + cluster_vetos));
+    out.lines.insert(out.lines.size() - 3,
+        ",\"raw_veto_count\":" + std::to_string(raw_vetos) +
+        ",\"cluster_veto_count\":" + std::to_string(cluster_vetos) +
+        ",\"first_veto_event_index\":" + std::to_string(first_veto_index) +
+        ",\"last_veto_event_index\":" + std::to_string(last_veto_index) +
+        ",\"raw_selector_event_count\":" + std::to_string(raw_selector_events) +
+        ",\"cluster_selector_event_count\":" + std::to_string(cluster_selector_events) +
+        ",\"first_selector_event_index\":" + std::to_string(first_selector_index) +
+        ",\"last_selector_event_index\":" + std::to_string(last_selector_index));
+  }
+  out.push("final_output",
+           withheld || final_bpm <= 0.0 ? "review_hold" : "selected",
+           withheld || final_bpm <= 0.0 ? "final_abstained" : "final_numeric",
+           "", {}, final_bpm, 0.0, 0.0);
+  // Existing MIR writer invariant is the executable same-run witness.
+  // The identity of supplemental TopK/partial-bar candidates is NOT yet
+  // serialized; explicitly distinguish this from an indexed witness.
+  std::vector<std::string> witness_ids;
+  if (!withheld && final_bpm > 0.0 && same_run_measured_witness) {
+    for (std::size_t i = 0; i < fullboard.size(); ++i) {
+      if (std::abs(fullboard[i].bpm - final_bpm) <= 0.001)
+        witness_ids.push_back(policy_ids[i]);
+    }
+    for (std::size_t i = 0; i < collapsed.size(); ++i) {
+      if (std::abs(collapsed[i].bpm - final_bpm) <= 0.001)
+        witness_ids.push_back(cluster_ids[i]);
+    }
+    // A selected Policy supplemental source is independently observed by
+    // exact native object address. An equal-BPM value alone is insufficient.
+    if (actualSupplementalObject &&
+        std::abs(supplemental_bpm - final_bpm) <= 0.001 &&
+        supplemental_id.size() == 1)
+      witness_ids.push_back(supplemental_id.front());
+    if (witness_ids.size() > 128) return reject(__LINE__);
+  }
+  out.push("measured_witness",
+           same_run_measured_witness && !withheld && final_bpm > 0.0
+               ? "included" : "rejected",
+           withheld || final_bpm <= 0.0 ? "not_accepted" :
+               !witness_ids.empty() ? "indexed_native_witness" :
+                                      "supplemental_witness_unindexed",
+           "", witness_ids, final_bpm, 0.0, 0.0);
+  out.push_resource(resource);
+  out.push("write_guard", "write_blocked", "ci_dry_run",
+           "", {}, 0.0, 0.0, 0.0);
+  // Native input cardinalities bound to the JSONL: a truncated but
+  // internally consistent candidate trace must fail independent auditing.
+  out.push("source_inventory", "observed", "native_count_conservation",
+           "", {}, 0.0, 0.0, 0.0);
+  out.lines.insert(out.lines.size() - 3,
+      ",\"raw_count\":" + std::to_string(board.raw_candidates.size()) +
+      ",\"collapsed_count\":" + std::to_string(collapsed.size()) +
+      ",\"policy_board_count\":" + std::to_string(fullboard.size()) +
+      ",\"selector_event_count\":" + std::to_string(selectorEvents.size()) +
+      ",\"decode_window_count\":" + std::to_string(windows.size()) +
+      ",\"supplemental_count\":" + std::to_string(supplemental_id.size()) +
+      ",\"mir_segments_evaluated\":" + std::to_string(supply.segments_evaluated) +
+      ",\"mir_segment_results\":" + std::to_string(supply.segment_results) +
+      ",\"mir_topk_rows_seen\":" + std::to_string(supply.topk_rows_seen) +
+      ",\"mir_topk_add_calls\":" + std::to_string(supply.topk_add_calls) +
+      ",\"mir_topk_new_raw\":" + std::to_string(supply.topk_new_raw) +
+      ",\"mir_family_rank_rows\":" + std::to_string(supply.family_rank_rows) +
+      ",\"mir_alias_add_calls\":" + std::to_string(supply.alias_add_calls) +
+      ",\"mir_alias_new_raw\":" + std::to_string(supply.alias_new_raw) +
+      ",\"mir_continuous_add_calls\":" + std::to_string(supply.continuous_add_calls) +
+      ",\"mir_continuous_new_raw\":" + std::to_string(supply.continuous_new_raw));
+  if (out.sequence != windows.size() + supply.segments.size() +
+                      board.raw_candidates.size() + 5 * collapsed.size() +
+                      fullboard.size() + selectorEvents.size() +
+                      supplemental_id.size() + 2 * collapsed.size() + vetoLedgerCount + 13 +
+                       manual_source_count + manual.size() + policyStages.size() + 1 ||
+      out.lines.size() > 2 * 1024 * 1024) return reject(__LINE__);
+  const std::wstring output = fixture + L".pipeline.jsonl";
+  HANDLE h = CreateFileW(output.c_str(), GENERIC_WRITE, 0, nullptr,
+                         CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
+  if (h == INVALID_HANDLE_VALUE) return reject(__LINE__);
+  DWORD wrote = 0;
+  const BOOL ok = WriteFile(h, out.lines.data(),
+                            static_cast<DWORD>(out.lines.size()), &wrote, nullptr);
+  CloseHandle(h);
+  if (!ok || wrote != out.lines.size()) {
+    DeleteFileW(output.c_str());
+    return reject(__LINE__);
+  }
+  return true;
+}
+}  // namespace smart_tempo::ci_pipeline_trace
