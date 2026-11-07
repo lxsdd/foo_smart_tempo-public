@@ -178,6 +178,44 @@ class NativeRawFateTests(unittest.TestCase):
         with self.assertRaises(RawFateError):
             reconcile_native_raw(rows)
 
+    def test_original_event_stream_chronology_not_filtered_only(self):
+        # Each sequence keeps the same selector events in their filtered order.
+        # The old automaton would accept all three as a complete RAW pass.
+        for scenario in range(6):
+            original = sample(scenario)
+            with self.subTest(scenario=scenario):
+                good = copy.deepcopy(original)
+                # Non-RAW diagnostics may legitimately interleave events.
+                good.insert(4, row("diagnostic", "c0", "counter", "observed"))
+                self.assertEqual(reconcile_native_raw(good)[
+                    "native_raw_object_bridge_verified"], 1)
+
+                # A RAW selector may not run before the last input was created.
+                bad = copy.deepcopy(original)
+                later_input = bad.pop(1)
+                bad.insert(4, later_input)
+                with self.assertRaisesRegex(RawFateError, "inventory"):
+                    reconcile_native_raw(bad)
+
+                # A RAW terminal pair cannot precede the last comparator.
+                bad = copy.deepcopy(original)
+                start = next(i for i, event in enumerate(bad)
+                             if event["reason_code"] == "raw_terminal_selected")
+                bridge = bad[start:start + 2]
+                del bad[start:start + 2]
+                bad[4:4] = bridge
+                with self.assertRaisesRegex(RawFateError, "bridge"):
+                    reconcile_native_raw(bad)
+
+                # The resolved native object must exist before its bridge.
+                bad = copy.deepcopy(original)
+                created_cluster = bad.pop(2)
+                pos = next(i for i, event in enumerate(bad)
+                           if event["reason_code"] == "raw_cluster_resolved")
+                bad.insert(pos + 1, created_cluster)
+                with self.assertRaisesRegex(RawFateError, "parent"):
+                    reconcile_native_raw(bad)
+
     def test_source_integration_and_privacy_guards(self):
         src=(Path(__file__).resolve().parents[1] / "tools" /
              "audit_smart_tempo_ci_pipeline_trace.py").read_text(encoding="utf-8")

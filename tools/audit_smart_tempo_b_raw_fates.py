@@ -18,10 +18,14 @@ def reconcile_native_raw(rows: list[dict]) -> dict[str, int]:
     bpm = {row["candidate_id"]: row["metrics"]["bpm"] for row in raw}
     if len(ids) != len(set(ids)):
         raise RawFateError("duplicate raw source IDs")
-    native = [row for row in rows if row["stage"] in (
+    # Keep positions in the ORIGINAL event stream, not just the filtered
+    # RAW-only list: a valid-looking selector can otherwise be reordered
+    # across candidate creation and the terminal pointer bridge.
+    native_positions = [i for i, row in enumerate(rows) if row["stage"] in (
         "candidate_filter", "primary_rank", "primary_compare") and
         row["reason_code"].startswith("raw_") and
         row["reason_code"] not in ("raw_terminal_selected", "raw_cluster_resolved")]
+    native = [rows[i] for i in native_positions]
     result = {
         "native_raw_complete_invocations": 0,
         "native_raw_first_decisive_alias": 0,
@@ -40,6 +44,10 @@ def reconcile_native_raw(rows: list[dict]) -> dict[str, int]:
         return result
     if not ids:
         raise RawFateError("raw native events without input candidates")
+    creation_positions = [i for i, row in enumerate(rows)
+                          if row["stage"] == "candidate_create"]
+    if creation_positions and native_positions[0] <= creation_positions[-1]:
+        raise RawFateError("raw native selector ran before input inventory completed")
     cursor = 0
 
     def take(cid: str, reason: str, included: bool, stage="candidate_filter"):
@@ -134,6 +142,8 @@ def reconcile_native_raw(rows: list[dict]) -> dict[str, int]:
             "raw_terminal_selected", "raw_cluster_resolved"]:
         raise RawFateError("native raw-to-cluster pointer bridge missing or duplicated")
     (raw_pos, raw_winner), (cluster_pos, resolved) = bridge
+    if native_positions[-1] >= raw_pos:
+        raise RawFateError("raw pointer bridge precedes final native comparator")
     if (cluster_pos != raw_pos + 1 or
             raw_winner["stage"] != "candidate_filter" or
             resolved["stage"] != "candidate_filter" or
@@ -144,12 +154,14 @@ def reconcile_native_raw(rows: list[dict]) -> dict[str, int]:
             any(r["metrics"][key] != 0 for _, r in bridge
                 for key in ("score", "support"))):
         raise RawFateError("native raw winning pointer or bridge order forged")
-    collapsed = [row for row in rows if row["stage"] == "candidate_transform"]
-    matching = [row for row in collapsed if
+    collapsed = [(i, row) for i, row in enumerate(rows)
+                 if row["stage"] == "candidate_transform"]
+    matching = [(i, row) for i, row in collapsed if
                 abs(row["metrics"]["bpm"] - bpm[last_winner]) < .001]
-    if (not matching or resolved["candidate_id"] != matching[0]["candidate_id"]
-            or resolved["metrics"]["bpm"] != matching[0]["metrics"]["bpm"]
-            or last_winner not in matching[0].get("parent_candidate_ids", [])):
+    if (not matching or matching[0][0] >= cluster_pos or
+            resolved["candidate_id"] != matching[0][1]["candidate_id"]
+            or resolved["metrics"]["bpm"] != matching[0][1]["metrics"]["bpm"]
+            or last_winner not in matching[0][1].get("parent_candidate_ids", [])):
         raise RawFateError("raw winner not a parent of native resolved cluster")
     terminal = [(i, row) for i, row in enumerate(rows)
                 if row["stage"] == "primary_terminal" and
