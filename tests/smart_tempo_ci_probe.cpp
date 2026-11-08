@@ -879,6 +879,60 @@ bool native_raw_audio_evidence_gate_contract() {
     return veto && validRank;
 }
 
+
+ // A finite raw measurement can still overflow a weighted ranking score.
+ // This test uses the original native selector with two numeric audio
+ // witnesses: the overflowed rank must not replace the healthy one.
+ bool native_raw_nonfinite_rank_veto_contract() {
+     using namespace smart_tempo;
+     using namespace smart_tempo::mir_pipeline;
+     MirCandidateBoard board{};
+     board.segment_count = 10;
+     MirRawCandidate healthy{};
+     healthy.bpm = 129.0;
+     healthy.alias_bit = static_cast<uint16_t>(MirAlias::direct);
+     healthy.alias_class = "direct";
+     healthy.rows = 1;
+     healthy.score_sum = 2.0;
+     healthy.best_combined_score = .40;
+     healthy.synthetic_support = .60;
+     board.raw_candidates.push_back(healthy);
+     auto overflow = healthy;
+     overflow.bpm = 130.0;
+     overflow.best_combined_score = std::numeric_limits<double>::max();
+     board.raw_candidates.push_back(overflow);
+     MirRoutingContext route{};
+     route.source_genres = "Acapella 220 BPM";
+     route.matched_token = "Acapella 220 BPM";
+     route.route_matched = true;
+     const HodgkinsonTatumProbeResult mir{};
+     const HodgkinsonMaterialRiskEvidence risk{};
+     const auto result = compute_mir_primary_selection(
+         board, mir, risk, &route, 111.0, 157.0, true);
+     if (!result.candidate || !mir_ci_primary_selector_trace_complete())
+         return false;
+     bool rejectedOverflow = false;
+     bool finiteWinner = false;
+     for (const auto& event : mir_ci_primary_selector_events()) {
+         if (std::strcmp(event.reason, "raw_rank_nonfinite_veto") == 0) {
+             if (rejectedOverflow || !event.raw || event.source_index != 1 ||
+                 event.included || event.score != 0.0)
+                 return false;
+             rejectedOverflow = true;
+         }
+         if (std::strcmp(event.reason, "raw_terminal_selected") == 0) {
+             if (finiteWinner || !event.raw || event.source_index != 0 ||
+                 !event.included)
+                 return false;
+             finiteWinner = true;
+         }
+         if (std::strcmp(event.reason, "raw_rank_scored") == 0 &&
+             (!std::isfinite(event.score) || event.source_index != 0))
+             return false;
+     }
+     return rejectedOverflow && finiteWinner;
+ }
+
 // Ingestion is a production entry point: a malformed audio witness must
 // neither create an eligible RAW object nor poison an existing valid one.
 // All data below are disposable numeric synthetic values, not owner BPMs.
@@ -1148,6 +1202,7 @@ bool native_raw_accumulator_overflow_contract() {
 
 bool write_native_raw_fallback_marker() {
     if (!native_raw_alias_lifetime_and_empty_board_contract() ||
+        !native_raw_nonfinite_rank_veto_contract() ||
         !native_raw_accumulator_overflow_contract() ||
         !native_raw_ingest_sanitization_contract() ||
         !native_raw_audio_evidence_gate_contract() ||
