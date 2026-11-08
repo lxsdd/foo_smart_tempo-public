@@ -1259,6 +1259,17 @@ evaluate_mir_high_pulse_interval_conflict_shadow(
   for (const auto* candidate : pool) {
     const double score = score_mir_raw_conservative(
         *candidate, board.segment_count, lane, routeMin, routeMax, routeCenter);
+    // All inputs can be finite even when their weighted sum overflows.
+    // Keep a healthy decoded-audio candidate eligible; never rank NaN/Inf.
+    if (!std::isfinite(score)) {
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+      ci_primary_event(static_cast<std::size_t>(
+                           candidate - board.raw_candidates.data()),
+                       candidate->bpm, 0.0, true, false,
+                       "raw_rank_nonfinite_veto");
+#endif
+      continue;
+    }
 #if defined(SMART_TEMPO_CI_ORACLE_PROBE)
     ci_primary_event(static_cast<std::size_t>(candidate - board.raw_candidates.data()),
                      candidate->bpm, score, true, true, "raw_rank_scored");
