@@ -814,6 +814,19 @@ bool native_raw_audio_evidence_gate_contract() {
     };
     const auto measured = makeMeasured();
     if (!checkSingle(measured, true)) return false;
+    // Inclusive upper bound is valid; finite fractions above one are not.
+    auto boundedSupport = measured;
+    boundedSupport.synthetic_support = 1.0;
+    if (!checkSingle(boundedSupport, true)) return false;
+    auto boundedWinner = measured;
+    boundedWinner.synthetic_winner_support = 1.0;
+    if (!checkSingle(boundedWinner, true)) return false;
+    auto excessiveSupport = measured;
+    excessiveSupport.synthetic_support = 1.01;
+    if (!checkSingle(excessiveSupport, false)) return false;
+    auto excessiveWinner = measured;
+    excessiveWinner.synthetic_winner_support = 1.01;
+    if (!checkSingle(excessiveWinner, false)) return false;
     auto pulse = measured;
     pulse.rows = 0;
     pulse.score_sum = 0.0;

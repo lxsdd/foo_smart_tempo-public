@@ -201,6 +201,12 @@ constexpr std::array<MirAliasOption, 11> kMirAliases{{
                    })) {
     return false;
   }
+  // Support fractions are measured proportions, not unbounded scores.
+  // Reject finite but out-of-domain witnesses before alias/support fallback.
+  if (raw.synthetic_support > 1.0 ||
+      raw.synthetic_winner_support > 1.0) {
+    return false;
+  }
   return (raw.rows > 0 &&
           (raw.score_sum > 0.0 || raw.best_combined_score > 0.0 ||
            raw.quant_sum > 0.0 || raw.meter_sum > 0.0)) ||
