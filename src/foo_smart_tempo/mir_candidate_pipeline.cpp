@@ -2322,6 +2322,20 @@ compute_mir_primary_selection(
   g_ci_primary_pool.clear();
   g_ci_primary_trace_complete = true;
 #endif
+#if defined(SMART_TEMPO_CI_ORACLE_PROBE)
+  // Observe the actual RAW board at selector entry, before alias/support
+  // fallback. This is ephemeral CI evidence, never a production metric.
+  for (std::size_t sourceIndex = 0; sourceIndex < board.raw_candidates.size();
+       ++sourceIndex) {
+    const auto& raw = board.raw_candidates[sourceIndex];
+    ci_primary_event(sourceIndex, raw.bpm, raw.synthetic_support, true,
+                     mir_raw_audio_evidence_eligible(raw),
+                     "raw_ingest_measured_witness",
+                     {raw.synthetic_winner_support, raw.score_sum,
+                      raw.best_combined_score,
+                      static_cast<double>(raw.rows)}, true);
+  }
+#endif
   smart_tempo::MirPrimarySelection shadow;
   shadow.enabled = enabled;
   shadow.route_min_bpm = routeMin;
