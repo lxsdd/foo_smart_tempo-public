@@ -804,6 +804,26 @@ bool native_raw_audio_evidence_gate_contract() {
         board.segment_count = 10;
         board.raw_candidates.push_back(raw);
         const auto result = run(board);
+        // Native original-host ingress witness, including rejected measured
+        // objects; compare the exact source index and unmodified metrics.
+        std::size_t ingressCount = 0;
+        for (const auto& event : mir_ci_primary_selector_events()) {
+            if (std::strcmp(event.reason, "raw_ingest_measured_witness") != 0)
+                continue;
+            if (++ingressCount != 1 || !event.raw ||
+                event.source_index != 0 || event.bpm != raw.bpm ||
+                event.included != allowed || !event.has_tie_metrics ||
+                (std::isnan(raw.synthetic_support)
+                    ? !std::isnan(event.score)
+                    : event.score != raw.synthetic_support) ||
+                event.tie_metrics[0] != raw.synthetic_winner_support ||
+                event.tie_metrics[1] != raw.score_sum ||
+                event.tie_metrics[2] != raw.best_combined_score ||
+                event.tie_metrics[3] != static_cast<double>(raw.rows))
+                return false;
+        }
+        if (ingressCount != 1 || !mir_ci_primary_selector_trace_complete())
+            return false;
         return allowed
             ? result.candidate_count == 1 && result.candidate &&
               result.selected_bpm == 129.0 && result.review_hold &&
