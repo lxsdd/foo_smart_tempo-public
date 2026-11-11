@@ -587,8 +587,73 @@ bool native_rail_contract(int variant) {
     const char* fallback = "general_rail_fallback_readmitted";
     std::size_t excluded=0,readmitted=0,firstGate=0;
     std::size_t rank=0,compare=0,terminal=0;
+    // New RAW ingress/selector telemetry is independent of the collapsed
+    // general/harmonic rail decisions. Validate its original source identity
+    // and reason rather than suppressing every RAW record unconditionally.
+    std::array<bool, 3> rawIngressSeen{};
+    const auto rawEvidence = [&](const MirCiSelectorEvent& event,
+                                 std::array<bool, 3>& seen) {
+        if (!event.raw || event.reason == nullptr ||
+            event.source_index >= static_cast<std::size_t>(count) ||
+            event.bpm != board.raw_candidates[event.source_index].bpm)
+            return false;
+        const std::string_view reason{event.reason};
+        const auto& source = board.raw_candidates[event.source_index];
+        if (reason == "raw_ingest_measured_witness") {
+            if (seen[event.source_index] || !event.included ||
+                !event.has_tie_metrics ||
+                event.score != source.synthetic_support ||
+                event.tie_metrics != std::array<double, 4>{
+                    source.synthetic_winner_support, source.score_sum,
+                    source.best_combined_score,
+                    static_cast<double>(source.rows)})
+                return false;
+            seen[event.source_index] = true;
+            return true;
+        }
+        if (reason == "raw_compare_won" || reason == "raw_compare_lost")
+            return event.has_tie_metrics &&
+                   event.included == (reason == "raw_compare_won");
+        if (reason == "raw_alias_allowed" ||
+            reason == "raw_alias_fallback_readmitted" ||
+            reason == "raw_support_allowed" ||
+            reason == "raw_support_fallback_readmitted" ||
+            reason == "raw_rank_scored" ||
+            reason == "raw_terminal_selected")
+            return event.included;
+        if (reason == "raw_alias_provisional_exclusion" ||
+            reason == "raw_alias_decisive_veto" ||
+            reason == "raw_support_provisional_exclusion" ||
+            reason == "raw_support_decisive_veto" ||
+            reason == "raw_rank_nonfinite_veto")
+            return !event.included;
+        return false; // Unknown RAW event must never be silently ignored.
+    };
+    bool checkedCorruption = false;
     for (const auto& row : mir_ci_primary_selector_events()) {
-        if (row.raw) return false;
+        if (row.raw) {
+            if (!rawEvidence(row, rawIngressSeen)) return false;
+            // Negative regressions run in the ORIGINAL host, on a genuine
+            // observed RAW event rather than a separate mock trace.
+            if (!checkedCorruption &&
+                std::strcmp(row.reason, "raw_ingest_measured_witness") == 0) {
+                auto corrupted = row;
+                std::array<bool, 3> empty{};
+                corrupted.reason = "raw_unrecognized_telemetry";
+                if (rawEvidence(corrupted, empty)) return false;
+                corrupted = row;
+                corrupted.source_index = static_cast<std::size_t>(count);
+                if (rawEvidence(corrupted, empty)) return false;
+                corrupted = row;
+                corrupted.included = !row.included;
+                if (rawEvidence(corrupted, empty)) return false;
+                corrupted = row;
+                corrupted.tie_metrics[0] += 1.0;
+                if (rawEvidence(corrupted, empty)) return false;
+                checkedCorruption = true;
+            }
+            continue; // RAW observations do not increment rail counters.
+        }
         if (std::strcmp(row.reason,expected)==0) {
             if (row.included || row.source_index==1 && variant!=2)
                 return false;
@@ -611,6 +676,9 @@ bool native_rail_contract(int variant) {
                         "general_baseline_compare_lost")==0) ++compare;
         if (std::strcmp(row.reason,"terminal_lane_choice")==0) ++terminal;
     }
+    if (!checkedCorruption) return false;
+    for (int i=0; i<count; ++i)
+        if (!rawIngressSeen[static_cast<std::size_t>(i)]) return false;
     if (firstGate!=static_cast<std::size_t>(count)) return false;
     if (variant == 2)
         return excluded==0 && readmitted==2 && rank==2 &&
