@@ -133,6 +133,7 @@ ALLOWED_FILTER_REASONS = frozenset((
     "raw_alias_decisive_veto", "raw_support_decisive_veto",
     "raw_support_allowed", "raw_support_provisional_exclusion",
     "raw_terminal_selected", "raw_cluster_resolved",
+    "raw_ingest_measured_witness",
     "low_upper_gate_allowed", "low_upper_gate_provisional_exclusion",
     "low_upper_branch_veto",
     "low_threshold_allowed", "low_threshold_provisional_exclusion",
@@ -248,7 +249,8 @@ def validate(rows: list[dict], *, require_windows: bool = False,
              require_writer_resolution: bool = False,
              require_cross_stage_fate: bool = False,
              require_policy_stage_path: bool = False,
-             require_policy_branch: bool = False) -> dict:
+             require_policy_branch: bool = False,
+             require_ingress: bool = False) -> dict:
     # Library callers may test legacy minimal traces. The real host CLI
     # always requires both actual windows and actual native MIR segments.
     if require_segments and not require_windows:
@@ -257,6 +259,8 @@ def validate(rows: list[dict], *, require_windows: bool = False,
         raise TraceError("trace missing or out of row bound")
     ids: dict[str, str] = {}
     candidate_bpm: dict[str, float] = {}
+    ingress_ids: list[str] = []
+    selector_gate_started = False
     stage_indices: dict[str, list[dict]] = {name: [] for name in ENUMS}
     stage_order = {
         "decode_window": -1, "mir_segment": -1,
@@ -293,6 +297,9 @@ def validate(rows: list[dict], *, require_windows: bool = False,
         if stage_order[stage] < previous_stage_number:
             raise TraceError("native stage reordering")
         previous_stage_number = stage_order[stage]
+        if stage in ("primary_disposition", "primary_first_exclusion",
+                     "primary_veto_resolution", "primary_veto_ledger"):
+            selector_gate_started = True
         expected_outcome, expected_reason = ENUMS[stage]
         if (expected_outcome is not None and item["outcome"] != expected_outcome or
             expected_reason is not None and item["reason_code"] != expected_reason or
@@ -314,6 +321,8 @@ def validate(rows: list[dict], *, require_windows: bool = False,
         continuous_tie = (stage == "primary_compare" and
                           item["reason_code"].startswith("low_continuous_compare_"))
         has_native_tie = has_native_tie or continuous_tie
+        ingress_tie = (stage == "candidate_filter" and
+                       item["reason_code"] == "raw_ingest_measured_witness")
         expected_metrics = (SEGMENT_METRICS if stage == "mir_segment" else
                             (WINDOW_METRICS | WINDOW_SEEK_METRICS
                              if "seek_returned" in item["metrics"]
@@ -321,7 +330,7 @@ def validate(rows: list[dict], *, require_windows: bool = False,
                             RESOURCE_METRICS if stage == "resource_usage" else
                             INVENTORY_METRICS if stage == "source_inventory" else
                             TIE5_METRICS if continuous_tie else
-                            TIE_METRICS if has_native_tie else
+                            TIE_METRICS if has_native_tie or ingress_tie else
                             LOW_POOL_METRICS if low_episode else
                             MANUAL_METRICS if stage in ("manual_source", "manual_export")
                             else CROSS_STAGE_FATE_METRICS if stage == "candidate_fate"
@@ -557,6 +566,27 @@ def validate(rows: list[dict], *, require_windows: bool = False,
                           else ALLOWED_TERMINAL_REASONS)
             if item["reason_code"] not in reason_set:
                 raise TraceError("unknown selector-veto/rank reason")
+            if ingress_tie:
+                originals = stage_indices["candidate_create"]
+                if (selector_gate_started or len(ingress_ids) >= len(originals) or
+                        candidate_id != originals[len(ingress_ids)]["candidate_id"] or
+                        parents or item["metrics"]["support"] != 0 or
+                        item["outcome"] not in ("included", "excluded") or
+                        bpm != originals[len(ingress_ids)]["metrics"]["bpm"] or
+                        item["metrics"]["score"] !=
+                        originals[len(ingress_ids)]["metrics"]["support"] or
+                        item["metrics"]["tie_1"] !=
+                        originals[len(ingress_ids)]["metrics"]["score"] or
+                        item["metrics"]["tie_3"] < 0 or
+                        item["metrics"]["tie_3"] !=
+                        int(item["metrics"]["tie_3"])):
+                    raise TraceError("native ingress source/measure mismatch")
+                ingress_ids.append(candidate_id)
+            else:
+                selector_gate_started = True
+                if ingress_ids and len(ingress_ids) != len(
+                        stage_indices["candidate_create"]):
+                    raise TraceError("native ingress truncated before selector")
             expect_raw = (item["reason_code"].startswith("raw_") and
                           item["reason_code"] != "raw_cluster_resolved")
             if (candidate_id is None or ids.get(candidate_id) !=
@@ -597,6 +627,11 @@ def validate(rows: list[dict], *, require_windows: bool = False,
         if stage == "policy_eligibility" and any(ids[p] != "candidate_transform" for p in parents):
             raise TraceError("policy candidate parent not collapsed")
         stage_indices[stage].append(item)
+    if (ingress_ids and len(ingress_ids) !=
+            len(stage_indices["candidate_create"]) or
+            require_ingress and stage_indices["candidate_create"] and
+            len(ingress_ids) != len(stage_indices["candidate_create"])):
+        raise TraceError("native ingress sequence missing or incomplete")
     validate_policy_stage_path(rows, required=require_policy_stage_path)
     try:
         policy_branch_status = reconcile_policy_branch(
@@ -1424,7 +1459,12 @@ def validate(rows: list[dict], *, require_windows: bool = False,
     raw_fates = {}
     if require_windows:
         try:
-            raw_fates = reconcile_native_raw(rows)
+            # RAW ingress is separate observed source evidence, not an
+            # alias/support selector decision. Preserve the strict native
+            # selector fate automaton without reinterpreting witnesses.
+            raw_fates = reconcile_native_raw([
+                row for row in rows if
+                row["reason_code"] != "raw_ingest_measured_witness"])
         except RawFateError as exc:
             raise TraceError("incomplete or contradictory native raw fate: " +
                              str(exc)) from exc
@@ -1650,7 +1690,8 @@ def main() -> None:
                       require_writer_resolution=a.require_windows,
                       require_cross_stage_fate=a.require_windows,
                       require_policy_stage_path=a.require_windows,
-                      require_policy_branch=a.require_windows)
+                      require_policy_branch=a.require_windows,
+                      require_ingress=a.require_windows)
     print("SMART_TEMPO_CI_PIPELINE_TRACE_SCHEMA=PASS")
     for key, value in result.items():
         print(f"SMART_TEMPO_TRACE_{key.upper()}={value}")

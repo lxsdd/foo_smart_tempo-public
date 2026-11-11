@@ -12,6 +12,7 @@
 #include <Psapi.h>
 #pragma comment(lib, "Psapi.lib")
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cmath>
 #include <cstddef>
@@ -561,6 +562,9 @@ inline bool record(
     out.push("supplemental_candidate", "observed", source,
              supplemental_id.front(), {}, supplemental_bpm, score, support);
   } else if (policyPointer.object != nullptr) return reject(__LINE__);
+  // Exactly one measured ingress per original RAW source, before all gates.
+  std::size_t ingressCount = 0;
+  bool selectorGateStarted = false;
   // Executed selector checks, not a fabricated ranking over the merged
   // manual-review pool. Provisional exclusions may be rescued by fallback.
   for (const auto& item : selectorEvents) {
@@ -573,6 +577,27 @@ inline bool record(
         ? board.raw_candidates[item.source_index].bpm
         : collapsed[item.source_index].bpm;
     if (std::abs(actualBpm - item.bpm) >= 0.001) return reject(__LINE__);
+    if (item.reason == nullptr) return reject(__LINE__);
+    const bool ingressWitness =
+        std::strcmp(item.reason, "raw_ingest_measured_witness") == 0;
+    if (ingressWitness) {
+      if (selectorGateStarted || !item.raw ||
+          item.source_index != ingressCount ||
+          ingressCount >= board.raw_candidates.size())
+        return reject(__LINE__);
+      const auto& rawSource = board.raw_candidates[ingressCount];
+      if (item.score != rawSource.synthetic_support ||
+          item.tie_metrics != std::array<double, 4>{
+              rawSource.synthetic_winner_support, rawSource.score_sum,
+              rawSource.best_combined_score,
+              static_cast<double>(rawSource.rows)})
+        return reject(__LINE__);
+      ++ingressCount;
+    } else {
+      selectorGateStarted = true;
+      if (ingressCount != board.raw_candidates.size())
+        return reject(__LINE__);
+    }
     // Source index is preserved from the ACTUAL executed selector vector:
     // same-BPM alias rows no longer collapse onto the first matching raw ID.
     const bool ranking = std::strcmp(item.reason, "raw_rank_scored") == 0 ||
@@ -612,14 +637,15 @@ inline bool record(
     if (item.has_tie_metric_4 != continuousTieExpected ||
         (!continuousTieExpected && item.tie_metric_4 != 0.0))
       return reject(__LINE__);
-    const bool tieExpected = comparison &&
+    // Ingress has exactly four native measurements but is not a comparator.
+    const bool tieExpected = ingressWitness || (comparison &&
         (std::strncmp(item.reason, "raw_compare_", 12) == 0 ||
          std::strncmp(item.reason, "general_baseline_compare_", 25) == 0 ||
          std::strncmp(item.reason, "residual_harmonic_compare_",
                       sizeof("residual_harmonic_compare_") - 1) == 0 ||
          std::strncmp(item.reason, "harmonic_direct_compare_",
                       sizeof("harmonic_direct_compare_") - 1) == 0 ||
-         continuousTieExpected);
+         continuousTieExpected));
     if (item.has_tie_metrics != tieExpected) return reject(__LINE__);
     if (tieExpected) {
       for (const double value : item.tie_metrics)
@@ -636,6 +662,8 @@ inline bool record(
       }
     }
   }
+  if (ingressCount != board.raw_candidates.size())
+    return reject(__LINE__);
   // Exact original raw-winning pointer to first-match collapsed object.
   const mir_pipeline::MirCiSelectorEvent* rawBridge = nullptr;
   const mir_pipeline::MirCiSelectorEvent* clusterBridge = nullptr;

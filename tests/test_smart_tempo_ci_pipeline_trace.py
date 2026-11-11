@@ -2502,5 +2502,79 @@ class NativePolicyFirstReturnPathTests(unittest.TestCase):
                     validate(altered, require_policy_stage_path=True)
 
 
+class NativeRawIngressWitnessTests(unittest.TestCase):
+    """Exact original measured RAW ingress is not a selector comparison."""
+
+    @staticmethod
+    def ingress_trace(included=True):
+        rows = trace()
+        ingress = event("candidate_filter", "c0", [], 128.0,
+                        "included" if included else "excluded",
+                        "raw_ingest_measured_witness", 0)
+        # Source candidate_create records score_sum=.95, support=.85.
+        ingress["metrics"] = dict(bpm=128.0, score=.85, support=0.0,
+                                  tie_0=.10, tie_1=.95, tie_2=.20, tie_3=1)
+        at = next(i for i, r in enumerate(rows)
+                  if r["stage"] == "primary_select")
+        rows.insert(at, ingress)
+        for i, r in enumerate(rows):
+            r["sequence"] = i
+        return rows
+
+    def test_exact_ingress_accepts_both_original_eligibility_outcomes(self):
+        for included in (True, False):
+            with self.subTest(included=included):
+                self.assertIsInstance(
+                    validate(self.ingress_trace(included), require_ingress=True), dict)
+        with self.assertRaises(TraceError):
+            validate(trace(), require_ingress=True)
+
+    def test_forged_native_ingress_is_rejected(self):
+        for field, value in (("candidate_id", "c1"),
+                             ("outcome", "selected"),
+                             ("reason_code", "raw_unrecognized_ingress"),
+                             ("parent_candidate_ids", ["c1"])):
+            with self.subTest(field=field):
+                rows = self.ingress_trace()
+                rows[4][field] = value
+                with self.assertRaises(TraceError):
+                    validate(rows, require_ingress=True)
+        for field, value in (("score", .84), ("support", .2),
+                             ("bpm", 128.1), ("tie_1", .94),
+                             ("tie_0", float("nan")),
+                             ("tie_3", 1.5), ("tie_4", 9)):
+            with self.subTest(field=field):
+                rows = self.ingress_trace()
+                rows[4]["metrics"][field] = value
+                with self.assertRaises(TraceError):
+                    validate(rows, require_ingress=True)
+
+    def test_no_duplicate_late_or_missing_ingress(self):
+        rows = self.ingress_trace()
+        rows.insert(5, copy.deepcopy(rows[4]))
+        for i, r in enumerate(rows):
+            r["sequence"] = i
+        with self.assertRaises(TraceError):
+            validate(rows, require_ingress=True)
+        late = self.ingress_trace()
+        late.insert(4, event("candidate_filter", "c0", [], 128.0,
+                             "included", "raw_alias_allowed", 0))
+        for i, r in enumerate(late):
+            r["sequence"] = i
+        with self.assertRaises(TraceError):
+            validate(late, require_ingress=True)
+
+    def test_original_native_raw_fate_and_writer_proofs_remain_strict(self):
+        header = (ROOT / "tests" / "ci_pipeline_trace.h").read_text(
+            encoding="utf-8")
+        audit = (ROOT / "tools" / "audit_smart_tempo_ci_pipeline_trace.py").read_text(
+            encoding="utf-8")
+        self.assertIn('const bool tieExpected = ingressWitness || (comparison &&', header)
+        self.assertIn('if (ingressCount != board.raw_candidates.size())', header)
+        self.assertIn('require_ingress=a.require_windows', audit)
+        self.assertIn('raw_fates = reconcile_native_raw([', audit)
+        self.assertIn('raw_ingest_measured_witness', audit)
+
+
 if __name__ == "__main__":
     unittest.main()
