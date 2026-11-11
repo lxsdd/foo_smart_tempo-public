@@ -6,6 +6,7 @@
 // Diagnostic values ONLY; no change to MIR selection and NO media/tag writes.
 // The observer is compiled out of every personal/distributable component.
 #include <Windows.h>
+#include "ci_fixture_allowlist.h"
 #include <cmath>
 #include <cwchar>
 #include <cstring>
@@ -28,15 +29,7 @@ inline bool record(const std::vector<double>& bpm,
   std::wstring root = read_env(L"RUNNER_TEMP");
   const std::wstring fixture = read_env(L"SMART_TEMPO_CI_FIXTURE");
   if (root.empty() || fixture.empty()) return false;
-  if (root.back() != L'\\') root.push_back(L'\\');
-  if (fixture.size() <= root.size() ||
-      _wcsnicmp(root.c_str(), fixture.c_str(), root.size()) != 0) return false;
-
-  constexpr wchar_t name[] = L"\\synthetic-oracle\\pulse_128.wav";
-  constexpr std::size_t suffix_len = (sizeof(name) / sizeof(name[0])) - 1;
-  if (fixture.size() < suffix_len ||
-      _wcsicmp(fixture.c_str() + fixture.size() - suffix_len, name) != 0)
-    return false;
+  if (!smart_tempo::ci_fixture::permitted(fixture, root)) return false;
   const std::wstring report = fixture + L".results.csv";
   const double numeric = std::isfinite(bpm[0]) && bpm[0] > 0.0
                              ? bpm[0] : 0.0;
