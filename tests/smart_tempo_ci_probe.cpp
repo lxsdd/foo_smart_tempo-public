@@ -527,7 +527,7 @@ bool native_raw_fallback_contract(int variant) {
                event.included == expected.included &&
                event.bpm == (expected.source == 0 ? 103.0 : 129.0);
     };
-    const auto events = mir_ci_primary_selector_events();
+    const auto allEvents = mir_ci_primary_selector_events();
     // The productive RAW-ingress observer now precedes the existing selector
     // chronology. Verify BOTH measured source objects, then keep the original
     // exact expected reason/order/source-index checks for every fallback case.
@@ -547,31 +547,34 @@ bool native_raw_fallback_contract(int variant) {
                    measured.score_sum, measured.best_combined_score,
                    static_cast<double>(measured.rows)};
     };
+    const auto ingressCount = board.raw_candidates.size();
+    if (ingressCount != 2 || allEvents.size() < ingressCount) return false;
+    for (std::size_t i = 0; i < ingressCount; ++i)
+        if (!ingressMatches(allEvents[i], i)) return false;
+    // Corrupt the observed original-host event: unknown reason, swapped
+    // source, forged support/tuple and exclusion must all fail closed.
+    auto corrupted = allEvents[0];
+    corrupted.reason = "raw_unrecognized_ingress";
+    if (ingressMatches(corrupted, 0)) return false;
+    corrupted = allEvents[0];
+    corrupted.source_index = 1;
+    if (ingressMatches(corrupted, 0)) return false;
+    corrupted = allEvents[0];
+    corrupted.included = false;
+    if (ingressMatches(corrupted, 0)) return false;
+    corrupted = allEvents[0];
+    corrupted.score += 1.0;
+    if (ingressMatches(corrupted, 0)) return false;
+    corrupted = allEvents[0];
+    corrupted.tie_metrics[0] += 1.0;
+    if (ingressMatches(corrupted, 0)) return false;
+    // Keep the legacy strict selector chronology and its positive/negative
+    // Python source contract literally intact on the post-ingress subspan.
+    const auto events = allEvents.subspan(ingressCount);
     const auto check = [&](const auto& expected) {
-        const auto ingressCount = board.raw_candidates.size();
-        if (events.size() != ingressCount + expected.size() ||
-            ingressCount != 2) return false;
-        for (std::size_t i = 0; i < ingressCount; ++i)
-            if (!ingressMatches(events[i], i)) return false;
-        // Corrupt the observed original-host event: unknown reason, swapped
-        // source, forged support/tuple and exclusion must all fail closed.
-        auto corrupted = events[0];
-        corrupted.reason = "raw_unrecognized_ingress";
-        if (ingressMatches(corrupted, 0)) return false;
-        corrupted = events[0];
-        corrupted.source_index = 1;
-        if (ingressMatches(corrupted, 0)) return false;
-        corrupted = events[0];
-        corrupted.included = false;
-        if (ingressMatches(corrupted, 0)) return false;
-        corrupted = events[0];
-        corrupted.score += 1.0;
-        if (ingressMatches(corrupted, 0)) return false;
-        corrupted = events[0];
-        corrupted.tie_metrics[0] += 1.0;
-        if (ingressMatches(corrupted, 0)) return false;
+        if (events.size() != expected.size()) return false;
         for (std::size_t i = 0; i < expected.size(); ++i) {
-            if (!eventMatches(events[ingressCount + i], expected[i]))
+            if (!eventMatches(events[i], expected[i]))
                 return false;
         }
         return true;
