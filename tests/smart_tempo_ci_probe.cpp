@@ -528,10 +528,50 @@ bool native_raw_fallback_contract(int variant) {
                event.bpm == (expected.source == 0 ? 103.0 : 129.0);
     };
     const auto events = mir_ci_primary_selector_events();
+    // The productive RAW-ingress observer now precedes the existing selector
+    // chronology. Verify BOTH measured source objects, then keep the original
+    // exact expected reason/order/source-index checks for every fallback case.
+    const auto ingressMatches = [&](const MirCiSelectorEvent& event,
+                                    std::size_t index) {
+        if (index >= board.raw_candidates.size() ||
+            event.reason == nullptr ||
+            std::strcmp(event.reason, "raw_ingest_measured_witness") != 0 ||
+            !event.raw || !event.included || !event.has_tie_metrics ||
+            event.source_index != index)
+            return false;
+        const auto& measured = board.raw_candidates[index];
+        return event.bpm == measured.bpm &&
+               event.score == measured.synthetic_support &&
+               event.tie_metrics == std::array<double, 4>{
+                   measured.synthetic_winner_support,
+                   measured.score_sum, measured.best_combined_score,
+                   static_cast<double>(measured.rows)};
+    };
     const auto check = [&](const auto& expected) {
-        if (events.size() != expected.size()) return false;
+        const auto ingressCount = board.raw_candidates.size();
+        if (events.size() != ingressCount + expected.size() ||
+            ingressCount != 2) return false;
+        for (std::size_t i = 0; i < ingressCount; ++i)
+            if (!ingressMatches(events[i], i)) return false;
+        // Corrupt the observed original-host event: unknown reason, swapped
+        // source, forged support/tuple and exclusion must all fail closed.
+        auto corrupted = events[0];
+        corrupted.reason = "raw_unrecognized_ingress";
+        if (ingressMatches(corrupted, 0)) return false;
+        corrupted = events[0];
+        corrupted.source_index = 1;
+        if (ingressMatches(corrupted, 0)) return false;
+        corrupted = events[0];
+        corrupted.included = false;
+        if (ingressMatches(corrupted, 0)) return false;
+        corrupted = events[0];
+        corrupted.score += 1.0;
+        if (ingressMatches(corrupted, 0)) return false;
+        corrupted = events[0];
+        corrupted.tie_metrics[0] += 1.0;
+        if (ingressMatches(corrupted, 0)) return false;
         for (std::size_t i = 0; i < expected.size(); ++i) {
-            if (!eventMatches(events[i], expected[i]))
+            if (!eventMatches(events[ingressCount + i], expected[i]))
                 return false;
         }
         return true;
