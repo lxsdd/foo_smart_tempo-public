@@ -241,6 +241,18 @@ def validate_policy_stage_path(rows: list[dict], *, required: bool = False) -> t
     return path
 
 
+def reconcile_raw_selector_with_ingress_witness(rows: list[dict]) -> dict[str, int]:
+    """Run the frozen native RAW fate automaton on selector gates only.
+
+    The parent validate() has already checked the exact measured source
+    ingress, which is not an alias/support/rank/comparison decision.
+    Preserve the independent original selector validation unchanged.
+    """
+    rows = [item for item in rows
+            if item["reason_code"] != "raw_ingest_measured_witness"]
+    return reconcile_native_raw(rows)
+
+
 def validate(rows: list[dict], *, require_windows: bool = False,
              require_seek: bool = False,
              require_segments: bool = False,
@@ -1462,9 +1474,7 @@ def validate(rows: list[dict], *, require_windows: bool = False,
             # RAW ingress is separate observed source evidence, not an
             # alias/support selector decision. Preserve the strict native
             # selector fate automaton without reinterpreting witnesses.
-            raw_fates = reconcile_native_raw([
-                row for row in rows if
-                row["reason_code"] != "raw_ingest_measured_witness"])
+            raw_fates = reconcile_raw_selector_with_ingress_witness(rows)
         except RawFateError as exc:
             raise TraceError("incomplete or contradictory native raw fate: " +
                              str(exc)) from exc

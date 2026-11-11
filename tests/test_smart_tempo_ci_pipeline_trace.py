@@ -2572,7 +2572,8 @@ class NativeRawIngressWitnessTests(unittest.TestCase):
         self.assertIn('const bool tieExpected = ingressWitness || (comparison &&', header)
         self.assertIn('if (ingressCount != board.raw_candidates.size())', header)
         self.assertIn('require_ingress=a.require_windows', audit)
-        self.assertIn('raw_fates = reconcile_native_raw([', audit)
+        self.assertIn('raw_fates = reconcile_raw_selector_with_ingress_witness(rows)', audit)
+        self.assertIn('return reconcile_native_raw(rows)', audit)
         self.assertIn('raw_ingest_measured_witness', audit)
 
 
