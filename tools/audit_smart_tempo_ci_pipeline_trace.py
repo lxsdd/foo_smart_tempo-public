@@ -49,6 +49,7 @@ LOW_POOL_METRICS = METRICS | frozenset(("low_pool_epoch",))
 MANUAL_METRICS = METRICS | frozenset((
     "winner_support", "local_exact_score", "evidence_rank", "origin_mask"))
 POLICY_TERMINAL_METRICS = METRICS | frozenset(("action_code",))
+WRITER_SOURCE_METRICS = METRICS | frozenset(("source_kind", "source_bpm", "source_delta"))
 CROSS_STAGE_FATE_METRICS = METRICS | frozenset((
     "raw_veto_count", "cluster_veto_count", "first_veto_event_index",
     "last_veto_event_index", "raw_selector_event_count",
@@ -354,6 +355,7 @@ def validate(rows: list[dict], *, require_windows: bool = False,
                             MANUAL_METRICS if stage in ("manual_source", "manual_export")
                             else CROSS_STAGE_FATE_METRICS if stage == "candidate_fate"
                             else POLICY_TERMINAL_METRICS if stage == "policy_terminal"
+                            else WRITER_SOURCE_METRICS if stage == "writer_resolution"
                             else PRIMARY_HOLD_METRICS if stage == "primary_hold"
                             else PRIMARY_SELECT_METRICS if (
                                 stage == "primary_select" and

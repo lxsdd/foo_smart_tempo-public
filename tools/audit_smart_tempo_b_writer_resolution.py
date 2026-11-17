@@ -8,6 +8,8 @@ Primary/Policy/final events and never uses oracle BPM or media metadata.
 """
 from __future__ import annotations
 
+import math
+
 ALLOWED = frozenset((
     "mir_primary", "mir_review_hold", "mir_no_candidate",
     "mir_writer_override", "mir_review_hold_release",
@@ -103,8 +105,45 @@ def reconcile(rows: list[dict], *, required: bool = False) -> dict:
         raise WriterResolutionError("unhandled applied writer branch")
     if accepted and witness["outcome"] != "included":
         raise WriterResolutionError("applied writer lacks accepted measured witness")
+    # Bind the measured source BPM to its exact original native creator ID.
+    # Local-exact refinements are recorded as deltas, not re-parented by BPM.
+    source_kind = m.get("source_kind")
+    source_bpm = m.get("source_bpm")
+    source_delta = m.get("source_delta")
+    if (type(source_kind) not in (int, float) or
+            source_kind not in (0, 1, 2, 3) or
+            type(source_bpm) not in (int, float) or
+            type(source_delta) not in (int, float) or
+            not math.isfinite(source_bpm) or not math.isfinite(source_delta)):
+        raise WriterResolutionError("native writer source evidence malformed")
+    expected_kind = (1 if reason == "mir_primary" else
+                     2 if indexed and pointer["reason_code"] ==
+                          "pointer_native_fullboard_consistent" else
+                     3 if indexed and pointer["reason_code"] ==
+                          "pointer_native_supplemental_consistent" else 0)
+    if source_kind != expected_kind or indexed != bool(expected_kind):
+        raise WriterResolutionError("native writer source kind/pointer mismatch")
+    if indexed:
+        source_id = parents[0]
+        creators = [r for r in rows
+                    if r["stage"] in ("candidate_transform",
+                                    "policy_eligibility", "supplemental_candidate")
+                    and r.get("candidate_id") == source_id]
+        expected_stage = {1: "candidate_transform", 2: "policy_eligibility",
+                          3: "supplemental_candidate"}[expected_kind]
+        if (len(creators) != 1 or creators[0]["stage"] != expected_stage or
+                type(creators[0].get("metrics", {}).get("bpm")) not in (int, float) or
+                not math.isfinite(creators[0]["metrics"]["bpm"]) or
+                abs(source_bpm - creators[0]["metrics"]["bpm"]) > 0.0000011 or
+                source_bpm <= 0 or
+                abs(source_delta - (m["bpm"] - source_bpm)) > 0.0000021):
+            raise WriterResolutionError("native writer exact indexed source BPM drift")
+    elif source_bpm != 0 or source_delta != 0:
+        raise WriterResolutionError("unindexed writer invented source measurement")
     return dict(writer_resolution_native=1,
                 writer_source_indexed=int(accepted and indexed),
                 writer_source_unindexed=int(accepted and not indexed),
                 writer_policy_applied=int(reason in POLICY_APPLIED),
-                writer_reason=reason)
+                writer_reason=reason,
+                writer_source_kind=int(source_kind),
+                writer_source_delta=source_delta)

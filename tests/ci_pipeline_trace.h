@@ -1039,11 +1039,40 @@ inline bool record(
              std::abs(policy.output_bpm - final_bpm) <= 0.001)
       applied_writer_source = selected_policy_pointer;
   }
+  // CI-only source BPM of the actual writer-linked native object.
+  // Equal BPM from a different source never establishes object identity.
+  unsigned writerSourceKind = 0; // 0: unindexed, 1: Primary, 2: FullBoard, 3: supplemental
+  double writerSourceBpm = 0.0;
+  if (applied_writer_source.size() == 1) {
+    if (applied_primary && final_source_index < collapsed.size()) {
+      writerSourceKind = 1;
+      writerSourceBpm = collapsed[final_source_index].bpm;
+    } else if (applied_policy && actualFullBoardObject) {
+      writerSourceKind = 2;
+      writerSourceBpm = fullboard[policyPointer.index].bpm;
+    } else if (applied_policy && actualSupplementalObject) {
+      writerSourceKind = 3;
+      writerSourceBpm = supplemental_bpm;
+    } else {
+      return reject(__LINE__);
+    }
+  }
+  if ((writerSourceKind != 0 &&
+       (!finite_bpm(writerSourceBpm) || writerSourceBpm <= 0.0)) ||
+      (writerSourceKind == 0 && !applied_writer_source.empty()))
+    return reject(__LINE__);
+  const double writerSourceDelta =
+      writerSourceKind ? final_bpm - writerSourceBpm : 0.0;
+  if (!std::isfinite(writerSourceDelta)) return reject(__LINE__);
   out.push("writer_resolution",
            withheld || final_bpm <= 0.0 ? "review_hold" : "selected",
            applied_writer_reason, "", applied_writer_source, final_bpm,
            static_cast<double>(policy_runtime_enabled),
            static_cast<double>(policy.output_would_write));
+  out.lines.insert(out.lines.size() - 3,
+      ",\"source_kind\":" + std::to_string(writerSourceKind) +
+      ",\"source_bpm\":" + safe_num(writerSourceBpm) +
+      ",\"source_delta\":" + safe_num(writerSourceDelta));
   std::size_t manual_source_count = 0;
   if (!record_manual_export(out, fullboard, policy_ids, primary,
                             primary_parent, risk, partial, topK, manual,

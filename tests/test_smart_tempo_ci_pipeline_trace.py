@@ -2596,6 +2596,9 @@ class NativeRawIngressWitnessTests(unittest.TestCase):
         source = (ROOT / "src" / "foo_smart_tempo" /
                   "mir_candidate_pipeline.cpp").read_text(encoding="utf-8")
         self.assertIn('const bool tieExpected = ingressWitness || bridgeRaw || bridgeCluster ||', header)
+        self.assertIn('writerSourceBpm = collapsed[final_source_index].bpm;', header)
+        self.assertIn('writerSourceBpm = fullboard[policyPointer.index].bpm;', header)
+        self.assertIn('writerSourceBpm = supplemental_bpm;', header)
         self.assertIn('event.score == source.synthetic_support', (
             ROOT / "tests" / "smart_tempo_ci_probe.cpp").read_text(encoding="utf-8"))
         self.assertIn('raw->bpm, raw->synthetic_support', source)

@@ -65,7 +65,20 @@ def scenario(kind):
             policy = row("policy_change", "selected", "keep_primary", 128)
             writer["reason_code"] = "mir_writer_invariant_hold"
             writer["metrics"]["support"] = 1
-    return [primary, pointer, policy, writer, final, witness]
+    # Keep original decision row positions unchanged for mutation tests.
+    creators = [row("candidate_transform", "observed", "cluster_from_raw", 128),
+                row("policy_eligibility", "included", "full_board_member", 144),
+                row("supplemental_candidate", "observed",
+                    "partial_bar_aggregate_source", 144)]
+    for source, cid in zip(creators, ("c1", "c2", "c3")):
+        source["candidate_id"] = cid
+    native_kind = (1 if writer["reason_code"] == "mir_primary" else
+                   2 if kind == "override" else 3 if kind == "release" else 0)
+    source_bpm = {0: 0, 1: 128, 2: 144, 3: 144}[native_kind]
+    writer["metrics"].update(source_kind=native_kind, source_bpm=source_bpm,
+                             source_delta=(writer["metrics"]["bpm"] - source_bpm
+                                           if native_kind else 0))
+    return [primary, pointer, policy, writer, final, witness, *creators]
 
 
 class WriterResolutionTests(unittest.TestCase):
@@ -81,6 +94,51 @@ class WriterResolutionTests(unittest.TestCase):
                                   r["writer_source_unindexed"],
                                   r["writer_policy_applied"]), counts)
                 self.assertEqual(r["writer_resolution_native"], 1)
+
+    def test_primary_audio_refinement_keeps_exact_native_cluster_identity(self):
+        case = scenario("primary")
+        # The selected source object remains at 128 even when a native
+        # local-exact measurement refines the accepted BPM to 128.125.
+        for index in (0, 3, 4, 5):
+            case[index]["metrics"]["bpm"] = 128.125
+        case[3]["metrics"]["source_delta"] = 0.125
+        proof = reconcile(case, required=True)
+        self.assertEqual(proof["writer_source_kind"], 1)
+        self.assertEqual(proof["writer_source_delta"], 0.125)
+        self.assertEqual(case[6]["metrics"]["bpm"], 128)
+
+    def test_exact_source_bpm_kind_and_delta_adversarial_mutations(self):
+        for kind in ("primary", "override", "release", "micro",
+                     "policy_hold", "no_candidate", "invariant"):
+            baseline = scenario(kind)
+            self.assertEqual(reconcile(baseline, required=True)[
+                "writer_resolution_native"], 1)
+            for name, patch in (
+                    ("wrong_kind", lambda a: a[3]["metrics"].__setitem__(
+                        "source_kind", (a[3]["metrics"]["source_kind"] + 1) % 4)),
+                    ("wrong_bpm", lambda a: a[3]["metrics"].__setitem__(
+                        "source_bpm", a[3]["metrics"]["source_bpm"] + .125)),
+                    ("wrong_delta", lambda a: a[3]["metrics"].__setitem__(
+                        "source_delta", a[3]["metrics"]["source_delta"] + .125)),
+                    ("missing", lambda a: a[3]["metrics"].pop("source_bpm")),
+                    ("nan", lambda a: a[3]["metrics"].__setitem__(
+                        "source_delta", float("nan")))):
+                with self.subTest(path=kind, fault=name):
+                    bad = copy.deepcopy(baseline)
+                    patch(bad)
+                    with self.assertRaises(WriterResolutionError):
+                        reconcile(bad, required=True)
+        for kind, source_index in (("primary", 6), ("override", 7),
+                                   ("release", 8)):
+            for field in ("bpm", "candidate_id"):
+                with self.subTest(path=kind, source_fault=field):
+                    bad = scenario(kind)
+                    if field == "bpm":
+                        bad[source_index]["metrics"]["bpm"] += .125
+                    else:
+                        bad[source_index]["candidate_id"] = "c0"
+                    with self.assertRaises(WriterResolutionError):
+                        reconcile(bad, required=True)
 
     def test_fail_closed_native_mutations(self):
         cases = {
@@ -121,6 +179,8 @@ class WriterResolutionTests(unittest.TestCase):
             self.assertIn(token, header)
         self.assertIn("m_diag.policy_reason.get_ptr()", engine)
         self.assertIn("reconcile_writer_resolution(", parser)
+        self.assertIn("std::to_string(writerSourceKind)", header)
+        self.assertIn("WRITER_SOURCE_METRICS", parser)
         self.assertIn("require_policy_filter=a.require_windows", parser)
         self.assertIn("SMART_TEMPO_TRACE_WRITER_RESOLUTION_NATIVE", host)
         self.assertNotIn("trackLabel.get_ptr(),\n                measuredWitness", engine)
