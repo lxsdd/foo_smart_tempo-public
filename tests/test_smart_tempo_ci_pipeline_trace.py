@@ -1152,6 +1152,59 @@ class NativePipelineTraceTests(unittest.TestCase):
         self.assertEqual(result["indexed_native_final_witness"], 0)
         self.assertEqual(result["unindexed_supplemental_final_witness"], 1)
 
+    def test_native_refined_primary_object_is_indexed_not_a_bpm_alias(self):
+        rows = trace()
+        primary = next(r for r in rows if r["stage"] == "primary_select")
+        primary["metrics"].update(bpm=128.125, cluster_bpm=128.0,
+                                  local_exact_bpm=128.125,
+                                  local_exact_delta=.125)
+        final = next(r for r in rows if r["stage"] == "final_output")
+        final["metrics"]["bpm"] = 128.125
+        witness = next(r for r in rows if r["stage"] == "measured_witness")
+        witness["metrics"]["bpm"] = 128.125
+        witness["parent_candidate_ids"] = ["c1"]
+        witness["reason_code"] = "indexed_native_refined_witness"
+        writer = event("writer_resolution", None, ["c1"], 128.125,
+                       "selected", "mir_primary", 0)
+        writer["metrics"] = dict(bpm=128.125, score=0., support=1.,
+                                 source_kind=1, source_bpm=128.,
+                                 source_delta=.125)
+        at = next(i for i, item in enumerate(rows)
+                  if item["stage"] == "final_output")
+        rows.insert(at, writer)
+        for i, item in enumerate(rows):
+            item["sequence"] = i
+        proof = validate(rows)
+        self.assertEqual(proof["indexed_native_final_witness"], 1)
+        self.assertEqual(proof["indexed_refined_primary_final_witness"], 1)
+        for name, mutation in (
+            ("wrong_reason", lambda a: a[-2].__setitem__(
+                "reason_code", "indexed_native_witness")),
+            ("missing_selected_source", lambda a: a[-2].__setitem__(
+                "parent_candidate_ids", [])),
+            ("wrong_selected_source", lambda a: a[-2].__setitem__(
+                "parent_candidate_ids", ["c2"])),
+            ("missing_writer", lambda a: a.__delitem__(
+                next(i for i, r in enumerate(a)
+                     if r["stage"] == "writer_resolution"))),
+            ("wrong_source_bpm", lambda a: next(r for r in a
+                if r["stage"] == "writer_resolution")["metrics"].__setitem__(
+                    "source_bpm", 127.99)),
+            ("out_of_bound_refinement", lambda a: next(r for r in a
+                if r["stage"] == "writer_resolution")["metrics"].__setitem__(
+                    "source_delta", .85)),
+            ("primary_source_mismatch", lambda a: next(r for r in a
+                if r["stage"] == "primary_select").__setitem__(
+                    "parent_candidate_ids", ["c0"])),
+        ):
+            with self.subTest(name=name):
+                bad = copy.deepcopy(rows)
+                mutation(bad)
+                for i, item in enumerate(bad):
+                    item["sequence"] = i
+                with self.assertRaises(TraceError):
+                    validate(bad)
+
     def test_run_local_id_must_match_every_event_and_have_hex_shape(self):
         rows = trace()
         for row in rows:

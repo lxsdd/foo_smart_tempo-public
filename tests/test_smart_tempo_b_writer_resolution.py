@@ -78,6 +78,8 @@ def scenario(kind):
     writer["metrics"].update(source_kind=native_kind, source_bpm=source_bpm,
                              source_delta=(writer["metrics"]["bpm"] - source_bpm
                                            if native_kind else 0))
+    if native_kind:
+        witness["parent_candidate_ids"] = [{1:"c1", 2:"c2", 3:"c3"}[native_kind]]
     return [primary, pointer, policy, writer, final, witness, *creators]
 
 
@@ -102,10 +104,34 @@ class WriterResolutionTests(unittest.TestCase):
         for index in (0, 3, 4, 5):
             case[index]["metrics"]["bpm"] = 128.125
         case[3]["metrics"]["source_delta"] = 0.125
+        case[5]["reason_code"] = "indexed_native_refined_witness"
         proof = reconcile(case, required=True)
         self.assertEqual(proof["writer_source_kind"], 1)
         self.assertEqual(proof["writer_source_delta"], 0.125)
         self.assertEqual(case[6]["metrics"]["bpm"], 128)
+
+    def test_refined_source_lost_forged_and_overbroad_delta_rejected(self):
+        baseline = scenario("primary")
+        for index in (0, 3, 4, 5):
+            baseline[index]["metrics"]["bpm"] = 128.125
+        baseline[3]["metrics"]["source_delta"] = .125
+        baseline[5]["reason_code"] = "indexed_native_refined_witness"
+        self.assertEqual(reconcile(baseline, required=True)["writer_source_indexed"], 1)
+        for name, mutate in (
+            ("downgrade_to_bpm_only",
+             lambda r: r[5].__setitem__("reason_code", "indexed_native_witness")),
+            ("lost_source", lambda r: r[5].__setitem__("parent_candidate_ids", [])),
+            ("alias_source", lambda r: r[5].__setitem__("parent_candidate_ids", ["c2"])),
+            ("overbroad_delta", lambda r: r[3]["metrics"].__setitem__(
+                "source_delta", .900001)),
+            ("foreign_kind", lambda r: r[3]["metrics"].__setitem__(
+                "source_kind", 3)),
+        ):
+            with self.subTest(name=name):
+                bad = copy.deepcopy(baseline)
+                mutate(bad)
+                with self.assertRaises(WriterResolutionError):
+                    reconcile(bad, required=True)
 
     def test_exact_source_bpm_kind_and_delta_adversarial_mutations(self):
         for kind in ("primary", "override", "release", "micro",
@@ -181,6 +207,10 @@ class WriterResolutionTests(unittest.TestCase):
         self.assertIn("reconcile_writer_resolution(", parser)
         self.assertIn("std::to_string(writerSourceKind)", header)
         self.assertIn("WRITER_SOURCE_METRICS", parser)
+        self.assertIn('"indexed_native_refined_witness"', header)
+        self.assertIn("refined_primary = indexed", (
+            ROOT / "tools" / "audit_smart_tempo_b_writer_resolution.py").read_text(
+                encoding="utf-8"))
         self.assertIn("require_policy_filter=a.require_windows", parser)
         self.assertIn("SMART_TEMPO_TRACE_WRITER_RESOLUTION_NATIVE", host)
         self.assertNotIn("trackLabel.get_ptr(),\n                measuredWitness", engine)

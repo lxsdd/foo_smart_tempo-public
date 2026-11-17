@@ -1431,11 +1431,43 @@ def validate(rows: list[dict], *, require_windows: bool = False,
                 abs(policy["metrics"]["bpm"] - final["metrics"]["bpm"]) <= 0.001 and
                 witness["reason_code"] != "indexed_native_witness"):
             raise TraceError("selected supplemental final requires indexed witness")
-        if witness["reason_code"] == "indexed_native_witness":
+        # Locally refined Primary measurements preserve the same measured
+        # cluster object even when its original BPM differs from the final
+        # audio-measured BPM. This is an exact object-ID bridge, not a BPM
+        # alias lookup and never a global eligibility certificate.
+        refined_primary = witness["reason_code"] == "indexed_native_refined_witness"
+        refined_writer = None
+        refined_id = None
+        if refined_primary:
+            candidates = stage_indices["writer_resolution"]
+            if len(candidates) != 1:
+                raise TraceError("refined Primary witness lacks applied writer")
+            refined_writer = candidates[0]
+            wm = refined_writer["metrics"]
+            parent_ids = refined_writer["parent_candidate_ids"]
+            if (refined_writer["reason_code"] != "mir_primary" or
+                    wm.get("source_kind") != 1 or len(parent_ids) != 1 or
+                    primary["parent_candidate_ids"] != parent_ids or
+                    parent_ids[0] not in witness["parent_candidate_ids"] or
+                    ids.get(parent_ids[0]) != "candidate_transform" or
+                    abs(wm["source_delta"]) <= 0.001 or
+                    abs(wm["source_delta"]) > 0.800002 or
+                    abs(wm["source_bpm"] - candidate_bpm[parent_ids[0]]) > 0.001 or
+                    abs(wm["source_bpm"] + wm["source_delta"] -
+                        final["metrics"]["bpm"]) > 0.001 or
+                    abs(primary["metrics"].get("local_exact_delta", -999) -
+                        wm["source_delta"]) > 0.001 or
+                    abs(primary["metrics"].get("local_exact_bpm", -999) -
+                        final["metrics"]["bpm"]) > 0.001):
+                raise TraceError("refined witness is not the native measured Primary source")
+            refined_id = parent_ids[0]
+        if witness["reason_code"] in ("indexed_native_witness",
+                                      "indexed_native_refined_witness"):
             if not witness["parent_candidate_ids"] or any(
                     ids[p] not in ("policy_eligibility", "candidate_transform",
                                   "supplemental_candidate")
-                    or abs(candidate_bpm[p] - final["metrics"]["bpm"]) > 0.001
+                    or (abs(candidate_bpm[p] - final["metrics"]["bpm"]) > 0.001
+                        and not (refined_primary and p == refined_id))
                     for p in witness["parent_candidate_ids"]):
                 raise TraceError("native indexed witness invalid")
             supplemental_witness_ids = [
@@ -1669,7 +1701,11 @@ def validate(rows: list[dict], *, require_windows: bool = False,
         "final_accept": int(final["outcome"] == "selected"),
         "indexed_native_final_witness": int(
             final["outcome"] == "selected" and
-            witness["reason_code"] == "indexed_native_witness"),
+            witness["reason_code"] in ("indexed_native_witness",
+                                       "indexed_native_refined_witness")),
+        "indexed_refined_primary_final_witness": int(
+            final["outcome"] == "selected" and
+            witness["reason_code"] == "indexed_native_refined_witness"),
         "indexed_supplemental_final_witness": int(
             final["outcome"] == "selected" and
             witness["reason_code"] == "indexed_native_witness" and

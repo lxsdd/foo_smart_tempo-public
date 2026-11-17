@@ -140,6 +140,18 @@ def reconcile(rows: list[dict], *, required: bool = False) -> dict:
             raise WriterResolutionError("native writer exact indexed source BPM drift")
     elif source_bpm != 0 or source_delta != 0:
         raise WriterResolutionError("unindexed writer invented source measurement")
+    refined_primary = indexed and expected_kind == 1 and abs(source_delta) > 0.001
+    if refined_primary:
+        if (abs(source_delta) > 0.800002 or
+                witness["reason_code"] != "indexed_native_refined_witness" or
+                source_id not in witness["parent_candidate_ids"]):
+            raise WriterResolutionError("refined Primary writer lacks exact selected witness")
+    elif witness["reason_code"] == "indexed_native_refined_witness":
+        raise WriterResolutionError("non-refined writer forged a native refined witness")
+    if indexed and not refined_primary and (
+            witness["reason_code"] != "indexed_native_witness" or
+            source_id not in witness["parent_candidate_ids"]):
+        raise WriterResolutionError("indexed writer source missing from measured witness")
     return dict(writer_resolution_native=1,
                 writer_source_indexed=int(accepted and indexed),
                 writer_source_unindexed=int(accepted and not indexed),

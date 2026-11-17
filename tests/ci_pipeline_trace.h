@@ -1152,9 +1152,11 @@ inline bool record(
            withheld || final_bpm <= 0.0 ? "final_abstained" : "final_numeric",
            "", {}, final_bpm, 0.0, 0.0);
   // Existing MIR writer invariant is the executable same-run witness.
-  // The identity of supplemental TopK/partial-bar candidates is NOT yet
-  // serialized; explicitly distinguish this from an indexed witness.
+  // Ordinary matches use measured final BPM; a locally refined Primary
+  // winner is separately linked by its exact native selected cluster ID,
+  // NEVER by choosing the closest equal-BPM neighbour.
   std::vector<std::string> witness_ids;
+  bool refinedPrimaryWitness = false;
   if (!withheld && final_bpm > 0.0 && same_run_measured_witness) {
     for (std::size_t i = 0; i < fullboard.size(); ++i) {
       if (std::abs(fullboard[i].bpm - final_bpm) <= 0.001)
@@ -1170,12 +1172,28 @@ inline bool record(
         std::abs(supplemental_bpm - final_bpm) <= 0.001 &&
         supplemental_id.size() == 1)
       witness_ids.push_back(supplemental_id.front());
+    // The measured local-exact refinement can change the final BPM by up
+    // to 0.80 while retaining the original Primary source object.
+    // A BPM-nearest-match attribution would lose that source identity.
+    refinedPrimaryWitness =
+        applied_primary && writerSourceKind == 1 &&
+        applied_writer_source.size() == 1 &&
+        std::abs(writerSourceDelta) > 0.001 &&
+        std::abs(writerSourceDelta) <= 0.800002 &&
+        std::isfinite(primary.selected_local_exact_delta) &&
+        std::abs(primary.selected_local_exact_delta - writerSourceDelta) <= 0.001 &&
+        std::abs(primary.selected_local_exact_bpm - final_bpm) <= 0.001;
+    if (refinedPrimaryWitness &&
+        std::find(witness_ids.begin(), witness_ids.end(),
+                  applied_writer_source.front()) == witness_ids.end())
+      witness_ids.push_back(applied_writer_source.front());
     if (witness_ids.size() > 128) return reject(__LINE__);
   }
   out.push("measured_witness",
            same_run_measured_witness && !withheld && final_bpm > 0.0
                ? "included" : "rejected",
            withheld || final_bpm <= 0.0 ? "not_accepted" :
+               refinedPrimaryWitness ? "indexed_native_refined_witness" :
                !witness_ids.empty() ? "indexed_native_witness" :
                                       "supplemental_witness_unindexed",
            "", witness_ids, final_bpm, 0.0, 0.0);
