@@ -861,11 +861,18 @@ bool native_raw_duplicate_identity_contract() {
     if (std::string_view(result.lane) != "sparse_or_acapella" ||
         result.selected_bpm != 129.0 || result.candidate_count != 1 ||
         !mir_ci_primary_selector_trace_complete()) return false;
+    const auto& collapsed = mir_ci_primary_selector_pool();
+    if (collapsed.size() != 1) return false;
     const auto events = mir_ci_primary_selector_events();
     std::size_t rawPos = events.size(), clusterPos = events.size();
     std::size_t terminalPos = events.size();
+    std::size_t ingressCount = 0;
     for (std::size_t i = 0; i < events.size(); ++i) {
-        if (std::strcmp(events[i].reason, "raw_terminal_selected") == 0) {
+        if (std::strcmp(events[i].reason, "raw_ingest_measured_witness") == 0) {
+            if (!events[i].raw || events[i].source_index != ingressCount ||
+                ingressCount >= board.raw_candidates.size()) return false;
+            ++ingressCount;
+        } else if (std::strcmp(events[i].reason, "raw_terminal_selected") == 0) {
             if (rawPos != events.size() || !events[i].raw ||
                 events[i].source_index != 1) return false;
             rawPos = i;
@@ -879,8 +886,53 @@ bool native_raw_duplicate_identity_contract() {
             terminalPos = i;
         }
     }
-    return rawPos < events.size() && clusterPos == rawPos + 1 &&
-           terminalPos == clusterPos + 1;
+    if (ingressCount != board.raw_candidates.size() ||
+        rawPos >= events.size() || clusterPos != rawPos + 1 ||
+        terminalPos != clusterPos + 1) return false;
+    const auto rawBridgeMatches = [&](const MirCiSelectorEvent& event) {
+        const auto& source = board.raw_candidates[1];
+        return event.raw && event.included && event.source_index == 1 &&
+            event.reason != nullptr &&
+            std::strcmp(event.reason, "raw_terminal_selected") == 0 &&
+            event.bpm == source.bpm &&
+            event.score == source.synthetic_support && event.has_tie_metrics &&
+            event.tie_metrics == std::array<double, 4>{
+                source.synthetic_winner_support, source.score_sum,
+                source.best_combined_score, static_cast<double>(source.rows)};
+    };
+    const auto clusterBridgeMatches = [&](const MirCiSelectorEvent& event) {
+        const auto& source = collapsed[0];
+        return !event.raw && event.included && event.source_index == 0 &&
+            event.reason != nullptr &&
+            std::strcmp(event.reason, "raw_cluster_resolved") == 0 &&
+            event.bpm == source.bpm && event.score == source.support &&
+            event.has_tie_metrics &&
+            event.tie_metrics == std::array<double, 4>{
+                source.winner_support, source.score_sum,
+                source.best_combined_score, static_cast<double>(source.rows)};
+    };
+    if (!rawBridgeMatches(events[rawPos]) ||
+        !clusterBridgeMatches(events[clusterPos])) return false;
+    // Corruption checks on original-host events sharing the same BPM.
+    auto corrupt = events[rawPos];
+    corrupt.source_index = 0;
+    if (rawBridgeMatches(corrupt)) return false;
+    corrupt = events[rawPos];
+    corrupt.score += 1.0;
+    if (rawBridgeMatches(corrupt)) return false;
+    corrupt = events[rawPos];
+    corrupt.tie_metrics[1] += 1.0;
+    if (rawBridgeMatches(corrupt)) return false;
+    corrupt = events[clusterPos];
+    corrupt.raw = true;
+    if (clusterBridgeMatches(corrupt)) return false;
+    corrupt = events[clusterPos];
+    corrupt.score += 1.0;
+    if (clusterBridgeMatches(corrupt)) return false;
+    corrupt = events[clusterPos];
+    corrupt.tie_metrics[0] += 1.0;
+    if (clusterBridgeMatches(corrupt)) return false;
+    return true;
 }
 
 // Exercises the actual production RAW eligibility fence in the original

@@ -2393,12 +2393,22 @@ compute_mir_primary_selection(
       g_ci_primary_trace_complete = false;
       return;
     }
+    // Preserve the actual winning RAW object's measured tuple across the
+    // RAW -> collapsed candidate bridge. Neither event changes selection.
     ci_primary_event(static_cast<std::size_t>(
                          raw - board.raw_candidates.data()),
-                     raw->bpm, 0.0, true, true, "raw_terminal_selected");
+                     raw->bpm, raw->synthetic_support, true, true,
+                     "raw_terminal_selected",
+                     {raw->synthetic_winner_support, raw->score_sum,
+                      raw->best_combined_score, static_cast<double>(raw->rows)},
+                     true);
     ci_primary_event(static_cast<std::size_t>(
                          selected - candidates.data()),
-                     selected->bpm, 0.0, false, true, "raw_cluster_resolved");
+                     selected->bpm, selected->support, false, true,
+                     "raw_cluster_resolved",
+                     {selected->winner_support, selected->score_sum,
+                      selected->best_combined_score,
+                      static_cast<double>(selected->rows)}, true);
   };
 #endif
   if (std::strcmp(lane, "low_pulse_context") == 0) {

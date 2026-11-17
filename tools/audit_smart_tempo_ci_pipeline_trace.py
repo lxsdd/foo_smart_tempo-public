@@ -335,6 +335,9 @@ def validate(rows: list[dict], *, require_windows: bool = False,
         has_native_tie = has_native_tie or continuous_tie
         ingress_tie = (stage == "candidate_filter" and
                        item["reason_code"] == "raw_ingest_measured_witness")
+        bridge_tie = (stage == "candidate_filter" and
+                      item["reason_code"] in (
+                          "raw_terminal_selected", "raw_cluster_resolved"))
         expected_metrics = (SEGMENT_METRICS if stage == "mir_segment" else
                             (WINDOW_METRICS | WINDOW_SEEK_METRICS
                              if "seek_returned" in item["metrics"]
@@ -342,7 +345,7 @@ def validate(rows: list[dict], *, require_windows: bool = False,
                             RESOURCE_METRICS if stage == "resource_usage" else
                             INVENTORY_METRICS if stage == "source_inventory" else
                             TIE5_METRICS if continuous_tie else
-                            TIE_METRICS if has_native_tie or ingress_tie else
+                            TIE_METRICS if has_native_tie or ingress_tie or bridge_tie else
                             LOW_POOL_METRICS if low_episode else
                             MANUAL_METRICS if stage in ("manual_source", "manual_export")
                             else CROSS_STAGE_FATE_METRICS if stage == "candidate_fate"

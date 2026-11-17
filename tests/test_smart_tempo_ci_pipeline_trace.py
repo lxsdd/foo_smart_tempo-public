@@ -2569,7 +2569,14 @@ class NativeRawIngressWitnessTests(unittest.TestCase):
             encoding="utf-8")
         audit = (ROOT / "tools" / "audit_smart_tempo_ci_pipeline_trace.py").read_text(
             encoding="utf-8")
-        self.assertIn('const bool tieExpected = ingressWitness || (comparison &&', header)
+        source = (ROOT / "src" / "foo_smart_tempo" /
+                  "mir_candidate_pipeline.cpp").read_text(encoding="utf-8")
+        self.assertIn('const bool tieExpected = ingressWitness || bridgeRaw || bridgeCluster ||', header)
+        self.assertIn('event.score == source.synthetic_support', (
+            ROOT / "tests" / "smart_tempo_ci_probe.cpp").read_text(encoding="utf-8"))
+        self.assertIn('raw->bpm, raw->synthetic_support', source)
+        self.assertIn('selected->bpm, selected->support', source)
+        self.assertIn('TIE_METRICS if has_native_tie or ingress_tie or bridge_tie', audit)
         self.assertIn('if (ingressCount != board.raw_candidates.size())', header)
         self.assertIn('require_ingress=a.require_windows', audit)
         self.assertIn('raw_fates = reconcile_raw_selector_with_ingress_witness(rows)', audit)

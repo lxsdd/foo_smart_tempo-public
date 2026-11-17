@@ -598,6 +598,28 @@ inline bool record(
       if (ingressCount != board.raw_candidates.size())
         return reject(__LINE__);
     }
+    // Compare each bridge event with the exact native source object.
+    const bool bridgeRaw =
+        std::strcmp(item.reason, "raw_terminal_selected") == 0;
+    const bool bridgeCluster =
+        std::strcmp(item.reason, "raw_cluster_resolved") == 0;
+    if (bridgeRaw) {
+      if (!item.raw) return reject(__LINE__);
+      const auto& source = board.raw_candidates[item.source_index];
+      if (item.score != source.synthetic_support ||
+          item.tie_metrics != std::array<double, 4>{
+              source.synthetic_winner_support, source.score_sum,
+              source.best_combined_score, static_cast<double>(source.rows)})
+        return reject(__LINE__);
+    } else if (bridgeCluster) {
+      if (item.raw) return reject(__LINE__);
+      const auto& source = collapsed[item.source_index];
+      if (item.score != source.support ||
+          item.tie_metrics != std::array<double, 4>{
+              source.winner_support, source.score_sum,
+              source.best_combined_score, static_cast<double>(source.rows)})
+        return reject(__LINE__);
+    }
     // Source index is preserved from the ACTUAL executed selector vector:
     // same-BPM alias rows no longer collapse onto the first matching raw ID.
     const bool ranking = std::strcmp(item.reason, "raw_rank_scored") == 0 ||
@@ -638,7 +660,8 @@ inline bool record(
         (!continuousTieExpected && item.tie_metric_4 != 0.0))
       return reject(__LINE__);
     // Ingress has exactly four native measurements but is not a comparator.
-    const bool tieExpected = ingressWitness || (comparison &&
+    const bool tieExpected = ingressWitness || bridgeRaw || bridgeCluster ||
+        (comparison &&
         (std::strncmp(item.reason, "raw_compare_", 12) == 0 ||
          std::strncmp(item.reason, "general_baseline_compare_", 25) == 0 ||
          std::strncmp(item.reason, "residual_harmonic_compare_",
@@ -685,7 +708,6 @@ inline bool record(
   if (rawBridge != nullptr) {
     if (!rawBridge->raw || clusterBridge->raw ||
         !rawBridge->included || !clusterBridge->included ||
-        rawBridge->score != 0.0 || clusterBridge->score != 0.0 ||
         rawBridgePos + 1 != clusterBridgePos ||
         rawBridge->source_index >= board.raw_candidates.size() ||
         clusterBridge->source_index >= collapsed.size() ||
