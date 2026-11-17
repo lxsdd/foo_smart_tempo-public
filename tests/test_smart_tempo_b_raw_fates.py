@@ -57,6 +57,10 @@ def sample(scenario):
             row("candidate_create","c1","raw_topk","observed"),
             row("candidate_transform","c2","cluster_from_raw","observed",
                 parents=("c0","c1"))]
+    # The source records carry the original measured support and score.
+    for original in rows[:2]:
+        original["metrics"].update(score=.95, support=.85)
+    rows[2]["metrics"].update(score=1.90, support=.85)
     for index, reason, included in cases[scenario]:
         stage = ("primary_rank" if reason == R else
                  "primary_compare" if reason.startswith("raw_compare_") else
@@ -65,6 +69,10 @@ def sample(scenario):
                         "included" if included else "excluded"))
     rows.append(row("candidate_filter", "c1", "raw_terminal_selected", "included"))
     rows.append(row("candidate_filter", "c2", "raw_cluster_resolved", "included"))
+    rows[-2]["metrics"].update(score=.85, tie_0=.10, tie_1=.95,
+                               tie_2=.20, tie_3=1)
+    rows[-1]["metrics"].update(score=.85, tie_0=.10, tie_1=1.90,
+                               tie_2=.20, tie_3=2)
     rows.append(row("primary_terminal", "c2", "terminal_lane_choice", "selected"))
     return rows
 
@@ -169,6 +177,32 @@ class NativeRawFateTests(unittest.TestCase):
                         bad[raw_pos]["outcome"] = "excluded"
                     else:
                         bad[raw_pos]["metrics"]["score"] = 1.0
+                    with self.assertRaises(RawFateError):
+                        reconcile_native_raw(bad)
+
+    def test_measured_bridge_forgery_and_cross_source_mismatch_fail(self):
+        changes = (
+            ("raw_support", 0, "score", .81),
+            ("raw_score_sum", 0, "tie_1", .90),
+            ("raw_winner_support", 0, "tie_0", 1.01),
+            ("raw_rows", 0, "tie_3", 1.5),
+            ("raw_missing_tuple", 0, "tie_2", None),
+            ("cluster_support", 1, "score", .81),
+            ("cluster_score_sum", 1, "tie_1", 1.80),
+            ("cluster_winner_support", 1, "tie_0", -0.1),
+            ("cluster_rows", 1, "tie_3", -1),
+            ("cluster_nonfinite", 1, "tie_2", float("nan")),
+        )
+        for scenario in range(6):
+            for name, position, metric, forged in changes:
+                with self.subTest(scenario=scenario, mutation=name):
+                    bad = copy.deepcopy(sample(scenario))
+                    index = next(i for i, r in enumerate(bad)
+                                 if r["reason_code"] == "raw_terminal_selected")
+                    if forged is None:
+                        del bad[index + position]["metrics"][metric]
+                    else:
+                        bad[index + position]["metrics"][metric] = forged
                     with self.assertRaises(RawFateError):
                         reconcile_native_raw(bad)
 

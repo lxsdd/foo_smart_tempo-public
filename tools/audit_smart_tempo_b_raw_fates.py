@@ -6,6 +6,7 @@ under strict host mode, never a collapsed-cluster veto or musical BPM truth.
 No path, track identifiers, tags, external or user-supplied data are read.
 """
 from __future__ import annotations
+import math
 
 
 class RawFateError(ValueError):
@@ -150,9 +151,7 @@ def reconcile_native_raw(rows: list[dict]) -> dict[str, int]:
             raw_winner["outcome"] != "included" or
             resolved["outcome"] != "included" or
             raw_winner["candidate_id"] != last_winner or
-            raw_winner["metrics"]["bpm"] != bpm[last_winner] or
-            any(r["metrics"][key] != 0 for _, r in bridge
-                for key in ("score", "support"))):
+            raw_winner["metrics"]["bpm"] != bpm[last_winner]):
         raise RawFateError("native raw winning pointer or bridge order forged")
     collapsed = [(i, row) for i, row in enumerate(rows)
                  if row["stage"] == "candidate_transform"]
@@ -163,6 +162,24 @@ def reconcile_native_raw(rows: list[dict]) -> dict[str, int]:
             or resolved["metrics"]["bpm"] != matching[0][1]["metrics"]["bpm"]
             or last_winner not in matching[0][1].get("parent_candidate_ids", [])):
         raise RawFateError("raw winner not a parent of native resolved cluster")
+    # Independently bind each bridge's measured support/score to the
+    # original creation or first-match cluster record. Unlike legacy
+    # zero-valued placeholders, these two bridge tuples have four fields.
+    source_raw = next(r for r in raw if r["candidate_id"] == last_winner)
+    expected_keys = {"bpm", "score", "support",
+                     "tie_0", "tie_1", "tie_2", "tie_3"}
+    for observed, source in ((raw_winner, source_raw),
+                             (resolved, matching[0][1])):
+        m, s = observed["metrics"], source["metrics"]
+        if (set(m) != expected_keys or
+                any(type(m[key]) not in (int, float) or
+                    not math.isfinite(m[key]) for key in expected_keys)):
+            raise RawFateError("native bridge metrics malformed")
+        if (m["support"] != 0 or m["score"] != s["support"] or
+                m["tie_1"] != s["score"] or not 0 <= m["tie_0"] <= 1 or
+                m["tie_2"] < 0 or m["tie_3"] < 0 or
+                m["tie_3"] != int(m["tie_3"])):
+            raise RawFateError("native raw/cluster measured bridge mismatch")
     terminal = [(i, row) for i, row in enumerate(rows)
                 if row["stage"] == "primary_terminal" and
                 row["reason_code"] == "terminal_lane_choice"]
