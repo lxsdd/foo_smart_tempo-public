@@ -2662,6 +2662,14 @@ class NativeRawIngressWitnessTests(unittest.TestCase):
         self.assertIn('raw_fates = reconcile_raw_selector_with_ingress_witness(rows)', audit)
         self.assertIn('return reconcile_native_raw(rows)', audit)
         self.assertIn('raw_ingest_measured_witness', audit)
+        # The original-host fate reporter records typed branch-local vetoes
+        # and the actual post-veto terminal source, not global eligibility.
+        self.assertIn('first_veto_kind', header)
+        self.assertIn('post_veto_terminal_index', header)
+        cross = (ROOT / "tools" / "audit_smart_tempo_b_cross_stage_fates.py").read_text(
+            encoding="utf-8")
+        self.assertIn('m["post_veto_terminal_index"] != post_veto_terminal', cross)
+        self.assertIn('len({r["metrics"]["support"] for r in all_vetos})', cross)
 
 
 if __name__ == "__main__":

@@ -54,7 +54,8 @@ CROSS_STAGE_FATE_METRICS = METRICS | frozenset((
     "raw_veto_count", "cluster_veto_count", "first_veto_event_index",
     "last_veto_event_index", "raw_selector_event_count",
     "cluster_selector_event_count", "first_selector_event_index",
-    "last_selector_event_index"))
+    "last_selector_event_index", "first_veto_kind", "last_veto_kind",
+    "post_veto_terminal_index"))
 PRIMARY_HOLD_METRICS = METRICS | frozenset((
     "enabled", "candidate", "auto_candidate", "review_hold", "route_valid",
     "sparse_hold", "material_hold", "high_family_hold", "soft_center_hold"))
@@ -539,7 +540,14 @@ def validate(rows: list[dict], *, require_windows: bool = False,
                                        "cluster_veto_count", "first_veto_event_index",
                                        "last_veto_event_index", "raw_selector_event_count",
                                        "cluster_selector_event_count", "first_selector_event_index",
-                                       "last_selector_event_index"))
+                                       "last_selector_event_index", "post_veto_terminal_index"))
+                    or any(m[key] != int(m[key]) or not 0 <= m[key] <= 6
+                           for key in ("first_veto_kind", "last_veto_kind"))
+                    or (m["first_veto_kind"] == 0) != (m["first_veto_event_index"] == 0)
+                    or (m["last_veto_kind"] == 0) != (m["last_veto_event_index"] == 0)
+                    or (m["post_veto_terminal_index"] and
+                        (not m["last_veto_event_index"] or
+                         m["post_veto_terminal_index"] <= m["last_veto_event_index"]))
                     or m["support"] != m["raw_veto_count"] + m["cluster_veto_count"]):
                 raise TraceError("malformed native cross-stage candidate fate")
         elif stage == "primary_disposition":

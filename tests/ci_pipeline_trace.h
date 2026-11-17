@@ -1085,7 +1085,19 @@ inline bool record(
     std::size_t raw_vetos = 0, cluster_vetos = 0, first_veto_index = 0;
     std::size_t raw_selector_events = 0, cluster_selector_events = 0;
     std::size_t first_selector_index = 0, last_selector_index = 0;
-    std::size_t last_veto_index = 0;
+    std::size_t last_veto_index = 0, final_terminal_index = 0;
+    unsigned first_veto_kind = 0, last_veto_kind = 0;
+    // Stable CI-only branch identity: raw alias/support (1/2),
+    // low upper/continuous (3/4), harmonic/general (5/6).
+    const auto vetoKind = [](const char* reason) -> unsigned {
+      if (std::strcmp(reason, "raw_alias_decisive_veto") == 0) return 1;
+      if (std::strcmp(reason, "raw_support_decisive_veto") == 0) return 2;
+      if (std::strcmp(reason, "low_upper_branch_veto") == 0) return 3;
+      if (std::strcmp(reason, "low_continuous_branch_veto") == 0) return 4;
+      if (std::strcmp(reason, "harmonic_rail_decisive_veto") == 0) return 5;
+      if (std::strcmp(reason, "general_rail_decisive_veto") == 0) return 6;
+      return 0;
+    };
     for (std::size_t j = 0; j < selectorEvents.size(); ++j) {
       const auto& event = selectorEvents[j];
       const bool source_raw = event.raw &&
@@ -1095,6 +1107,11 @@ inline bool record(
       if (!source_raw && !source_cluster) continue;
       if (source_raw) ++raw_selector_events;
       if (source_cluster) ++cluster_selector_events;
+      if (source_cluster &&
+          std::strcmp(event.reason, "terminal_final_choice") == 0) {
+        if (final_terminal_index) return reject(__LINE__);
+        final_terminal_index = j + 1;
+      }
       if (!first_selector_index) first_selector_index = j + 1;
       last_selector_index = j + 1;
       if (event.included) continue;
@@ -1111,13 +1128,25 @@ inline bool record(
       if (!matched_raw && !matched_cluster) continue;
       if (matched_raw) ++raw_vetos;
       if (matched_cluster) ++cluster_vetos;
-      if (!first_veto_index) first_veto_index = j + 1;
+      const unsigned kind = vetoKind(event.reason);
+      if (!kind) return reject(__LINE__);
+      if (!first_veto_index) {
+        first_veto_index = j + 1;
+        first_veto_kind = kind;
+      }
       last_veto_index = j + 1;
+      last_veto_kind = kind;
     }
     if (raw_vetos + cluster_vetos > 4096 || first_veto_index > 4096 ||
         raw_selector_events + cluster_selector_events > 4096 ||
-        last_selector_index > 4096 || last_veto_index > 4096)
+        last_selector_index > 4096 || last_veto_index > 4096 ||
+        final_terminal_index > 4096)
       return reject(__LINE__);
+    // A branch-local veto is not global ineligibility: observe whether
+    // the SAME Primary source was subsequently selected, never infer.
+    const std::size_t post_veto_terminal_index =
+        last_veto_index && final_terminal_index > last_veto_index
+            ? final_terminal_index : 0;
     unsigned flags = 0;
     if (i == final_source_index) flags |= 1;
     if (railEvents[i].included) flags |= 2;
@@ -1145,7 +1174,10 @@ inline bool record(
         ",\"raw_selector_event_count\":" + std::to_string(raw_selector_events) +
         ",\"cluster_selector_event_count\":" + std::to_string(cluster_selector_events) +
         ",\"first_selector_event_index\":" + std::to_string(first_selector_index) +
-        ",\"last_selector_event_index\":" + std::to_string(last_selector_index));
+        ",\"last_selector_event_index\":" + std::to_string(last_selector_index) +
+        ",\"first_veto_kind\":" + std::to_string(first_veto_kind) +
+        ",\"last_veto_kind\":" + std::to_string(last_veto_kind) +
+        ",\"post_veto_terminal_index\":" + std::to_string(post_veto_terminal_index));
   }
   out.push("final_output",
            withheld || final_bpm <= 0.0 ? "review_hold" : "selected",

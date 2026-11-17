@@ -7,6 +7,17 @@ numeric IDs only; no audio, private labels, tags, or filenames.
 from __future__ import annotations
 from collections import Counter
 
+# Numeric CI-only reason identities. Never infer global ineligibility
+# from a branch-local veto, even when the source is later selected.
+VETO_KIND = {
+    "raw_alias_decisive_veto": 1,
+    "raw_support_decisive_veto": 2,
+    "low_upper_branch_veto": 3,
+    "low_continuous_branch_veto": 4,
+    "harmonic_rail_decisive_veto": 5,
+    "general_rail_decisive_veto": 6,
+}
+
 class CrossStageFateError(ValueError):
     pass
 
@@ -61,8 +72,18 @@ def reconcile(rows: list[dict], *, required: bool = False) -> dict[str, int]:
         raw_vetos = [r for r in vetoes if r["candidate_id"] in raw_parents]
         cluster_vetos = [r for r in vetoes if r["candidate_id"] == cid]
         all_vetos = raw_vetos + cluster_vetos
-        first = min((int(r["metrics"]["support"]) for r in all_vetos), default=0)
-        last = max((int(r["metrics"]["support"]) for r in all_vetos), default=0)
+        first_record = min(all_vetos, key=lambda r: r["metrics"]["support"],
+                           default=None)
+        last_record = max(all_vetos, key=lambda r: r["metrics"]["support"],
+                          default=None)
+        first = int(first_record["metrics"]["support"]) if first_record else 0
+        last = int(last_record["metrics"]["support"]) if last_record else 0
+        first_kind = VETO_KIND.get(first_record["reason_code"], 0) if first_record else 0
+        last_kind = VETO_KIND.get(last_record["reason_code"], 0) if last_record else 0
+        if (first_record and (first_kind == 0 or last_kind == 0 or
+                             len({r["metrics"]["support"] for r in all_vetos})
+                             != len(all_vetos))):
+            raise CrossStageFateError("ambiguous or unsupported branch-local veto chronology")
         raw_positions = [j for j, r in enumerate(selectors, 1)
                          if r["candidate_id"] in raw_parents]
         cluster_positions = [j for j, r in enumerate(selectors, 1)
@@ -70,6 +91,13 @@ def reconcile(rows: list[dict], *, required: bool = False) -> dict[str, int]:
         positions = raw_positions + cluster_positions
         first_selector = min(positions, default=0)
         last_selector = max(positions, default=0)
+        final_terminals = [j for j, r in enumerate(selectors, 1)
+                           if r["candidate_id"] == cid and
+                           r["reason_code"] == "terminal_final_choice"]
+        if len(final_terminals) > 1:
+            raise CrossStageFateError("duplicate native final source terminal")
+        post_veto_terminal = (final_terminals[0] if final_terminals and
+                              last and final_terminals[0] > last else 0)
         source_board_ids = [bid for bid, parents in board_parent_by_id.items()
                             if parents == [cid]]
         if len(source_board_ids) > 1 or board_parents[cid] > 1:
@@ -106,7 +134,10 @@ def reconcile(rows: list[dict], *, required: bool = False) -> dict[str, int]:
                 m["raw_selector_event_count"] != len(raw_positions) or
                 m["cluster_selector_event_count"] != len(cluster_positions) or
                 m["first_selector_event_index"] != first_selector or
-                m["last_selector_event_index"] != last_selector):
+                m["last_selector_event_index"] != last_selector or
+                m["first_veto_kind"] != first_kind or
+                m["last_veto_kind"] != last_kind or
+                m["post_veto_terminal_index"] != post_veto_terminal):
             raise CrossStageFateError("native cross-stage bits/counts/chronology contradict source")
         counted["cross_stage_fate_rows"] += 1
         counted["cross_stage_fate_veto_sources"] += int(bool(all_vetos))
