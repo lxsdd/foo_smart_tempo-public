@@ -57,6 +57,8 @@ CROSS_STAGE_FATE_METRICS = METRICS | frozenset((
 PRIMARY_HOLD_METRICS = METRICS | frozenset((
     "enabled", "candidate", "auto_candidate", "review_hold", "route_valid",
     "sparse_hold", "material_hold", "high_family_hold", "soft_center_hold"))
+SOURCE_EVIDENCE_METRICS = METRICS | frozenset((
+    "winner_support", "best_combined_score", "rows"))
 TIE_METRICS = METRICS | frozenset(("tie_0", "tie_1", "tie_2", "tie_3"))
 TIE5_METRICS = TIE_METRICS | frozenset(("tie_4",))
 RESOURCE_METRICS = METRICS | frozenset((
@@ -344,6 +346,8 @@ def validate(rows: list[dict], *, require_windows: bool = False,
                              else WINDOW_METRICS) if stage == "decode_window" else
                             RESOURCE_METRICS if stage == "resource_usage" else
                             INVENTORY_METRICS if stage == "source_inventory" else
+                            SOURCE_EVIDENCE_METRICS if stage in (
+                                "candidate_create", "candidate_transform") else
                             TIE5_METRICS if continuous_tie else
                             TIE_METRICS if has_native_tie or ingress_tie or bridge_tie else
                             LOW_POOL_METRICS if low_episode else
@@ -361,6 +365,13 @@ def validate(rows: list[dict], *, require_windows: bool = False,
         for key, value in item["metrics"].items():
             if type(value) not in (float, int) or not math.isfinite(value):
                 raise TraceError("nonfinite or nonnumeric metrics")
+        if stage in ("candidate_create", "candidate_transform"):
+            measured = item["metrics"]
+            if (not 0 <= measured["winner_support"] <= 1 or
+                    measured["best_combined_score"] < 0 or
+                    measured["rows"] != int(measured["rows"]) or
+                    not 0 <= measured["rows"] <= 10000000):
+                raise TraceError("out-of-domain native source evidence")
         if low_episode and (item["metrics"]["low_pool_epoch"] !=
                             int(item["metrics"]["low_pool_epoch"]) or
                             not 1 <= item["metrics"]["low_pool_epoch"] <= 128):
@@ -590,11 +601,14 @@ def validate(rows: list[dict], *, require_windows: bool = False,
                         bpm != originals[len(ingress_ids)]["metrics"]["bpm"] or
                         item["metrics"]["score"] !=
                         originals[len(ingress_ids)]["metrics"]["support"] or
+                        item["metrics"]["tie_0"] !=
+                        originals[len(ingress_ids)]["metrics"]["winner_support"] or
                         item["metrics"]["tie_1"] !=
                         originals[len(ingress_ids)]["metrics"]["score"] or
-                        item["metrics"]["tie_3"] < 0 or
+                        item["metrics"]["tie_2"] !=
+                        originals[len(ingress_ids)]["metrics"]["best_combined_score"] or
                         item["metrics"]["tie_3"] !=
-                        int(item["metrics"]["tie_3"])):
+                        originals[len(ingress_ids)]["metrics"]["rows"]):
                     raise TraceError("native ingress source/measure mismatch")
                 ingress_ids.append(candidate_id)
             else:

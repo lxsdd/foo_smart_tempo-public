@@ -21,6 +21,10 @@ def event(stage, cid, parents, bpm, outcome, reason, number):
         "reason_code": reason, "candidate_id": cid,
         "parent_candidate_ids": parents,
         "metrics": {"bpm": bpm, "score": .95, "support": .85,
+                    **({"winner_support": .10, "best_combined_score": .20,
+                        "rows": 1}
+                       if stage in ("candidate_create", "candidate_transform")
+                       else {}),
                     **({f"tie_{i}": 0.0 for i in range(4)}
                        if stage == "primary_compare" and
                        reason.startswith(("raw_compare_", "general_baseline_compare_",
@@ -2541,13 +2545,33 @@ class NativeRawIngressWitnessTests(unittest.TestCase):
                     validate(rows, require_ingress=True)
         for field, value in (("score", .84), ("support", .2),
                              ("bpm", 128.1), ("tie_1", .94),
-                             ("tie_0", float("nan")),
-                             ("tie_3", 1.5), ("tie_4", 9)):
+                             ("tie_0", float("nan")), ("tie_0", .11),
+                             ("tie_2", .21), ("tie_3", 1.5),
+                             ("tie_3", 2), ("tie_4", 9)):
             with self.subTest(field=field):
                 rows = self.ingress_trace()
                 rows[4]["metrics"][field] = value
                 with self.assertRaises(TraceError):
                     validate(rows, require_ingress=True)
+
+    def test_forged_measured_source_evidence_is_rejected(self):
+        for stage in ("candidate_create", "candidate_transform"):
+            for field, value in (("winner_support", 1.1),
+                                 ("best_combined_score", -.1),
+                                 ("rows", 1.5), ("rows", -1),
+                                 ("rows", float("nan"))):
+                with self.subTest(stage=stage, field=field, value=value):
+                    bad = copy.deepcopy(trace())
+                    source = next(item for item in bad if item["stage"] == stage)
+                    source["metrics"][field] = value
+                    with self.assertRaises(TraceError):
+                        validate(bad)
+            bad = copy.deepcopy(trace())
+            source = next(item for item in bad if item["stage"] == stage)
+            source["metrics"].pop("best_combined_score")
+            with self.subTest(stage=stage, missing="best_combined_score"):
+                with self.assertRaises(TraceError):
+                    validate(bad)
 
     def test_no_duplicate_late_or_missing_ingress(self):
         rows = self.ingress_trace()

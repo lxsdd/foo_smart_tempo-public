@@ -176,9 +176,10 @@ def reconcile_native_raw(rows: list[dict]) -> dict[str, int]:
                     not math.isfinite(m[key]) for key in expected_keys)):
             raise RawFateError("native bridge metrics malformed")
         if (m["support"] != 0 or m["score"] != s["support"] or
-                m["tie_1"] != s["score"] or not 0 <= m["tie_0"] <= 1 or
-                m["tie_2"] < 0 or m["tie_3"] < 0 or
-                m["tie_3"] != int(m["tie_3"])):
+                m["tie_0"] != s["winner_support"] or
+                m["tie_1"] != s["score"] or
+                m["tie_2"] != s["best_combined_score"] or
+                m["tie_3"] != s["rows"]):
             raise RawFateError("native raw/cluster measured bridge mismatch")
     terminal = [(i, row) for i, row in enumerate(rows)
                 if row["stage"] == "primary_terminal" and

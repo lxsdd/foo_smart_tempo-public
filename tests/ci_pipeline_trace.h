@@ -421,7 +421,9 @@ inline bool record(
       segmentResults != supply.segment_results) return reject(__LINE__);
   for (const auto& raw : board.raw_candidates) {
     if (!finite_bpm(raw.bpm) || raw.bpm == 0.0 ||
-        !std::isfinite(raw.score_sum) || !std::isfinite(raw.synthetic_support))
+        !std::isfinite(raw.score_sum) || !std::isfinite(raw.synthetic_support) ||
+        !std::isfinite(raw.synthetic_winner_support) ||
+        !std::isfinite(raw.best_combined_score))
       return reject(__LINE__);
     const auto id = out.create_id();
     raw_ids.push_back(id);
@@ -438,6 +440,12 @@ inline bool record(
     }
     out.push("candidate_create", "observed", source, id, {},
              raw.bpm, raw.score_sum, raw.synthetic_support);
+    // Preserve the original measured source object, rather than attempting
+    // to reconstruct the winning bridge tuple from coincident BPM values.
+    out.lines.insert(out.lines.size() - 3,
+        ",\"winner_support\":" + safe_num(raw.synthetic_winner_support) +
+        ",\"best_combined_score\":" + safe_num(raw.best_combined_score) +
+        ",\"rows\":" + std::to_string(raw.rows));
   }
   // Reproduce the ACTUAL first-match collapse partition, not a many-to-many
   // near-BPM join. A raw BPM can lie within 0.001 of TWO cluster centers,
@@ -462,6 +470,7 @@ inline bool record(
     const auto& cluster = collapsed[cluster_index];
     if (!finite_bpm(cluster.bpm) || cluster.bpm == 0.0 ||
         !std::isfinite(cluster.score_sum) || !std::isfinite(cluster.support) ||
+        !std::isfinite(cluster.winner_support) ||
         !std::isfinite(cluster.best_combined_score))
       return reject(__LINE__);
     const auto& sources = raw_cluster_sources[cluster_index];
@@ -476,6 +485,10 @@ inline bool record(
     cluster_ids.push_back(id);
     out.push("candidate_transform", "observed", "cluster_from_raw", id,
              parents, cluster.bpm, cluster.score_sum, cluster.support);
+    out.lines.insert(out.lines.size() - 3,
+        ",\"winner_support\":" + safe_num(cluster.winner_support) +
+        ",\"best_combined_score\":" + safe_num(cluster.best_combined_score) +
+        ",\"rows\":" + std::to_string(cluster.rows));
     out.push("primary_eligibility", "observed", "pool_only_gate_unresolved",
              id, {}, cluster.bpm, cluster.best_combined_score, cluster.support);
   }

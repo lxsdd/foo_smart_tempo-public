@@ -12,7 +12,11 @@ from audit_smart_tempo_b_raw_fates import reconcile_native_raw, RawFateError
 def row(stage, cid, reason, outcome, bpm=128.0, parents=()):
     return dict(stage=stage, candidate_id=cid, reason_code=reason,
                 outcome=outcome, parent_candidate_ids=list(parents),
-                metrics=dict(bpm=bpm, score=0.0, support=0.0))
+                metrics=dict(bpm=bpm, score=0.0, support=0.0,
+                             **({"winner_support": 0.0,
+                                 "best_combined_score": 0.0, "rows": 0}
+                                if stage in ("candidate_create", "candidate_transform")
+                                else {})))
 
 
 def sample(scenario):
@@ -59,8 +63,12 @@ def sample(scenario):
                 parents=("c0","c1"))]
     # The source records carry the original measured support and score.
     for original in rows[:2]:
-        original["metrics"].update(score=.95, support=.85)
-    rows[2]["metrics"].update(score=1.90, support=.85)
+        original["metrics"].update(score=.95, support=.85,
+                                   winner_support=.10, best_combined_score=.20,
+                                   rows=1)
+    rows[2]["metrics"].update(score=1.90, support=.85,
+                              winner_support=.10, best_combined_score=.20,
+                              rows=2)
     for index, reason, included in cases[scenario]:
         stage = ("primary_rank" if reason == R else
                  "primary_compare" if reason.startswith("raw_compare_") else
@@ -192,6 +200,12 @@ class NativeRawFateTests(unittest.TestCase):
             ("cluster_winner_support", 1, "tie_0", -0.1),
             ("cluster_rows", 1, "tie_3", -1),
             ("cluster_nonfinite", 1, "tie_2", float("nan")),
+            ("raw_wrong_in_range_winner", 0, "tie_0", .11),
+            ("raw_wrong_in_range_best", 0, "tie_2", .21),
+            ("raw_wrong_in_range_rows", 0, "tie_3", 2),
+            ("cluster_wrong_in_range_winner", 1, "tie_0", .11),
+            ("cluster_wrong_in_range_best", 1, "tie_2", .21),
+            ("cluster_wrong_in_range_rows", 1, "tie_3", 1),
         )
         for scenario in range(6):
             for name, position, metric, forged in changes:
@@ -203,6 +217,21 @@ class NativeRawFateTests(unittest.TestCase):
                         del bad[index + position]["metrics"][metric]
                     else:
                         bad[index + position]["metrics"][metric] = forged
+                    with self.assertRaises(RawFateError):
+                        reconcile_native_raw(bad)
+
+    def test_tampered_creation_sources_cannot_rebind_a_valid_bridge(self):
+        for scenario in range(6):
+            for source_index, key, delta in (
+                    (1, "winner_support", .02),
+                    (1, "best_combined_score", .02),
+                    (1, "rows", 1),
+                    (2, "winner_support", .02),
+                    (2, "best_combined_score", .02),
+                    (2, "rows", 1)):
+                bad = copy.deepcopy(sample(scenario))
+                bad[source_index]["metrics"][key] += delta
+                with self.subTest(scenario=scenario, source=source_index, key=key):
                     with self.assertRaises(RawFateError):
                         reconcile_native_raw(bad)
 
