@@ -189,6 +189,13 @@ jobs:
           python -m unittest discover -s tests -p 'test_synthetic_bpm_scorer.py' -v
           if ($LASTEXITCODE -ne 0) { throw 'Synthetic BPM scorer unit tests failed' }
 
+      - name: Verify synthetic frozen-matrix research scorecard contracts
+        shell: pwsh
+        run: |
+          python -m unittest discover -s tests -p 'test_audit_smart_tempo_frozen_matrix.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'Synthetic frozen-matrix scorecard contracts failed' }
+          Write-Host 'SMART_TEMPO_FROZEN_MATRIX_HOST_MEASUREMENTS=NOT_RUN'
+
       - name: Run privacy-safe MW1 evidence comparator tests
         shell: pwsh
         run: |
