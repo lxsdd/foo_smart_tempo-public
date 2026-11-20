@@ -90,6 +90,7 @@ function Launch([string]$exe,[string[]]$args) {
 $script:pilotEvidence=[Collections.Generic.List[object]]::new()
 $script:prospectiveCases=@('probe_72_regular','probe_104_offbeat','probe_132_swing','probe_156_half_pulse','probe_90_polyrhythm','probe_150_sparse')
 $script:prospectiveEvidence=[Collections.Generic.List[object]]::new()
+$script:resourceEvidence=[Collections.Generic.List[object]]::new()
 $script:pilotTraceKeys=@('NATIVE_SOURCE_INVENTORY_VERIFIED','RAW','COLLAPSED','WRITE_GUARD_BLOCKED',
   'PHASE_B_CAUSAL_COMPLETENESS','DECODED_WINDOWS','DECLARED_WINDOWS','WINDOWS_COMPLETE',
   'FINAL_ACCEPT','PROCESS_CPU_SECONDS','PROCESS_PEAK_RSS_BYTES','PRIMARY_VETO_REASON_UNKNOWN',
@@ -332,6 +333,22 @@ function Run-Case([string]$installer,[string]$root,[string]$inputFile,[string[]]
         }
       }
       $traceOutput | ForEach-Object { Write-Host $_ }
+      # Each SYNTHETIC case launches its own original foobar process.
+      # Read one native resource event and bind its analysis_id to this case.
+      if ($label -cmatch '^SYNTHETIC_(pulse_60|pulse_128|pulse_120_sparse|silence|probe_72_regular|probe_104_offbeat|probe_132_swing|probe_156_half_pulse|probe_90_polyrhythm|probe_150_sparse)$') {
+        $resourceCase=$Matches[1]
+        $resourceSha=((& git rev-parse HEAD) | Out-String).Trim().ToLowerInvariant()
+        $resourceOutput=@(python ./tools/audit_smart_tempo_b_resources.py --trace $trace --case $resourceCase --architecture $Architecture --source-sha $resourceSha 2>&1)
+        if ($LASTEXITCODE -ne 0 -or $resourceOutput.Count -ne 1) {
+          throw ('Native case resource extraction failed: '+($resourceOutput -join '; '))
+        }
+        $resourceRow=$resourceOutput[0] | ConvertFrom-Json
+        if ($resourceRow.case -cne $resourceCase -or $resourceRow.architecture -cne $Architecture -or $resourceRow.source_sha -cne $resourceSha) {
+          throw 'Native resource case identity mismatch'
+        }
+        [void]$script:resourceEvidence.Add($resourceRow)
+      }
+
       # Mutation battery runs on the *actual* native-host trace, not only
       # on a fabricated unit-test event list. It must reject corrupted
       # source IDs, decoder windows, policy/witness and write-guard evidence.
@@ -724,5 +741,20 @@ try {
                           [Text.UTF8Encoding]::new($false))
   python ./tools/audit_smart_tempo_b_prospective_ablations.py --expected-source-sha $sourceSha --report $prospectiveReport --single-architecture
   if ($LASTEXITCODE -ne 0) { throw 'Original-host prospective Selector/Policy evidence incomplete' }
+  # Separate backwards-compatible resource report: v1 pilot and
+  # prospective cohort schemas and consumers remain unchanged.
+  $resourceReport=Join-Path $env:RUNNER_TEMP ("smart-tempo-b-resources-"+$Architecture+".json")
+  if (Test-Path -LiteralPath $resourceReport) { throw 'Stale resource report' }
+  $resourcePayload=[ordered]@{
+    schema='smart_tempo_b_original_host_resources_v1'
+    architecture=$Architecture
+    source_sha=$sourceSha
+    cases=@($script:resourceEvidence.ToArray())
+  }
+  [IO.File]::WriteAllText($resourceReport,($resourcePayload | ConvertTo-Json -Depth 6 -Compress),[Text.UTF8Encoding]::new($false))
+  python ./tools/audit_smart_tempo_b_resources.py --report $resourceReport --expected-source-sha $sourceSha --architecture $Architecture
+  if ($LASTEXITCODE -ne 0) { throw 'Native per-case process resource report failed' }
+  python ./tools/audit_smart_tempo_b_resources.py --self-test
+  if ($LASTEXITCODE -ne 0) { throw 'Native resource mutation regression failed' }
   Write-Host ("SMART_TEMPO_DIAGNOSTIC_RUNTIME_{0}=PASS" -f $Architecture)
 } finally { if (Test-Path $root) { Remove-Item $root -Recurse -Force -ErrorAction SilentlyContinue } }
