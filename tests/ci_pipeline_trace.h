@@ -10,6 +10,8 @@
 #include <Windows.h>
 #include "ci_fixture_allowlist.h"
 #include <Psapi.h>
+#include <wincrypt.h>
+#pragma comment(lib, "Advapi32.lib")
 #pragma comment(lib, "Psapi.lib")
 #include <algorithm>
 #include <array>
@@ -190,6 +192,41 @@ inline ProcessResourceObservation end_process_resource_observation(
   return out;
 }
 
+inline std::string fixture_sha256(const std::wstring& path) {
+  HANDLE file = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
+                            OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+  if (file == INVALID_HANDLE_VALUE) return {};
+  HCRYPTPROV provider = 0;
+  HCRYPTHASH hash = 0;
+  bool ok = CryptAcquireContextW(&provider, nullptr, nullptr, PROV_RSA_AES,
+                                 CRYPT_VERIFYCONTEXT) != 0;
+  if (ok) ok = CryptCreateHash(provider, CALG_SHA_256, 0, 0, &hash) != 0;
+  std::array<BYTE, 65536> buffer{};
+  while (ok) {
+    DWORD count = 0;
+    if (!ReadFile(file, buffer.data(), static_cast<DWORD>(buffer.size()),
+                  &count, nullptr)) { ok = false; break; }
+    if (!count) break;
+    if (!CryptHashData(hash, buffer.data(), count, 0)) { ok = false; break; }
+  }
+  std::array<BYTE, 32> digest{};
+  DWORD size = static_cast<DWORD>(digest.size());
+  if (ok) ok = CryptGetHashParam(hash, HP_HASHVAL, digest.data(), &size, 0) != 0 &&
+               size == digest.size();
+  if (hash) CryptDestroyHash(hash);
+  if (provider) CryptReleaseContext(provider, 0);
+  CloseHandle(file);
+  if (!ok) return {};
+  constexpr char digits[] = "0123456789abcdef";
+  std::string result;
+  result.reserve(64);
+  for (BYTE byte : digest) {
+    result.push_back(digits[byte >> 4]);
+    result.push_back(digits[byte & 15]);
+  }
+  return result;
+}
+
 struct EventWriter {
   std::string run_id;
   explicit EventWriter(std::string id) : run_id(std::move(id)) {}
@@ -214,10 +251,11 @@ struct EventWriter {
     lines += ",\"score\":" + safe_num(score);
     lines += ",\"support\":" + safe_num(support) + "}}\n";
   }
-  void push_resource(const ProcessResourceObservation& r) {
+  void push_resource(const ProcessResourceObservation& r, const std::string& fixture_hash) {
     push("resource_usage", "observed", "process_resource_snapshot",
          "", {}, 0.0, 0.0, 0.0);
     lines.insert(lines.size() - 3,
+        ",\"fixture_sha256\":\"" + fixture_hash + "\"" +
         ",\"wall_seconds\":" + safe_num(r.wall_seconds) +
         ",\"process_cpu_seconds\":" + safe_num(r.process_cpu_seconds) +
         ",\"process_peak_rss_before_bytes\":" + std::to_string(r.process_peak_rss_before) +
@@ -1229,7 +1267,9 @@ inline bool record(
                !witness_ids.empty() ? "indexed_native_witness" :
                                       "supplemental_witness_unindexed",
            "", witness_ids, final_bpm, 0.0, 0.0);
-  out.push_resource(resource);
+  const std::string input_hash = fixture_sha256(fixture);
+  if (input_hash.size() != 64) return reject(__LINE__);
+  out.push_resource(resource, input_hash);
   out.push("write_guard", "write_blocked", "ci_dry_run",
            "", {}, 0.0, 0.0, 0.0);
   // Native input cardinalities bound to the JSONL: a truncated but

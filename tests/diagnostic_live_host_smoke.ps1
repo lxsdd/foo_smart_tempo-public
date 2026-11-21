@@ -91,6 +91,8 @@ $script:pilotEvidence=[Collections.Generic.List[object]]::new()
 $script:prospectiveCases=@('probe_72_regular','probe_104_offbeat','probe_132_swing','probe_156_half_pulse','probe_90_polyrhythm','probe_150_sparse')
 $script:prospectiveEvidence=[Collections.Generic.List[object]]::new()
 $script:resourceEvidence=[Collections.Generic.List[object]]::new()
+$script:firstResourceTrace=$null
+$script:firstResourceHash=$null
 $script:pilotTraceKeys=@('NATIVE_SOURCE_INVENTORY_VERIFIED','RAW','COLLAPSED','WRITE_GUARD_BLOCKED',
   'PHASE_B_CAUSAL_COMPLETENESS','DECODED_WINDOWS','DECLARED_WINDOWS','WINDOWS_COMPLETE',
   'FINAL_ACCEPT','PROCESS_CPU_SECONDS','PROCESS_PEAK_RSS_BYTES','PRIMARY_VETO_REASON_UNKNOWN',
@@ -338,7 +340,8 @@ function Run-Case([string]$installer,[string]$root,[string]$inputFile,[string[]]
       if ($label -cmatch '^SYNTHETIC_(pulse_60|pulse_128|pulse_120_sparse|silence|probe_72_regular|probe_104_offbeat|probe_132_swing|probe_156_half_pulse|probe_90_polyrhythm|probe_150_sparse)$') {
         $resourceCase=$Matches[1]
         $resourceSha=((& git rev-parse HEAD) | Out-String).Trim().ToLowerInvariant()
-        $resourceOutput=@(python ./tools/audit_smart_tempo_b_resources.py --trace $trace --case $resourceCase --architecture $Architecture --source-sha $resourceSha 2>&1)
+        $fixtureHash=(Get-FileHash -LiteralPath $inputFile -Algorithm SHA256).Hash.ToLowerInvariant()
+        $resourceOutput=@(python ./tools/audit_smart_tempo_b_resources.py --trace $trace --case $resourceCase --architecture $Architecture --source-sha $resourceSha --expected-fixture-sha256 $fixtureHash 2>&1)
         if ($LASTEXITCODE -ne 0 -or $resourceOutput.Count -ne 1) {
           throw ('Native case resource extraction failed: '+($resourceOutput -join '; '))
         }
@@ -347,6 +350,14 @@ function Run-Case([string]$installer,[string]$root,[string]$inputFile,[string[]]
           throw 'Native resource case identity mismatch'
         }
         [void]$script:resourceEvidence.Add($resourceRow)
+        if ($null -eq $script:firstResourceTrace) {
+          $script:firstResourceTrace=$trace
+          $script:firstResourceHash=$fixtureHash
+        } elseif ($script:firstResourceHash -cne $fixtureHash) {
+          $swapped=@(python ./tools/audit_smart_tempo_b_resources.py --trace $script:firstResourceTrace --case $resourceCase --architecture $Architecture --source-sha $resourceSha --expected-fixture-sha256 $fixtureHash 2>&1)
+          if ($LASTEXITCODE -eq 0) { throw "Swapped original-host resource trace accepted" }
+          Write-Host ("SMART_TEMPO_NATIVE_RESOURCE_TRACE_SWAP_{0}=REJECTED" -f $Architecture)
+        }
       }
 
       # Mutation battery runs on the *actual* native-host trace, not only
