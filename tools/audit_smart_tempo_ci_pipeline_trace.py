@@ -301,7 +301,15 @@ def validate(rows: list[dict], *, require_windows: bool = False,
     if type(session_id) is not str or not re.fullmatch(r"[0-9a-f]{16}", session_id):
         raise TraceError("invalid CI run-local session ID")
     for index, item in enumerate(rows):
-        if type(item) is not dict or item.keys() != FIELDS and set(item) != FIELDS:
+        if type(item) is not dict:
+            raise TraceError("trace event must be an object")
+        expected_fields = FIELDS
+        if item.get("stage") == "resource_usage" and "fixture_sha256" in item:
+            digest = item["fixture_sha256"]
+            if type(digest) is not str or not re.fullmatch(r"[0-9a-f]{64}", digest):
+                raise TraceError("invalid synthetic fixture digest")
+            expected_fields = FIELDS | {"fixture_sha256"}
+        if item.keys() != expected_fields:
             raise TraceError("trace fields not exact")
         if item["schema"] != SCHEMA or item["analysis_id"] != session_id:
             raise TraceError("foreign trace source/session")

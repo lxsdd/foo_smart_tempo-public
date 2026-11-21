@@ -1901,6 +1901,23 @@ class NativePipelineTraceTests(unittest.TestCase):
         with self.assertRaises(TraceError):
             validate(bad)
 
+    def test_resource_fixture_digest_is_event_identity(self):
+        rows = with_resource(trace())
+        resource = next(row for row in rows if row["stage"] == "resource_usage")
+        resource["fixture_sha256"] = "a" * 64
+        validate(rows)
+        for value in ("not-a-hash", "A" * 64, 42):
+            with self.subTest(value=value), self.assertRaises(TraceError):
+                resource["fixture_sha256"] = value
+                validate(rows)
+        resource.pop("fixture_sha256")
+        resource["metrics"]["fixture_sha256"] = "a" * 64
+        with self.assertRaises(TraceError):
+            validate(rows)
+        rows[0]["fixture_sha256"] = resource["metrics"].pop("fixture_sha256")
+        with self.assertRaises(TraceError):
+            validate(rows)
+
     def test_resource_provenance_is_process_scoped_and_fail_closed(self):
         rows = with_resource(trace())
         self.assertEqual(validate(rows)["process_cpu_seconds"], 3.75)

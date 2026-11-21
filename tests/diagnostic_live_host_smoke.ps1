@@ -355,7 +355,9 @@ function Run-Case([string]$installer,[string]$root,[string]$inputFile,[string[]]
           $script:firstResourceHash=$fixtureHash
         } elseif ($script:firstResourceHash -cne $fixtureHash) {
           $swapped=@(python ./tools/audit_smart_tempo_b_resources.py --trace $script:firstResourceTrace --case $resourceCase --architecture $Architecture --source-sha $resourceSha --expected-fixture-sha256 $fixtureHash 2>&1)
-          if ($LASTEXITCODE -eq 0) { throw "Swapped original-host resource trace accepted" }
+          if ($LASTEXITCODE -ne 2 -or ($swapped -join ' ') -notmatch 'native fixture SHA256 does not match expected case input') {
+            throw 'Swapped original-host trace did not fail the fixture identity check'
+          }
           Write-Host ("SMART_TEMPO_NATIVE_RESOURCE_TRACE_SWAP_{0}=REJECTED" -f $Architecture)
         }
       }

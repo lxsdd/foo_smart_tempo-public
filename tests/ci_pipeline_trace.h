@@ -255,12 +255,12 @@ struct EventWriter {
     push("resource_usage", "observed", "process_resource_snapshot",
          "", {}, 0.0, 0.0, 0.0);
     lines.insert(lines.size() - 3,
-        ",\"fixture_sha256\":\"" + fixture_hash + "\"" +
         ",\"wall_seconds\":" + safe_num(r.wall_seconds) +
         ",\"process_cpu_seconds\":" + safe_num(r.process_cpu_seconds) +
         ",\"process_peak_rss_before_bytes\":" + std::to_string(r.process_peak_rss_before) +
         ",\"process_peak_rss_after_bytes\":" + std::to_string(r.process_peak_rss_after) +
         ",\"process_working_set_after_bytes\":" + std::to_string(r.process_working_set_after));
+    lines.insert(lines.size() - 2, ",\"fixture_sha256\":\"" + fixture_hash + "\"");
   }
   void push_window(const WindowObservation& w) {
     push("decode_window", "observed", "actual_decoded_extent",

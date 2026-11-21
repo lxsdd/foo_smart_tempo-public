@@ -96,7 +96,7 @@ def extract(trace, case, architecture, sha, expected_fixture_sha256):
           "process_peak_rss_before_bytes", "process_peak_rss_after_bytes",
           "process_working_set_after_bytes"} <= set(m):
         raise ResourceError("missing process resource metrics")
-    if m.get("fixture_sha256") != expected_fixture_sha256:
+    if "fixture_sha256" in m or event.get("fixture_sha256") != expected_fixture_sha256:
         raise ResourceError("native fixture SHA256 does not match expected case input")
     before = m["process_peak_rss_before_bytes"]
     peak = m["process_peak_rss_after_bytes"]
@@ -140,9 +140,10 @@ def self_test():
                     metrics=metrics)
     fixture_a = "1" * 64
     fixture_b = "2" * 64
-    resource = event("resource_usage", 0, fixture_sha256=fixture_a, wall_seconds=1.25,
+    resource = event("resource_usage", 0, wall_seconds=1.25,
                      process_cpu_seconds=0.25, process_peak_rss_before_bytes=100,
                      process_peak_rss_after_bytes=200, process_working_set_after_bytes=150)
+    resource["fixture_sha256"] = fixture_a
     guard = event("write_guard", 1)
     import tempfile
     with tempfile.TemporaryDirectory() as d:
@@ -171,7 +172,7 @@ def self_test():
         first.write_text("".join(json.dumps(x) + "\n" for x in [resource, guard]), encoding="utf-8")
         foreign = copy.deepcopy(resource)
         foreign["analysis_id"] = "native-run-5678"
-        foreign["metrics"]["fixture_sha256"] = fixture_b
+        foreign["fixture_sha256"] = fixture_b
         second_guard = event("write_guard", 1, "native-run-5678")
         second.write_text("".join(json.dumps(x) + "\n" for x in [foreign, second_guard]), encoding="utf-8")
         assert extract(first, CASES[0], arch, sha, fixture_a)
