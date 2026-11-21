@@ -845,6 +845,11 @@ private:
   bpm_preferences_page* m_parent = nullptr;
 };
 
+bpm_preferences_page::bpm_preferences_page(preferences_page_callback::ptr callback)
+    : m_callback(callback),
+      m_importInstanceNonce(NextImportInstanceNonce()),
+      m_list_is_dirty(false) {}
+
 bpm_preferences_page::~bpm_preferences_page() {
   if (m_importAbortToken) {
     m_importAbortToken->store(true, std::memory_order_relaxed);
