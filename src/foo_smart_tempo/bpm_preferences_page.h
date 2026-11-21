@@ -27,10 +27,7 @@ class bpm_preferences_page : public preferences_page_instance,
                              public CDialogImpl<bpm_preferences_page> {
 public:
   static uint64_t NextImportInstanceNonce();
-  explicit bpm_preferences_page(preferences_page_callback::ptr callback)
-      : m_callback(callback),
-        m_importInstanceNonce(NextImportInstanceNonce()),
-        m_list_is_dirty(false) {}
+  explicit bpm_preferences_page(preferences_page_callback::ptr callback);
   ~bpm_preferences_page() override;
 
   enum { IDD = IDD_BPM_PREFERENCES };
