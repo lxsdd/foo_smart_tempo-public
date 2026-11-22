@@ -68,6 +68,9 @@ class CandidateFateLedgerTests(unittest.TestCase):
         self.assertEqual(actual["comparator_rows"], 3)
         self.assertEqual(actual["gate_excluded_sources"], 1)
         self.assertEqual(actual["readmitted_sources"], 1)
+        self.assertEqual(actual["readmitted_ranked_sources"], 0)
+        self.assertEqual(actual["readmitted_comparator_winners"], 0)
+        self.assertEqual(actual["readmitted_final_selected"], 0)
         self.assertEqual(actual["first_decisive_veto_unproven"], 5)
         self.assertEqual(sum(actual[key] for key in FATES), 5)
 
@@ -89,6 +92,9 @@ class CandidateFateLedgerTests(unittest.TestCase):
         self.assertEqual(result["selected"], 1)
         self.assertEqual(result["readmitted_sources"], 1)
         self.assertEqual(result["comparator_rows"], 4)
+        self.assertEqual(result["readmitted_ranked_sources"], 1)
+        self.assertEqual(result["readmitted_comparator_winners"], 1)
+        self.assertEqual(result["readmitted_final_selected"], 1)
 
         # A same-BPM source swap at the decisive native comparison must fail
         # even when the score and verdict are otherwise unchanged.
@@ -109,6 +115,7 @@ class CandidateFateLedgerTests(unittest.TestCase):
         self.assertEqual(actual["unselected_pool_winner"], 1)
         self.assertEqual(actual["comparator_loser"], 0)
         self.assertEqual(actual["selected"], 1)
+        self.assertEqual(actual["readmitted_final_selected"], 0)
 
     def test_low_episodes_reset_incumbent_without_cross_pool_laundering(self):
         rows = fixture()

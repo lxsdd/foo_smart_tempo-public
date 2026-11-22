@@ -128,6 +128,12 @@ def reconcile(rows: list[dict]) -> dict[str, int]:
     selected = final_rows[0]["candidate_id"] if final_rows else None
     if selected is not None and selected not in source_set:
         raise TraceError("final source outside collapsed pool")
+    # Joint source identity is essential: independent readmission and final
+    # counters cannot establish that the *same* native object survived.
+    # This remains an observed fate, not proof of first-decisive-veto coverage.
+    readmitted_selected = int(selected is not None and selected in readmitted)
+    readmitted_ranked = sum(cid in ranked for cid in readmitted)
+    readmitted_won = sum(cid in ever_won for cid in readmitted)
     live_winners = {value[2] for value in best.values()}
     dispositions = [r for r in rows if r["stage"] == "primary_disposition"]
     if len(dispositions) != len(sources):
@@ -162,6 +168,9 @@ def reconcile(rows: list[dict]) -> dict[str, int]:
         "comparator_rows": comparator_count,
         "gate_excluded_sources": len(first_excluded),
         "readmitted_sources": len(readmitted),
+        "readmitted_ranked_sources": readmitted_ranked,
+        "readmitted_comparator_winners": readmitted_won,
+        "readmitted_final_selected": readmitted_selected,
         "first_decisive_veto_unproven": len(sources),
     }
 
