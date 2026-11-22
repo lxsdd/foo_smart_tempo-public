@@ -71,6 +71,35 @@ class CandidateFateLedgerTests(unittest.TestCase):
         self.assertEqual(actual["first_decisive_veto_unproven"], 5)
         self.assertEqual(sum(actual[key] for key in FATES), 5)
 
+    def test_readmitted_source_wins_and_is_final_selected(self):
+        # All synthetic candidates intentionally share one BPM: identity is
+        # the native collapsed source index, not the numerical tempo.
+        rows = fixture()
+        at = next(i for i, r in enumerate(rows)
+                  if r["stage"] == "primary_terminal")
+        rows[at:at] = rank_pair("c3", "harmonic", 0.9, True)
+        rows[at + 2]["candidate_id"] = "c3"
+        for r in rows:
+            if r["stage"] == "primary_disposition":
+                if r["candidate_id"] == "c1":
+                    r["reason_code"] = "ranked_not_final"
+                elif r["candidate_id"] == "c3":
+                    r["reason_code"] = "selected_final_object"
+        result = reconcile(rows)
+        self.assertEqual(result["selected"], 1)
+        self.assertEqual(result["readmitted_sources"], 1)
+        self.assertEqual(result["comparator_rows"], 4)
+
+        # A same-BPM source swap at the decisive native comparison must fail
+        # even when the score and verdict are otherwise unchanged.
+        swapped = copy.deepcopy(rows)
+        comparison = next(r for r in swapped
+                          if r["stage"] == "primary_compare" and
+                          r["candidate_id"] == "c3")
+        comparison["candidate_id"] = "c1"
+        with self.assertRaisesRegex(TraceError, "source or family mismatch"):
+            reconcile(swapped)
+
     def test_winning_an_unselected_branch_is_not_a_final_selection(self):
         rows = fixture()
         at = next(i for i, r in enumerate(rows)
