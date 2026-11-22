@@ -95,6 +95,13 @@ class CandidateFateLedgerTests(unittest.TestCase):
         self.assertEqual(result["readmitted_ranked_sources"], 1)
         self.assertEqual(result["readmitted_comparator_winners"], 1)
         self.assertEqual(result["readmitted_final_selected"], 1)
+        self.assertEqual(result["readmitted_winner_selected"], 1)
+        # Selection alone is insufficient; a comparison after the terminal
+        # cannot supply missing evidence retroactively.
+        unranked = rows[:at] + rows[at + 2:]
+        self.assertEqual(reconcile(unranked)["readmitted_winner_selected"], 0)
+        late = unranked[:at + 1] + rows[at:at + 2] + unranked[at + 1:]
+        self.assertEqual(reconcile(late)["readmitted_winner_selected"], 0)
 
         # A same-BPM source swap at the decisive native comparison must fail
         # even when the score and verdict are otherwise unchanged.

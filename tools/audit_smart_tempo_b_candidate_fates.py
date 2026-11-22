@@ -48,12 +48,16 @@ def reconcile(rows: list[dict]) -> dict[str, int]:
     best = {}
     first_excluded = {}
     readmitted = set()
+    wins_after_readmission = set()
+    readmitted_winner_selected = 0
     comparator_count = 0
     for index, row in enumerate(rows):
         stage = row["stage"]
         cid = row["candidate_id"]
         if stage == "primary_terminal" and cid in source_set:
             observations[cid].add("terminal")
+            if row["reason_code"] == "terminal_final_choice":
+                readmitted_winner_selected = int(cid in wins_after_readmission)
         if stage == "candidate_filter" and cid in source_set:
             observations[cid].add("gate")
             reason = row["reason_code"]
@@ -119,6 +123,8 @@ def reconcile(rows: list[dict]) -> dict[str, int]:
                 displaced.add(previous[2])
             best[key] = (score, ties, cid)
             ever_won.add(cid)
+            if cid in readmitted:
+                wins_after_readmission.add(cid)
         comparator_count += 1
 
     final_rows = [r for r in rows if r["stage"] == "primary_terminal" and
@@ -171,6 +177,7 @@ def reconcile(rows: list[dict]) -> dict[str, int]:
         "readmitted_ranked_sources": readmitted_ranked,
         "readmitted_comparator_winners": readmitted_won,
         "readmitted_final_selected": readmitted_selected,
+        "readmitted_winner_selected": readmitted_winner_selected,
         "first_decisive_veto_unproven": len(sources),
     }
 

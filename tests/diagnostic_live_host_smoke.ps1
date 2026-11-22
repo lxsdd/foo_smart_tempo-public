@@ -473,7 +473,7 @@ function Run-Case([string]$installer,[string]$root,[string]$inputFile,[string[]]
           'DISPLACED_WINNER','COMPARATOR_LOSER','GATE_ONLY','UNVISITED',
           'FIRST_DECISIVE_VETO_UNPROVEN','READMITTED_SOURCES',
           'READMITTED_RANKED_SOURCES','READMITTED_COMPARATOR_WINNERS',
-          'READMITTED_FINAL_SELECTED')) {
+          'READMITTED_FINAL_SELECTED','READMITTED_WINNER_SELECTED')) {
         if (-not $fateCounts.ContainsKey($required)) {
           throw "Missing source-ID fate counter: $required"
         }
@@ -487,13 +487,16 @@ function Run-Case([string]$installer,[string]$root,[string]$inputFile,[string[]]
       }
       # Actual original-host evidence: report the joint native identity,
       # without pretending the current fixture set guarantees a rescue winner.
-      if ($fateCounts['READMITTED_FINAL_SELECTED'] -gt 1 -or
+      if ($fateCounts['READMITTED_WINNER_SELECTED'] -gt $fateCounts['READMITTED_FINAL_SELECTED'] -or
+          $fateCounts['READMITTED_WINNER_SELECTED'] -gt $fateCounts['READMITTED_COMPARATOR_WINNERS'] -or
+          $fateCounts['READMITTED_FINAL_SELECTED'] -gt 1 -or
           $fateCounts['READMITTED_FINAL_SELECTED'] -gt $fateCounts['SELECTED'] -or
           $fateCounts['READMITTED_RANKED_SOURCES'] -gt $fateCounts['READMITTED_SOURCES'] -or
           $fateCounts['READMITTED_COMPARATOR_WINNERS'] -gt $fateCounts['READMITTED_RANKED_SOURCES']) {
         throw 'Original-host readmission/source fate joint conservation failed'
       }
       Write-Host ("SMART_TEMPO_NATIVE_READMITTED_FINAL_{0}_{1}={2}" -f $Architecture,$label,$fateCounts['READMITTED_FINAL_SELECTED'])
+      Write-Host ("SMART_TEMPO_NATIVE_READMITTED_WINNER_SELECTED_{0}_{1}={2}" -f $Architecture,$label,$fateCounts['READMITTED_WINNER_SELECTED'])
       $shadowEvidence=@{}
       if (-not ($RequireLowPulseCoverage -or $RequireRawSelectorCoverage -or $RequireNoRawSelectorCoverage)) {
         # Shadow models run ONLY after actual worker completion, using the
