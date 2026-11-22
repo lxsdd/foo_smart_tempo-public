@@ -52,8 +52,26 @@ def evaluate(reference, observed):
               for kind in ("within_two_percent", "half_double_alias",
                            "other_error", "abstained",
                            "correct_abstention", "false_positive_silence")}
+    measured = [r for r in scored if r["reference_bpm"] is not None]
+    accepted = [r for r in measured if not r["held"] and r["reported_bpm"] > 0]
+    negative = [r for r in scored if r["reference_bpm"] is None]
+    within_005 = sum(abs(r["reported_bpm"] - r["reference_bpm"]) <= .05
+                     for r in accepted)
+    within_020 = sum(abs(r["reported_bpm"] - r["reference_bpm"]) <= .20
+                     for r in accepted)
+    precision = {
+        "reference_rhythmic": len(measured),
+        "accepted_rhythmic": len(accepted),
+        "held_rhythmic": len(measured) - len(accepted),
+        "accepted_within_0_05_bpm": within_005,
+        "accepted_within_0_20_bpm": within_020,
+        "accepted_outside_0_20_bpm": len(accepted) - within_020,
+        "negative_total": len(negative),
+        "negative_falseaccepts": sum(
+            r["reported_bpm"] > 0 and not r["held"] for r in negative),
+    }
     return {"schema": "synthetic_bpm_score_v1", "n": len(rows),
-            "counts": counts, "results": scored}
+            "counts": counts, "precision": precision, "results": scored}
 
 
 def load_observed(path):
@@ -86,6 +104,8 @@ def main():
     print("SYNTHETIC_BPM_OBSERVATION=PASS")
     for category, count in scored["counts"].items():
         print(f"SYNTHETIC_BPM_{category.upper()}={count}")
+    for metric, count in scored["precision"].items():
+        print(f"SYNTHETIC_BPM_{metric.upper()}={count}")
     print(f"SYNTHETIC_BPM_EVALUATED={scored['n']}")
 
 

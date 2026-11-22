@@ -1,0 +1,142 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "smart_tempo_source_decision_trace_v1",
+  "title": "Read-only Smart Tempo analysis decision trace v1",
+  "description": "Proposed CI/private-offline research envelope, not an enabled production writer and not a license to export user data",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "analysis_id",
+    "sequence",
+    "stage",
+    "outcome",
+    "reason_code",
+    "candidate_id",
+    "parent_candidate_ids",
+    "metrics"
+  ],
+  "properties": {
+    "schema": {
+      "const": "smart_tempo_source_decision_trace_v1"
+    },
+    "analysis_id": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{16,64}$"
+    },
+    "sequence": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "stage": {
+      "enum": [
+        "decode_window",
+        "resample",
+        "odf",
+        "onset",
+        "tatum_meter",
+        "mir_segment",
+        "candidate_create",
+        "candidate_transform",
+        "candidate_filter",
+        "primary_eligibility",
+        "policy_filter",
+        "primary_rank",
+        "primary_compare",
+        "primary_terminal",
+        "primary_disposition",
+        "primary_first_exclusion",
+        "primary_veto_resolution",
+        "primary_veto_ledger",
+        "primary_select",
+        "primary_hold",
+        "policy_stage_path",
+        "policy_branch",
+        "policy_eligibility",
+        "policy_resolution",
+        "policy_pointer",
+        "policy_rank",
+        "policy_terminal",
+        "policy_change",
+        "writer_resolution",
+        "manual_state",
+        "manual_source",
+        "manual_export",
+        "candidate_fate",
+        "policy_hold_release",
+        "supplemental_candidate",
+        "measured_witness",
+        "final_output",
+        "resource_usage",
+        "write_guard",
+        "source_inventory"
+      ]
+    },
+    "outcome": {
+      "enum": [
+        "observed",
+        "included",
+        "excluded",
+        "selected",
+        "rejected",
+        "review_hold",
+        "no_candidate",
+        "write_permitted",
+        "write_blocked"
+      ]
+    },
+    "reason_code": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{0,95}$"
+    },
+    "candidate_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^c[0-9]{1,7}$"
+    },
+    "parent_candidate_ids": {
+      "type": "array",
+      "uniqueItems": true,
+      "maxItems": 128,
+      "items": {
+        "type": "string",
+        "pattern": "^c[0-9]{1,7}$"
+      }
+    },
+    "metrics": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "number"
+      },
+      "maxProperties": 48
+    }
+  },
+  "x-privacy": {
+    "public_ci": "only bounded preapproved synthetic IDs, no titles, genres, file paths or raw audio",
+    "private_offline": "track identifiers and real-audio features stay local and are never committed or uploaded",
+    "negative": "this schema does not enable collection or emission of production data"
+  },
+  "x-proof-constraints": [
+    "Every final nonzero BPM must reference a measured same-analysis candidate",
+    "One candidate may have several origin markers; origin is not eligibility",
+    "Every exclusion must name its exact stage and reason",
+    "Raw-to-cluster parentage must be the exact ordered first-match partition, never an approximate many-to-many BPM join",
+    "Original native raw winning object and first-match resolved cluster emit adjacent source-indexed events; BPM-only winner inference is insufficient",
+    "Every policy FullBoard row must have exactly one unique indexed cluster source; missing sources fail closed",
+    "Every native Policy rail verdict must reconcile source-index, resolved BPM and FullBoard membership",
+    "Every collapsed candidate's first observed native exclusion must reconcile exact source ID, executed event index, reason and score; absence is not eligibility or a decisive veto",
+    "CI-only raw and general-baseline executed comparator ties preserve the four ordered numeric tie fields",
+    "CI-only low continuous-center comparator preserves the fifth tie field for source-identity replay",
+    "The applied writer resolution must use a fixed native reason enum after the same-run measured-witness invariant; proposed Policy output is not applied writer output",
+    "An applied primary or Policy writer source may be indexed only to the actual native selected object; unknown micro-upgrade source identity stays unindexed",
+    "Every executed raw or cluster branch-local decisive veto, including nested low-pulse vetoes, must reconcile ordered source ID, reason, native score and event index; no global ineligibility may be inferred",
+    "Every collapsed source has one cross-stage observational fate mask reconciling Primary, Policy, writer and branch veto evidence; this is not global eligibility",
+    "Every collapsed source additionally conserves raw and cluster selector event counts, first/last executed event positions and first/last branch-local veto positions; no selector event count is proof of global eligibility",
+    "Review Hold is a first-class outcome, not counted as a wrong BPM",
+    "Window geometry and decoding costs must be independently measured",
+    "Ground-truth labels never flow into candidate creation or production selection",
+    "Manual merged-export source identity and rank are not Primary selector eligibility; independently replay first-match source grouping and stable sort."
+  ]
+}
